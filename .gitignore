@@ -1,0 +1,12 @@
+.env
+.env.*
+__pycache__/
+.pytest_cache/
+.venv/
+*.pyc
+tele_bot/config/telegram/local.env
+tele_bot/config/llm/local.env
+reports/
+.runtime/
+issues/
+docs/

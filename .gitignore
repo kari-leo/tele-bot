@@ -10,3 +10,4 @@ reports/
 .runtime/
 issues/
 docs/
+tests/*.py

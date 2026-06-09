@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
@@ -59,32 +61,16 @@ class AliBailianChatClient:
         if not self.api_key:
             raise ValueError("ALIBAILIAN_API_KEY is required to call Qwen")
 
-        client = OpenAI(
-            api_key=self.api_key,
-            base_url=self.base_url,
-            timeout=self.timeout_seconds,
-        )
-        try:
-            response = self._generate_response(
-                client=client,
-                model=model,
-                prompt=prompt,
-                system_prompt=system_prompt,
-                allow_tools=allow_tools,
-                search_required=search_required,
-                conversation_turns=conversation_turns,
+        with _without_unsupported_proxy_env():
+            client = OpenAI(
+                api_key=self.api_key,
+                base_url=self.base_url,
+                timeout=self.timeout_seconds,
             )
-        except Exception as exc:
-            if not self._is_model_not_found(exc):
-                raise RuntimeError(f"AliBailian request failed: {exc}") from exc
-
-            if model == self.fallback_model:
-                raise RuntimeError(f"AliBailian request failed: {exc}") from exc
-
             try:
                 response = self._generate_response(
                     client=client,
-                    model=self.fallback_model,
+                    model=model,
                     prompt=prompt,
                     system_prompt=system_prompt,
                     allow_tools=allow_tools,
@@ -92,7 +78,24 @@ class AliBailianChatClient:
                     conversation_turns=conversation_turns,
                 )
             except Exception as exc:
-                raise RuntimeError(f"AliBailian request failed: {exc}") from exc
+                if not self._is_model_not_found(exc):
+                    raise RuntimeError(f"AliBailian request failed: {exc}") from exc
+
+                if model == self.fallback_model:
+                    raise RuntimeError(f"AliBailian request failed: {exc}") from exc
+
+                try:
+                    response = self._generate_response(
+                        client=client,
+                        model=self.fallback_model,
+                        prompt=prompt,
+                        system_prompt=system_prompt,
+                        allow_tools=allow_tools,
+                        search_required=search_required,
+                        conversation_turns=conversation_turns,
+                    )
+                except Exception as exc:
+                    raise RuntimeError(f"AliBailian request failed: {exc}") from exc
 
         final_output = response["output_text"]
         used_tool = response["used_tool"]
@@ -339,3 +342,19 @@ class AliBailianChatClient:
             or "model not found" in message
             or "does not exist" in message
         )
+
+
+@contextmanager
+def _without_unsupported_proxy_env():
+    proxy_keys = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")
+    removed: dict[str, str] = {}
+    try:
+        for key in proxy_keys:
+            value = os.environ.get(key)
+            if not value or not value.startswith("socks://"):
+                continue
+            removed[key] = value
+            os.environ.pop(key, None)
+        yield
+    finally:
+        os.environ.update(removed)

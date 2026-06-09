@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from tele_bot.models import IncomingMessage
 from tele_bot.router import InMemoryConversationStateStore, Router, RouterConfig
-from tele_bot.router.prompts import prompt_for_mode
+from tele_bot.workflows import WorkflowRunner
 
 
 @dataclass(frozen=True)
@@ -24,37 +24,41 @@ class ControlledAgentExecutor:
         llm_client,
         router: Router | None = None,
         state_store: InMemoryConversationStateStore | None = None,
+        workflow_runner: WorkflowRunner | None = None,
     ) -> None:
         self.llm_client = llm_client
         self.router = router or Router(config=RouterConfig())
         self.state_store = state_store or InMemoryConversationStateStore()
+        self.workflow_runner = workflow_runner or WorkflowRunner(llm_client=llm_client)
 
     def handle(self, message: IncomingMessage) -> AgentExecutionResult:
         state = self.state_store.load(message.chat_id)
         decision = self.router.route(message.text, state)
         self.state_store.set_mode(message.chat_id, decision.mode)
+        self.state_store.set_active_route(
+            message.chat_id,
+            skill_name=decision.skill_name,
+            workflow_name=decision.workflow_name,
+        )
         self.state_store.append_turn(message.chat_id, role="user", content=message.text)
         prompt_context = self.state_store.build_prompt_context(message.chat_id, decision.mode)
 
         try:
-            llm_response = self.llm_client.generate_response(
+            workflow_result = self.workflow_runner.invoke(
                 prompt=message.text,
-                system_prompt=prompt_for_mode(decision.mode.value),
-                model=decision.model,
-                allow_tools=decision.allow_tools,
-                search_required=decision.search_required,
-                allow_markdown=decision.allow_markdown,
-                save_markdown=decision.save_markdown,
+                decision=decision,
                 conversation_turns=prompt_context,
             )
-            reply_text = llm_response.reply_text
-            if llm_response.tool_result_summary:
-                self.state_store.set_tool_summary(message.chat_id, llm_response.tool_result_summary)
-            if llm_response.report_path:
-                self.state_store.add_report_path(message.chat_id, llm_response.report_path)
+            reply_text = workflow_result.reply_text
+            for step in workflow_result.trace:
+                self.state_store.append_workflow_trace(message.chat_id, step)
+            if workflow_result.tool_result_summary:
+                self.state_store.set_tool_summary(message.chat_id, workflow_result.tool_result_summary)
+            if workflow_result.report_path:
+                self.state_store.add_report_path(message.chat_id, workflow_result.report_path)
         except Exception as exc:
             reply_text = f"处理失败：{exc}"
-            llm_response = AgentExecutionResult(
+            workflow_result = AgentExecutionResult(
                 reply_text=reply_text,
                 mode=decision.mode.value,
                 model=decision.model,
@@ -65,7 +69,7 @@ class ControlledAgentExecutor:
             reply_text=reply_text,
             mode=decision.mode.value,
             model=decision.model,
-            report_path=llm_response.report_path,
-            tool_result_summary=llm_response.tool_result_summary,
-            used_tool=llm_response.used_tool,
+            report_path=workflow_result.report_path,
+            tool_result_summary=workflow_result.tool_result_summary,
+            used_tool=workflow_result.used_tool,
         )

@@ -4,7 +4,7 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
-from tele_bot.router.models import AgentMode, ConversationState, ConversationTurn
+from tele_bot.router.models import AgentMode, ConversationState, ConversationTurn, WorkflowName
 
 
 class InMemoryConversationStateStore:
@@ -28,6 +28,12 @@ class InMemoryConversationStateStore:
         self._states[chat_id] = updated
         return updated
 
+    def set_active_route(self, chat_id: str, *, skill_name: str, workflow_name: str) -> ConversationState:
+        state = self.load(chat_id)
+        updated = replace(state, active_skill=skill_name, active_workflow=workflow_name)
+        self._states[chat_id] = updated
+        return updated
+
     def set_tool_summary(self, chat_id: str, summary: str) -> ConversationState:
         state = self.load(chat_id)
         updated = replace(state, last_tool_result_summary=summary)
@@ -37,6 +43,12 @@ class InMemoryConversationStateStore:
     def add_report_path(self, chat_id: str, report_path: str) -> ConversationState:
         state = self.load(chat_id)
         updated = replace(state, report_paths=state.report_paths + [report_path])
+        self._states[chat_id] = updated
+        return updated
+
+    def append_workflow_trace(self, chat_id: str, step: str) -> ConversationState:
+        state = self.load(chat_id)
+        updated = replace(state, workflow_trace=(state.workflow_trace + [step])[-24:])
         self._states[chat_id] = updated
         return updated
 
@@ -69,9 +81,12 @@ class JsonFileConversationStateStore:
         return ConversationState(
             chat_id=payload.get("chat_id", chat_id),
             mode=AgentMode(payload.get("mode", AgentMode.CHAT.value)),
+            active_skill=payload.get("active_skill", "chat"),
+            active_workflow=payload.get("active_workflow", WorkflowName.CHAT_REPLY.value),
             turns=turns,
             last_tool_result_summary=payload.get("last_tool_result_summary"),
             report_paths=list(payload.get("report_paths", [])),
+            workflow_trace=list(payload.get("workflow_trace", [])),
         )
 
     def append_turn(self, chat_id: str, role: str, content: str) -> ConversationState:
@@ -89,6 +104,12 @@ class JsonFileConversationStateStore:
         self._save(updated)
         return updated
 
+    def set_active_route(self, chat_id: str, *, skill_name: str, workflow_name: str) -> ConversationState:
+        state = self.load(chat_id)
+        updated = replace(state, active_skill=skill_name, active_workflow=workflow_name)
+        self._save(updated)
+        return updated
+
     def set_tool_summary(self, chat_id: str, summary: str) -> ConversationState:
         state = self.load(chat_id)
         updated = replace(state, last_tool_result_summary=summary)
@@ -98,6 +119,12 @@ class JsonFileConversationStateStore:
     def add_report_path(self, chat_id: str, report_path: str) -> ConversationState:
         state = self.load(chat_id)
         updated = replace(state, report_paths=state.report_paths + [report_path])
+        self._save(updated)
+        return updated
+
+    def append_workflow_trace(self, chat_id: str, step: str) -> ConversationState:
+        state = self.load(chat_id)
+        updated = replace(state, workflow_trace=(state.workflow_trace + [step])[-24:])
         self._save(updated)
         return updated
 
@@ -117,9 +144,12 @@ class JsonFileConversationStateStore:
         payload = {
             "chat_id": state.chat_id,
             "mode": state.mode.value,
+            "active_skill": state.active_skill,
+            "active_workflow": state.active_workflow,
             "turns": [{"role": turn.role, "content": turn.content} for turn in state.turns],
             "last_tool_result_summary": state.last_tool_result_summary,
             "report_paths": state.report_paths,
+            "workflow_trace": state.workflow_trace,
         }
         self._path_for(state.chat_id).write_text(
             json.dumps(payload, ensure_ascii=False, indent=2),

@@ -6,7 +6,7 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class FileSystemTool:
-    allowed_roots: tuple[Path, ...] = field(default_factory=lambda: (Path.home(), Path(__file__).resolve().parents[2]))
+    allowed_roots: tuple[Path, ...] = field(default_factory=lambda: (Path.home(), Path(__file__).resolve().parents[2], Path("/tmp")))
     max_depth: int = 2
     max_lines: int = 500
     max_matches: int = 20

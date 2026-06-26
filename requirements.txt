@@ -1,4 +1,23 @@
-fastapi>=0.115,<1.0
-langgraph>=0.2,<1.0
-openai>=1.60,<2.0
-uvicorn>=0.30,<1.0
+# Core — 版本基于 pip freeze 实测（2026-06-12）
+fastapi==0.136.3
+langgraph==0.6.11
+langgraph-checkpoint==3.0.1
+langgraph-prebuilt==0.6.5
+langchain-core==1.4.6
+openai==1.109.1
+uvicorn==0.49.0
+httpx==0.28.1
+
+# Phase 0-Spike（已安装，实测版本）
+langchain-openai==0.3.35   # ChatOpenAI + bind_tools
+ruff==0.15.17              # CodeTool.review 静态分析
+
+# Phase 3（安装时添加，未实测）
+# apscheduler>=3.10,<4.0
+
+# Phase 4 — 实测 langgraph-checkpoint-sqlite 版本配套：
+#   - 2.0.x 用旧 serde.dumps API，与 langgraph-checkpoint 3.x 不兼容（AttributeError）
+#   - 3.0.x 兼容 langgraph-checkpoint>=3,<5
+#   - 3.1.0 强制 langgraph-checkpoint 4.x，与 langgraph 0.6.x 不兼容
+# 因此 pin 在 3.0.x 系列：
+langgraph-checkpoint-sqlite>=3.0,<3.1   # SqliteSaver — Phase 4 持久化

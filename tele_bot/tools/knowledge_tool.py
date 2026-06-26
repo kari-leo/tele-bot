@@ -20,10 +20,13 @@ class KnowledgeTool:
         source_path = Path(normalized_source)
         if self._looks_like_path(normalized_source) and self._path_exists(source_path):
             distilled_text = source_path.read_text(encoding="utf-8")
-            resolved_output_path = Path(output_path) if output_path else source_path.with_name(f"{source_path.stem}_restored.md")
         else:
             distilled_text = normalized_source
-            resolved_output_path = Path(output_path) if output_path else self._default_text_output_path(distilled_text)
+
+        resolved_output_path = (
+            Path(output_path) if output_path
+            else self._default_text_output_path(distilled_text)
+        )
 
         prompt = f"{RESTORE_PROMPT}\n\nDistilled note:\n\n{distilled_text.strip()}"
         restored = self.gateway.chatgpt_ask(prompt, new=True)
@@ -40,7 +43,9 @@ class KnowledgeTool:
         slug = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "_", slug_source.lower()).strip("_")
         if not slug:
             slug = "restored_note"
-        return repo_root / f"{slug}_restored.md"
+        reports_dir = repo_root / "reports"
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        return reports_dir / f"{slug}_restored.md"
 
     @staticmethod
     def _extract_markdown(response_text: str) -> str:

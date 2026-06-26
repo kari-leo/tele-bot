@@ -69,6 +69,39 @@ class TelegramAdapter:
 
         return self._post("sendMessage", self.build_send_payload(message))
 
+    def build_edit_payload(
+        self,
+        chat_id: str,
+        message_id: int,
+        text: str,
+    ) -> dict[str, Any]:
+        return {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": text,
+        }
+
+    def edit_message(
+        self,
+        chat_id: str,
+        message_id: int,
+        text: str,
+    ) -> dict[str, Any]:
+        """Edit a previously sent text message via editMessageText.
+
+        Used by Phase 4 streaming progress to update a placeholder message
+        as the ReAct loop advances. Telegram limits roughly 1 edit/sec/chat;
+        the StreamingProgressReporter is responsible for throttling — this
+        method just performs the HTTP call.
+        """
+        if not self.bot_token:
+            raise ValueError("TELEGRAM_BOT_TOKEN is required to edit Telegram messages")
+
+        return self._post(
+            "editMessageText",
+            self.build_edit_payload(chat_id=chat_id, message_id=message_id, text=text),
+        )
+
     def get_updates(
         self,
         offset: int | None = None,

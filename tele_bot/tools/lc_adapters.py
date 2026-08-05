@@ -8,6 +8,7 @@ ChatOpenAI via llm.bind_tools().
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +25,12 @@ from tele_bot.tools.shell_sandbox import ShellSandboxTool
 from tele_bot.tools.write_report import WriteReportTool
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_WINDBORNE_POSTS = Path("/home/agiuser/workspace/trial/windborne-blog/src/content/posts")
+_WINDBORNE_POSTS = Path(
+    os.environ.get(
+        "WINDBORNE_POSTS_DIR",
+        str(_REPO_ROOT.parent / "windborne-blog" / "src" / "content" / "posts"),
+    )
+)
 # Directories the LLM is allowed to write restored knowledge docs into.
 # Intentionally excludes _REPO_ROOT itself — LLM must not write to source dirs.
 _KNOWLEDGE_ALLOWED_ROOTS: tuple[Path, ...] = (

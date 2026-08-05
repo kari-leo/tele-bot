@@ -1,6 +1,5 @@
 """
-ReactAgentExecutor — single-loop ReAct executor that replaces the Router +
-7-static-graph path. Drop-in for ControlledAgentExecutor.handle().
+ReactAgentExecutor — single-loop ReAct executor with LangGraph.
 
 Wires:
     IncomingMessage
@@ -11,13 +10,9 @@ Wires:
         → AgentExecutionResult
 
 Design choices:
-- Same public surface as ControlledAgentExecutor — same handle() signature
-  and same AgentExecutionResult fields. Allows side-by-side rollout via
-  AgentCore configuration (Step C).
-- `mode` and `model` fields are kept for backward compatibility but their
-  semantics shift: `mode` is always "react"; `model` is the bound LLM's
-  configured model id. report_path / tool_result_summary will be re-derived
-  from trace in subsequent phases (Phase 1+ tools: write_report, knowledge_restore).
+- `mode` is always "react"; `model` is the bound LLM's configured model id.
+- report_path / tool_result_summary will be re-derived from trace in
+  subsequent phases (Phase 1+ tools: write_report, knowledge_restore).
 - chat_id / user_id are injected into RunnableConfig so future tools
   (GitTool's push approval) can read them via the @tool config parameter.
 """

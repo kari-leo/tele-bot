@@ -1,4 +1,3 @@
-from tele_bot.agents.executor import AgentExecutionResult, ControlledAgentExecutor
-from tele_bot.agents.react_executor import ReactAgentExecutor
+from tele_bot.agents.react_executor import AgentExecutionResult, ReactAgentExecutor
 
-__all__ = ["AgentExecutionResult", "ControlledAgentExecutor", "ReactAgentExecutor"]
+__all__ = ["AgentExecutionResult", "ReactAgentExecutor"]

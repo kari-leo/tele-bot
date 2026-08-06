@@ -6,6 +6,7 @@ __pycache__/
 *.pyc
 tele_bot/config/telegram/local.env
 tele_bot/config/llm/local.env
+tele_bot/config/feishu/local.env
 reports/
 .runtime/
 issues/

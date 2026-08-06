@@ -39,7 +39,7 @@ def build_default_capability_registry() -> CapabilityRegistry:
     registry.register(Capability.WRITE_REPORT, "Persist markdown reports to reports/")
     registry.register(Capability.RESTORE_KNOWLEDGE, "Restore distilled notes into markdown documents")
     registry.register(Capability.MULTI_STEP_PLANNING, "Run explicit multi-step workflows")
-    registry.register(Capability.TELEGRAM_REPLY, "Render concise Telegram replies")
+    registry.register(Capability.USER_REPLY, "Render concise user replies")
     registry.register(Capability.READ_FILESYSTEM, "Read directory and file contents inside allowed roots")
     registry.register(Capability.SEARCH_FILESYSTEM, "Search files inside allowed roots")
     registry.register(Capability.EXECUTE_SHELL_SANDBOX, "Run shell commands inside a strict sandbox")
@@ -53,7 +53,7 @@ def build_default_skill_registry() -> SkillRegistry:
             name="chat",
             default_workflow=WorkflowName.CHAT_REPLY,
             mode=AgentMode.CHAT,
-            capabilities=(Capability.TELEGRAM_REPLY,),
+            capabilities=(Capability.USER_REPLY,),
         )
     )
     registry.register(
@@ -61,7 +61,7 @@ def build_default_skill_registry() -> SkillRegistry:
             name="reasoning",
             default_workflow=WorkflowName.REASONING_REPLY,
             mode=AgentMode.REASONING,
-            capabilities=(Capability.TELEGRAM_REPLY,),
+            capabilities=(Capability.USER_REPLY,),
         )
     )
     registry.register(
@@ -69,7 +69,7 @@ def build_default_skill_registry() -> SkillRegistry:
             name="markdown",
             default_workflow=WorkflowName.MARKDOWN_REPLY,
             mode=AgentMode.MARKDOWN,
-            capabilities=(Capability.TELEGRAM_REPLY, Capability.WRITE_REPORT),
+            capabilities=(Capability.USER_REPLY, Capability.WRITE_REPORT),
             allow_markdown=True,
             save_markdown=True,
         )
@@ -83,7 +83,7 @@ def build_default_skill_registry() -> SkillRegistry:
                 Capability.SEARCH_WEB,
                 Capability.WRITE_REPORT,
                 Capability.MULTI_STEP_PLANNING,
-                Capability.TELEGRAM_REPLY,
+                Capability.USER_REPLY,
             ),
             allow_markdown=True,
             save_markdown=True,
@@ -97,7 +97,7 @@ def build_default_skill_registry() -> SkillRegistry:
             capabilities=(
                 Capability.READ_FILESYSTEM,
                 Capability.MULTI_STEP_PLANNING,
-                Capability.TELEGRAM_REPLY,
+                Capability.USER_REPLY,
             ),
         )
     )
@@ -109,7 +109,7 @@ def build_default_skill_registry() -> SkillRegistry:
             capabilities=(
                 Capability.EXECUTE_SHELL_SANDBOX,
                 Capability.MULTI_STEP_PLANNING,
-                Capability.TELEGRAM_REPLY,
+                Capability.USER_REPLY,
             ),
         )
     )
@@ -122,7 +122,7 @@ def build_default_skill_registry() -> SkillRegistry:
                 Capability.RESTORE_KNOWLEDGE,
                 Capability.WRITE_REPORT,
                 Capability.MULTI_STEP_PLANNING,
-                Capability.TELEGRAM_REPLY,
+                Capability.USER_REPLY,
             ),
             allow_markdown=False,
             save_markdown=False,

@@ -111,7 +111,7 @@ class AliBailianChatClient:
         if allow_markdown and save_markdown:
             report_path = self._write_report(prompt=prompt, markdown=final_output)
             summary = self._extract_summary(final_output)
-            reply_text = self._build_telegram_reply(summary=summary, report_path=report_path)
+            reply_text = self._build_user_reply(summary=summary, report_path=report_path)
 
         return AgentLLMResponse(
             reply_text=reply_text,
@@ -243,7 +243,7 @@ class AliBailianChatClient:
             return "已生成报告。"
         return self._trim_summary(collapsed)
 
-    def _build_telegram_reply(self, *, summary: str, report_path: Path) -> str:
+    def _build_user_reply(self, *, summary: str, report_path: Path) -> str:
         repo_root = Path(__file__).resolve().parents[2]
         try:
             report_location = report_path.relative_to(repo_root).as_posix()

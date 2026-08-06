@@ -46,7 +46,7 @@ ADVISER_SYSTEM_PROMPT = (
 
 # Sentinel prefix on every degraded reply. Executor layer scans final
 # AIMessage content for this marker and strips/replaces before sending
-# to Telegram. Tests assert this prefix is stable.
+# to the user. Tests assert this prefix is stable.
 DEGRADED_MARKER = "[ADVISER_DEGRADED]"
 
 DEGRADED_REPLY = (

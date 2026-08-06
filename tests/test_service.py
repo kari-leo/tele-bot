@@ -14,7 +14,7 @@ class MessageServiceTests(unittest.TestCase):
     def test_service_delegates_to_agent_core(self) -> None:
         service = MessageService(agent_core=AgentCore(llm_client=FakeLLMClient()))
         message = IncomingMessage(
-            channel="telegram",
+            channel="feishu",
             user_id="7",
             chat_id="99",
             text="ping",

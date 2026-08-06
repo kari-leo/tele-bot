@@ -23,7 +23,7 @@ class AgentCoreTests(unittest.TestCase):
     def test_returns_received_message(self) -> None:
         agent = AgentCore(llm_client=FakeLLMClient())
         message = IncomingMessage(
-            channel="telegram",
+            channel="feishu",
             user_id="42",
             chat_id="1001",
             text="hello",
@@ -31,14 +31,14 @@ class AgentCoreTests(unittest.TestCase):
 
         response = agent.handle_message(message)
 
-        self.assertEqual(response.channel, "telegram")
+        self.assertEqual(response.channel, "feishu")
         self.assertEqual(response.chat_id, "1001")
         self.assertEqual(response.text, "reply:hello")
 
     def test_uses_executor_when_available(self) -> None:
         agent = AgentCore(executor=FakeExecutor())
         message = IncomingMessage(
-            channel="telegram",
+            channel="feishu",
             user_id="42",
             chat_id="1001",
             text="hello",

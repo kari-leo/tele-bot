@@ -15,7 +15,7 @@ class Capability(str, Enum):
     WRITE_REPORT = "write_report"
     RESTORE_KNOWLEDGE = "restore_knowledge"
     MULTI_STEP_PLANNING = "multi_step_planning"
-    TELEGRAM_REPLY = "telegram_reply"
+    USER_REPLY = "user_reply"
     READ_FILESYSTEM = "read_filesystem"
     SEARCH_FILESYSTEM = "search_filesystem"
     EXECUTE_SHELL_SANDBOX = "execute_shell_sandbox"

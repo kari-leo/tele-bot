@@ -1,0 +1,124 @@
+import json
+import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import Mock, patch
+
+from tele_bot.agents.feishu_streaming import FeishuProgressReporter
+from tele_bot.channels.feishu import FeishuWebhookAdapter
+
+
+class FakeFeishuAdapter:
+    name = "feishu"
+
+    def __init__(self) -> None:
+        self.sent = []
+        self.edited = []
+
+    def send_text(self, message):
+        self.sent.append(message)
+        return {"code": 0, "data": {"message_id": "om_1"}}
+
+    def edit_message(self, message_id: str, text: str):
+        self.edited.append((message_id, text))
+        return {"code": 0}
+
+
+class FeishuWebhookAdapterTests(unittest.TestCase):
+    def test_url_verification_returns_challenge(self) -> None:
+        adapter = FeishuWebhookAdapter(app_id="app", app_secret="secret")
+
+        response = adapter.challenge_response(
+            {"type": "url_verification", "challenge": "abc"}
+        )
+
+        self.assertEqual(response, {"challenge": "abc"})
+
+    def test_parse_text_message_event(self) -> None:
+        adapter = FeishuWebhookAdapter(app_id="app", app_secret="secret")
+        payload = {
+            "header": {"event_type": "im.message.receive_v1"},
+            "event": {
+                "sender": {"sender_id": {"user_id": "ou_1", "open_id": "ou_open"}},
+                "message": {
+                    "chat_id": "oc_1",
+                    "chat_type": "p2p",
+                    "message_type": "text",
+                    "content": json.dumps({"text": " hello "}),
+                },
+            },
+        }
+
+        incoming = adapter.parse_incoming(payload)
+
+        self.assertIsNotNone(incoming)
+        self.assertEqual(incoming.channel, "feishu")
+        self.assertEqual(incoming.user_id, "ou_1")
+        self.assertEqual(incoming.chat_id, "oc_1")
+        self.assertEqual(incoming.text, "hello")
+
+    def test_parse_message_without_chat_id_is_ignored(self) -> None:
+        adapter = FeishuWebhookAdapter(app_id="app", app_secret="secret")
+        payload = {
+            "header": {"event_type": "im.message.receive_v1"},
+            "event": {
+                "sender": {"sender_id": {"open_id": "ou_open"}},
+                "message": {
+                    "chat_type": "p2p",
+                    "message_type": "text",
+                    "content": json.dumps({"text": "hello"}),
+                },
+            },
+        }
+
+        self.assertIsNone(adapter.parse_incoming(payload))
+
+    def test_progress_reporter_does_not_edit_messages(self) -> None:
+        adapter = FakeFeishuAdapter()
+        reporter = FeishuProgressReporter(adapter=adapter, chat_id="oc_1")
+
+        message_id = reporter.start()
+        updated = reporter.update("thinking")
+
+        self.assertEqual(message_id, "om_1")
+        self.assertFalse(updated)
+        self.assertEqual(len(adapter.sent), 1)
+        self.assertEqual(adapter.edited, [])
+
+    @patch("tele_bot.channels.feishu.httpx.post")
+    def test_send_file_uploads_then_sends_file_message(self, post) -> None:
+        adapter = FeishuWebhookAdapter(app_id="app", app_secret="secret")
+        adapter._access_token = "token"
+        adapter._token_expires_at = 9999999999
+        upload_response = Mock()
+        upload_response.json.return_value = {"code": 0, "data": {"file_key": "file_1"}}
+        send_response = Mock()
+        send_response.json.return_value = {"code": 0, "data": {"message_id": "om_1"}}
+        post.side_effect = [upload_response, send_response]
+
+        with TemporaryDirectory() as temp_dir:
+            file_path = Path(temp_dir) / "sample.txt"
+            file_path.write_bytes(b"hello")
+            result = adapter.send_file("oc_1", file_path)
+
+        self.assertEqual(result["code"], 0)
+        self.assertEqual(post.call_count, 2)
+        self.assertEqual(post.call_args_list[0].kwargs["data"]["file_type"], "stream")
+        self.assertEqual(post.call_args_list[1].kwargs["json"]["msg_type"], "file")
+        self.assertEqual(
+            json.loads(post.call_args_list[1].kwargs["json"]["content"]),
+            {"file_key": "file_1"},
+        )
+
+    def test_upload_file_rejects_files_over_feishu_limit(self) -> None:
+        adapter = FeishuWebhookAdapter(app_id="app", app_secret="secret")
+
+        with TemporaryDirectory() as temp_dir:
+            file_path = Path(temp_dir) / "large.bin"
+            file_path.write_bytes(b"x" * (30 * 1024 * 1024 + 1))
+            with self.assertRaisesRegex(ValueError, "30 MB"):
+                adapter.upload_file(file_path)
+
+
+if __name__ == "__main__":
+    unittest.main()

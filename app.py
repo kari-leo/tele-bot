@@ -1,32 +1,24 @@
-"""
-tele_bot FastAPI entry point.
-
-Wiring:
-- ReactAgentExecutor + SkillLoader + sqlite checkpointer
-- adviser/blog_publish/domain_hotspot tools enabled
-- TELEGRAM_STREAMING=1 (default): StreamingProgressReporter publishes
-  a placeholder and edits it as the ReAct loop advances
-- SQLITE_CHECKPOINT_PATH (default data/conversations.sqlite): persistence target
-
-Startup contract:
-- SQLite open / setup failure → stderr `[FATAL] sqlite: ...` + exit 1
-- Normal start → stderr `tele_bot starting streaming=<on|off> sqlite=<path>`
-"""
+"""tele_bot FastAPI and polling entry points."""
 
 from __future__ import annotations
 
 import os
 import sqlite3
 import sys
+import logging
+from collections import deque
 from dataclasses import asdict
 from pathlib import Path
+from threading import Lock
 
-from fastapi import FastAPI, Header, HTTPException, status
+from fastapi import BackgroundTasks, FastAPI, HTTPException
 
 from tele_bot.agent import AgentCore
 from tele_bot.agents import ReactAgentExecutor
-from tele_bot.channels.telegram import TelegramAdapter
-from tele_bot.config import AliBailianSettings, RuntimeSettings, TelegramSettings
+from tele_bot.channels.feishu import FeishuWebhookAdapter
+from tele_bot.config import AliBailianSettings, RuntimeSettings
+from tele_bot.config.paths import configure_runtime_root
+from tele_bot.config.feishu import FeishuSettings
 from tele_bot.llm.react_client import build_chat_openai
 from tele_bot.models import IncomingMessage
 from tele_bot.persistence import build_sqlite_saver
@@ -35,6 +27,14 @@ from tele_bot.skills import SkillLoader
 from tele_bot.tools.lc_adapters import build_core_tools
 from tele_bot.workflows.react_graph import build_react_graph
 
+_LOG = logging.getLogger(__name__)
+_FEISHU_EVENT_CACHE_LIMIT = 1000
+_feishu_event_ids: deque[str] = deque(maxlen=_FEISHU_EVENT_CACHE_LIMIT)
+_feishu_event_id_set: set[str] = set()
+_feishu_event_lock = Lock()
+
+configure_runtime_root(__file__)
+
 
 def _fatal(component: str, reason: str) -> None:
     print(f"[FATAL] {component}: {reason}", file=sys.stderr)
@@ -42,7 +42,9 @@ def _fatal(component: str, reason: str) -> None:
 
 
 def _build_executor(
-    llm_settings: AliBailianSettings, sqlite_path: str
+    llm_settings: AliBailianSettings,
+    sqlite_path: str,
+    feishu_adapter: FeishuWebhookAdapter | None = None,
 ) -> ReactAgentExecutor:
     llm = build_chat_openai(
         api_key=llm_settings.api_key,
@@ -53,19 +55,26 @@ def _build_executor(
     posts_dir = Path(
         os.environ.get(
             "WINDBORNE_POSTS_DIR",
-            str(Path(__file__).resolve().parent.parent / "windborne-blog" / "src" / "content" / "posts"),
+            str(
+                Path(__file__).resolve().parent.parent
+                / "windborne-blog"
+                / "src"
+                / "content"
+                / "posts"
+            ),
         )
     )
     include_blog = posts_dir.is_dir()
     if not include_blog:
         print(
-            f"[INFO] blog_publish disabled — posts_dir not found: {posts_dir}",
+            f"[INFO] blog_publish disabled - posts_dir not found: {posts_dir}",
             file=sys.stderr,
         )
     tools = build_core_tools(
         include_adviser=True,
         include_blog_publish=include_blog,
         include_domain_hotspot=True,
+        feishu_adapter=feishu_adapter,
     )
     system_prompt = SkillLoader().build_system_prompt()
     saver = build_sqlite_saver(sqlite_path)
@@ -78,26 +87,37 @@ def _build_executor(
     return ReactAgentExecutor(graph=graph, model_name=llm_settings.model)
 
 
-# --- Bootstrap (runs at import time) ---
-
 try:
     runtime_settings = RuntimeSettings.from_env()
 except RuntimeError as exc:
     print(str(exc), file=sys.stderr)
     sys.exit(1)
 
-settings = TelegramSettings.from_env()
 llm_settings = AliBailianSettings.from_env()
-telegram_adapter = TelegramAdapter(
-    bot_token=settings.bot_token,
-    allowed_user_ids=settings.allowed_user_ids,
-    api_base_url=settings.api_base_url,
-    proxy_url=settings.proxy_url,
+try:
+    feishu_settings = FeishuSettings.from_env()
+except ValueError as exc:
+    feishu_settings = None
+    print(f"[INFO] Feishu webhook disabled: {exc}", file=sys.stderr)
+
+feishu_adapter = (
+    FeishuWebhookAdapter(
+        app_id=feishu_settings.app_id,
+        app_secret=feishu_settings.app_secret,
+        verification_token=feishu_settings.verification_token,
+        encrypt_key=feishu_settings.encrypt_key,
+        allowed_user_ids=feishu_settings.allowed_user_ids,
+        api_base_url=feishu_settings.api_base_url,
+    )
+    if feishu_settings is not None
+    else None
 )
 
 try:
     executor = _build_executor(
-        llm_settings, runtime_settings.sqlite_checkpoint_path
+        llm_settings,
+        runtime_settings.sqlite_checkpoint_path,
+        feishu_adapter=feishu_adapter,
     )
 except sqlite3.DatabaseError as exc:
     _fatal(
@@ -110,22 +130,21 @@ except OSError as exc:
         f"cannot mkdir {Path(runtime_settings.sqlite_checkpoint_path).parent}: {exc}",
     )
 
-streaming_enabled = runtime_settings.telegram_streaming
-
 print(
     f"tele_bot starting "
-    f"streaming={'on' if streaming_enabled else 'off'} "
     f"sqlite={runtime_settings.sqlite_checkpoint_path}",
     file=sys.stderr,
-)
+ )
 
 message_service = MessageService(
     agent_core=AgentCore(executor=executor),
-    telegram_adapter=telegram_adapter,
-    streaming_enabled=streaming_enabled,
-)
+    feishu_adapter=feishu_adapter,
+ )
 
 app = FastAPI(title="tele_bot", version="0.1.0")
+_feishu_webhook_path = (
+    feishu_settings.webhook_path if feishu_settings is not None else "/feishu/webhook"
+)
 
 
 @app.get("/health")
@@ -145,51 +164,75 @@ def handle_message(payload: dict) -> dict:
     return asdict(response)
 
 
-@app.post("/telegram/webhook")
-def telegram_webhook(
+def _remember_feishu_event_id(event_id: str | None) -> bool:
+    if not event_id:
+        return True
+    with _feishu_event_lock:
+        if event_id in _feishu_event_id_set:
+            return False
+        if len(_feishu_event_ids) == _feishu_event_ids.maxlen:
+            oldest = _feishu_event_ids.popleft()
+            _feishu_event_id_set.discard(oldest)
+        _feishu_event_ids.append(event_id)
+        _feishu_event_id_set.add(event_id)
+        return True
+
+
+def _handle_feishu_message(message: IncomingMessage) -> None:
+    if feishu_adapter is None:
+        return
+    try:
+        outgoing = message_service.handle(message)
+        if outgoing is not None:
+            feishu_adapter.send_text(outgoing)
+    except Exception as exc:  # noqa: BLE001
+        _LOG.exception("Failed to handle Feishu message: %s", exc)
+
+
+@app.post(_feishu_webhook_path)
+def handle_feishu_webhook(
     payload: dict,
-    x_telegram_bot_api_secret_token: str | None = Header(default=None),
-) -> dict:
-    if settings.secret_token:
-        if x_telegram_bot_api_secret_token != settings.secret_token:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="invalid telegram secret token",
-            )
+    background_tasks: BackgroundTasks,
+) -> dict[str, object]:
+    if feishu_adapter is None:
+        raise HTTPException(status_code=503, detail="Feishu is not configured")
 
-    incoming = telegram_adapter.parse_incoming(payload)
+    _LOG.info("Feishu webhook received: keys=%s", sorted(payload.keys()))
+    try:
+        clear_payload = feishu_adapter.decode_payload(payload)
+    except Exception as exc:  # noqa: BLE001
+        _LOG.warning("Invalid Feishu webhook payload: %s", exc)
+        raise HTTPException(status_code=400, detail="Invalid Feishu payload") from exc
+
+    if not feishu_adapter.is_valid_token(clear_payload):
+        raise HTTPException(status_code=403, detail="Invalid Feishu token")
+
+    challenge = feishu_adapter.challenge_response(clear_payload)
+    if challenge is not None:
+        _LOG.info("Feishu webhook url_verification accepted")
+        return challenge
+
+    incoming = feishu_adapter.parse_incoming(clear_payload)
     if incoming is None:
-        return {"status": "ignored"}
-
-    if not telegram_adapter.is_allowed(incoming):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="telegram user not allowed",
+        _LOG.info(
+            "Feishu webhook ignored: event_type=%s",
+            clear_payload.get("header", {}).get("event_type"),
         )
+        return {"code": 0, "msg": "ignored"}
+    if not feishu_adapter.is_allowed(incoming):
+        _LOG.warning("Feishu webhook blocked by whitelist: user=%s", incoming.user_id)
+        return {"code": 0, "msg": "ignored"}
 
-    outgoing = message_service.handle(incoming)
-    if settings.bot_token:
-        delivery = telegram_adapter.send_text(outgoing)
-    else:
-        delivery = telegram_adapter.build_send_payload(outgoing)
+    if not _remember_feishu_event_id(feishu_adapter.event_id(clear_payload)):
+        _LOG.info("Feishu webhook duplicate ignored: event_id=%s", feishu_adapter.event_id(clear_payload))
+        return {"code": 0, "msg": "duplicate"}
 
-    return {
-        "status": "ok",
-        "message": asdict(outgoing),
-        "delivery": delivery,
-    }
-
-
-def run_telegram_polling() -> None:
-    if not settings.bot_token:
-        raise ValueError("TELEGRAM_BOT_TOKEN is required to run polling mode")
-
-    telegram_adapter.polling_forever(
-        message_handler=message_service.handle,
-        polling_timeout=settings.polling_timeout,
-        polling_interval_seconds=settings.polling_interval_seconds,
+    _LOG.info(
+        "Feishu webhook accepted: user=%s chat=%s text=%s",
+        incoming.user_id,
+        incoming.chat_id,
+        incoming.text,
     )
+    background_tasks.add_task(_handle_feishu_message, incoming)
+    return {"code": 0, "msg": "success"}
 
-
-if __name__ == "__main__":
-    run_telegram_polling()

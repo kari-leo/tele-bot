@@ -3,10 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from tele_bot.config.paths import default_allowed_roots, runtime_root
+
 
 @dataclass(frozen=True)
 class FileSystemTool:
-    allowed_roots: tuple[Path, ...] = field(default_factory=lambda: (Path.home(), Path(__file__).resolve().parents[2], Path("/tmp")))
+    root: Path = field(default_factory=runtime_root)
+    allowed_roots: tuple[Path, ...] = field(default_factory=default_allowed_roots)
     max_depth: int = 2
     max_lines: int = 500
     max_matches: int = 20
@@ -40,6 +43,12 @@ class FileSystemTool:
             "lines": [{"line": index + 1, "content": line} for index, line in enumerate(lines)],
         }
 
+    def resolve_file(self, path: str) -> Path:
+        target = self._resolve_allowed_path(path)
+        if not target.is_file():
+            raise ValueError(f"not a file: {target}")
+        return target
+
     def search_file(self, keyword: str, path: str) -> dict:
         normalized_keyword = keyword.strip()
         if not normalized_keyword:
@@ -69,7 +78,7 @@ class FileSystemTool:
 
         candidate = Path(normalized).expanduser()
         if not candidate.is_absolute():
-            candidate = self.allowed_roots[0] / candidate
+            candidate = self.root / candidate
         candidate = candidate.resolve()
 
         for root in self.allowed_roots:

@@ -1,7 +1,7 @@
 """
 Outbound reply filters — strip internal markers from user-facing text.
 
-These run AFTER the ReAct loop, BEFORE sending text via TelegramAdapter.
+These run AFTER the ReAct loop, BEFORE sending text via a channel adapter.
 The intent is to prevent any internal sentinel (e.g. ADVISER_DEGRADED marker)
 from reaching the user, even if the LLM ignores prompt instructions to omit it.
 """

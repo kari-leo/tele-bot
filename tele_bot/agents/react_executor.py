@@ -27,12 +27,12 @@ from tele_bot.agents.reply_filter import filter_outbound_reply
 from tele_bot.models import IncomingMessage
 from tele_bot.router import InMemoryConversationStateStore
 from tele_bot.router.models import AgentMode
+from tele_bot.tools.lc_adapters import CURRENT_CHAT_ID
 
 
 @dataclass(frozen=True)
 class AgentExecutionResult:
-    """Mirror of agents.executor.AgentExecutionResult — kept identical so the
-    Telegram channel and tests can be reused across both executors."""
+    """Result returned by the ReAct executor."""
 
     reply_text: str
     mode: str
@@ -78,6 +78,7 @@ class ReactAgentExecutor:
 
         used_tool = False
         tool_result_summary: str | None = None
+        chat_id_token = CURRENT_CHAT_ID.set(message.chat_id)
         try:
             result = self.graph.invoke(
                 {"messages": [HumanMessage(content=message.text)], "iterations": 0},
@@ -92,6 +93,8 @@ class ReactAgentExecutor:
             reply_text = filter_outbound_reply(final) or "（无回复）"
         except Exception as exc:
             reply_text = f"处理失败：{exc}"
+        finally:
+            CURRENT_CHAT_ID.reset(chat_id_token)
 
         self.state_store.append_turn(
             message.chat_id, role="assistant", content=reply_text

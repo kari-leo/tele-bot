@@ -9,20 +9,24 @@ from __future__ import annotations
 
 import json
 import os
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
 from langchain_core.tools import tool
+from langchain_core.runnables import RunnableConfig
 
 from tele_bot.llm.opencli_gateway import OpenCLIGateway
 from tele_bot.tools.adviser import AdviserTool
 from tele_bot.tools.blog_publish import BlogPublishTool
 from tele_bot.tools.domain_hotspot import DomainHotspotTool, to_json as _hotspot_to_json
 from tele_bot.tools.file_system import FileSystemTool
+from tele_bot.tools.git_push import GitPushTool
 from tele_bot.tools.knowledge_tool import KnowledgeTool
 from tele_bot.tools.opencli_search import OpenCLISearchTool
 from tele_bot.tools.shell_sandbox import ShellSandboxTool
 from tele_bot.tools.write_report import WriteReportTool
+from tele_bot.channels.feishu import FeishuWebhookAdapter
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _WINDBORNE_POSTS = Path(
@@ -37,6 +41,7 @@ _KNOWLEDGE_ALLOWED_ROOTS: tuple[Path, ...] = (
     _REPO_ROOT / "reports",
     Path("/tmp"),
 )
+CURRENT_CHAT_ID: ContextVar[str | None] = ContextVar("current_chat_id", default=None)
 
 
 def _validate_knowledge_output_path(output_path: str | None) -> str | None:
@@ -82,7 +87,7 @@ def build_spike_tools(
       - ask_adviser  — high-latency second-opinion tool (OpenCLI ChatGPT)
 
     The adviser is OFF by default in spike tests because its 1-5 minute latency
-    would dominate test runtime; turn it on for real Telegram sessions.
+    would dominate test runtime; turn it on for real sessions.
     """
     fs = filesystem_tool or FileSystemTool()
     sh = shell_tool or ShellSandboxTool()
@@ -92,7 +97,7 @@ def build_spike_tools(
         """List entries under a directory inside allowed roots.
 
         Args:
-            path: absolute or home-relative directory path (e.g. "/tmp").
+            path: absolute path or path relative to the bot runtime root.
             depth: 1 lists only the directory; 2 also lists one level deeper.
 
         Returns a JSON string with {path, depth, entries: [{path, type}]}.
@@ -104,7 +109,7 @@ def build_spike_tools(
         """Read a text file inside allowed roots.
 
         Args:
-            path: absolute or home-relative file path.
+            path: absolute path or path relative to the bot runtime root.
             max_lines: read at most this many lines from the start of the file.
 
         Returns a JSON string with {path, line_count, truncated, lines}.
@@ -115,11 +120,12 @@ def build_spike_tools(
     def shell_execute(command: str) -> str:
         """Run a shell command inside a strict sandbox.
 
-        Only whitelisted commands are allowed: ls, cat, head, tail, grep, find, wc, du, df.
+        Only whitelisted read-only commands are allowed: ls/dir, cat/type,
+        head, tail, grep, find, wc, du, df.
         Forbidden tokens include rm, sudo, pipes, redirects, etc.
 
         Args:
-            command: the shell command to execute, e.g. "ls /tmp".
+            command: the shell command to execute, e.g. "ls" or "ls data".
 
         Returns a JSON string with {command, returncode, stdout, stderr, truncated}.
         """
@@ -172,6 +178,7 @@ def build_core_tools(
     include_adviser: bool = False,
     include_blog_publish: bool = False,
     include_domain_hotspot: bool = False,
+    feishu_adapter: FeishuWebhookAdapter | None = None,
 ) -> list:
     """
     Return the FULL Phase 0-Core tool set covering all 7 legacy workflows
@@ -201,6 +208,19 @@ def build_core_tools(
     search = search_tool or OpenCLISearchTool()
     knowledge = knowledge_tool or KnowledgeTool(gateway=OpenCLIGateway())
     writer = write_report_tool or WriteReportTool()
+    git_push = GitPushTool(repo_root=_REPO_ROOT)
+
+    def _chat_id_from_config(config: RunnableConfig | None) -> str:
+        if config:
+            configurable = config.get("configurable") if isinstance(config, dict) else None
+            if isinstance(configurable, dict):
+                chat_id = configurable.get("chat_id") or configurable.get("thread_id")
+                if chat_id:
+                    return str(chat_id)
+        context_chat_id = CURRENT_CHAT_ID.get()
+        if context_chat_id:
+            return context_chat_id
+        raise ValueError("chat_id is missing from the current message context")
 
     @tool
     def opencli_search(query: str) -> str:
@@ -237,7 +257,17 @@ def build_core_tools(
         )
 
     @tool
-    def write_report(content: str, title: str = "", filename: str = "") -> str:
+    def write_report(
+        content: str,
+        title: str = "",
+        filename: str = "",
+        git_push_enabled: bool = False,
+        push_confirm_token: str = "",
+        commit_message: str = "",
+        remote: str = "origin",
+        branch: str = "",
+        config: RunnableConfig | None = None,
+    ) -> str:
         """Save a finished markdown report to the project's reports/ directory.
 
         Use this AFTER you have produced the full markdown content yourself
@@ -250,19 +280,66 @@ def build_core_tools(
                 if `filename` is not given.
             filename: optional explicit base filename (with or without .md);
                 must be slug-shaped (a-z, 0-9, dashes/underscores).
+            git_push_enabled: when true, enables optional git add/commit/push.
+                Push is always two-step and requires confirmation token.
+            push_confirm_token: confirmation token returned by a previous call.
+            commit_message: optional commit message for push flow.
+            remote: git remote for push flow. defaults to "origin".
+            branch: git branch for push flow. defaults to current branch.
 
         Returns the absolute path where the report was written. Never
         overwrites: if the slug exists, a numeric suffix is appended.
         """
-        return writer.write(
+        if push_confirm_token.strip():
+            if not git_push_enabled:
+                raise ValueError(
+                    "git_push_enabled must be true when push_confirm_token is provided"
+                )
+            chat_id = _chat_id_from_config(config)
+            push_result = git_push.confirm_push(
+                chat_id=chat_id,
+                confirm_token=push_confirm_token.strip(),
+            )
+            return push_result
+
+        out_path = writer.write(
             content,
             title=title or None,
             filename=filename or None,
         )
+        if not git_push_enabled:
+            return out_path
+
+        chat_id = _chat_id_from_config(config)
+
+        request_result = git_push.request_push(
+            chat_id=chat_id,
+            file_path=out_path,
+            commit_message=commit_message or None,
+            remote=remote or None,
+            branch=branch or None,
+        )
+        return request_result
+
+    tools = base + [opencli_search, knowledge_restore, write_report]
+
+    if feishu_adapter is not None:
+        @tool
+        def feishu_send_file(path: str, config: RunnableConfig | None = None) -> str:
+            """Send a local file to the current Feishu chat.
+
+            The path must point to a file inside the bot's configured allowed
+            filesystem roots. Use this after creating or locating the file.
+            """
+            target = (filesystem_tool or FileSystemTool()).resolve_file(path)
+            chat_id = _chat_id_from_config(config)
+            feishu_adapter.send_file(chat_id, target)
+            return f"文件已发送：{target.name}"
+
+        tools.append(feishu_send_file)
 
     return (
-        base
-        + [opencli_search, knowledge_restore, write_report]
+        tools
         + ([_make_blog_publish_tool(blog_publish_tool)] if include_blog_publish else [])
         + ([_make_domain_hotspot_tool(domain_hotspot_tool)] if include_domain_hotspot else [])
     )

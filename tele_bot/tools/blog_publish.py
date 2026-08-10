@@ -7,7 +7,7 @@ Safety rules (enforced, not advisory):
 - output path constrained to posts_dir (no traversal, no absolute paths)
 - no overwrite: raises BlogPublishError if slug already exists
 - frontmatter required: title, published (YYYY-MM-DD), description
-- no git operations of any kind
+- git push is opt-in and requires a separate confirmation token
 """
 
 from __future__ import annotations
@@ -16,6 +16,8 @@ import re
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from tele_bot.tools.git_push import GitPushTool
 
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9\-]{0,79}$")
 _FM_FIELD_RE = re.compile(r"^---\s*\n(.*?)\n---", re.DOTALL)
@@ -31,6 +33,7 @@ class BlogPublishError(Exception):
 @dataclass
 class BlogPublishTool:
     posts_dir: Path
+    git_push_tool: GitPushTool | None = None
 
     def __post_init__(self) -> None:
         self.posts_dir = Path(self.posts_dir)
@@ -77,6 +80,34 @@ class BlogPublishTool:
 
         out_path.write_text(content.strip() + "\n", encoding="utf-8")
         return str(out_path)
+
+    def request_push(
+        self,
+        *,
+        chat_id: str,
+        file_path: str,
+        commit_message: str | None = None,
+        remote: str | None = None,
+        branch: str | None = None,
+    ) -> str:
+        return self._git_push().request_push(
+            chat_id=chat_id,
+            file_path=file_path,
+            commit_message=commit_message,
+            remote=remote,
+            branch=branch,
+        )
+
+    def confirm_push(self, *, chat_id: str, confirm_token: str) -> str:
+        return self._git_push().confirm_push(
+            chat_id=chat_id,
+            confirm_token=confirm_token,
+        )
+
+    def _git_push(self) -> GitPushTool:
+        if self.git_push_tool is None:
+            self.git_push_tool = GitPushTool(repo_root=self.posts_dir)
+        return self.git_push_tool
 
     # ------------------------------------------------------------------
     # internal helpers

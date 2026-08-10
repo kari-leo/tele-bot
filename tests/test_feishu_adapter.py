@@ -14,6 +14,7 @@ class FakeFeishuAdapter:
     def __init__(self) -> None:
         self.sent = []
         self.edited = []
+        self.deleted = []
 
     def send_text(self, message):
         self.sent.append(message)
@@ -21,6 +22,10 @@ class FakeFeishuAdapter:
 
     def edit_message(self, message_id: str, text: str):
         self.edited.append((message_id, text))
+        return {"code": 0}
+
+    def delete_message(self, message_id: str):
+        self.deleted.append(message_id)
         return {"code": 0}
 
 
@@ -73,17 +78,59 @@ class FeishuWebhookAdapterTests(unittest.TestCase):
 
         self.assertIsNone(adapter.parse_incoming(payload))
 
-    def test_progress_reporter_does_not_edit_messages(self) -> None:
+    def test_progress_reporter_edits_one_message_and_finishes_in_place(self) -> None:
         adapter = FakeFeishuAdapter()
         reporter = FeishuProgressReporter(adapter=adapter, chat_id="oc_1")
 
         message_id = reporter.start()
         updated = reporter.update("thinking")
+        reporter.update("calling tool: search")
+        finished = reporter.finish("最终结果")
 
         self.assertEqual(message_id, "om_1")
-        self.assertFalse(updated)
+        self.assertTrue(updated)
         self.assertEqual(len(adapter.sent), 1)
-        self.assertEqual(adapter.edited, [])
+        self.assertTrue(finished)
+        self.assertEqual(adapter.deleted, [])
+        self.assertEqual(
+            adapter.edited,
+            [
+                ("om_1", "thinking"),
+                ("om_1", "calling tool: search"),
+                ("om_1", "最终结果"),
+            ],
+        )
+
+    @patch("tele_bot.channels.feishu.httpx.put")
+    def test_edit_message_uses_feishu_message_endpoint(self, patch_request) -> None:
+        adapter = FeishuWebhookAdapter(app_id="app", app_secret="secret")
+        adapter._access_token = "token"
+        adapter._token_expires_at = 9999999999
+        response = Mock()
+        response.is_success = True
+        response.json.return_value = {"code": 0}
+        patch_request.return_value = response
+
+        result = adapter.edit_message("om_1", "正在调用工具")
+
+        self.assertEqual(result["code"], 0)
+        self.assertEqual(patch_request.call_args.args[0], "https://open.feishu.cn/open-apis/im/v1/messages/om_1")
+        self.assertEqual(patch_request.call_args.kwargs["json"]["msg_type"], "text")
+
+    @patch("tele_bot.channels.feishu.httpx.delete")
+    def test_delete_message_uses_feishu_message_endpoint(self, delete_request) -> None:
+        adapter = FeishuWebhookAdapter(app_id="app", app_secret="secret")
+        adapter._access_token = "token"
+        adapter._token_expires_at = 9999999999
+        response = Mock()
+        response.is_success = True
+        response.json.return_value = {"code": 0}
+        delete_request.return_value = response
+
+        result = adapter.delete_message("om_1")
+
+        self.assertEqual(result["code"], 0)
+        self.assertEqual(delete_request.call_args.args[0], "https://open.feishu.cn/open-apis/im/v1/messages/om_1")
 
     @patch("tele_bot.channels.feishu.httpx.post")
     def test_send_file_uploads_then_sends_file_message(self, post) -> None:

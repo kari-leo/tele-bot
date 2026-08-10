@@ -1,9 +1,4 @@
-"""Feishu progress reporter.
-
-Feishu clients are friendlier with a single visible progress hint than with
-frequent message edits. This reporter sends "processing" once and ignores
-step-level ReAct updates, avoiding fragile edit-message calls.
-"""
+"""Feishu progress reporter using one editable, temporary status message."""
 
 from __future__ import annotations
 
@@ -25,6 +20,7 @@ class FeishuProgressReporter:
     chat_id: str
     placeholder_text: str = PLACEHOLDER_TEXT
     _message_id: Optional[str] = field(default=None, init=False)
+    _last_text: Optional[str] = field(default=None, init=False)
 
     def start(self) -> Optional[str]:
         """Send one placeholder message and remember its message_id if present."""
@@ -40,6 +36,7 @@ class FeishuProgressReporter:
                 message_id = resp.get("data", {}).get("message_id")
                 if message_id:
                     self._message_id = str(message_id)
+                    self._last_text = self.placeholder_text
                     return self._message_id
             _LOG.warning(
                 "FeishuProgressReporter: sendMessage response missing message_id: %r",
@@ -50,8 +47,23 @@ class FeishuProgressReporter:
         return None
 
     def update(self, text: str) -> bool:
-        """Ignore per-step updates; final answers are sent as normal messages."""
+        """Edit the temporary status message in place."""
+        if not self._message_id or not text.strip() or text == self._last_text:
+            return False
+        try:
+            response = self.adapter.edit_message(self._message_id, text)
+            if response.get("code") == 0:
+                self._last_text = text
+                return True
+        except Exception as exc:  # noqa: BLE001
+            _LOG.warning("FeishuProgressReporter: edit_message failed: %s", exc)
         return False
+
+    def finish(self, text: str) -> bool:
+        """Turn the temporary status message into the final reply in place."""
+        if not self._message_id:
+            return False
+        return self.update(text)
 
     @property
     def message_id(self) -> Optional[str]:

@@ -184,6 +184,37 @@ class FeishuWebhookAdapter:
             _LOG.error("Failed to send Feishu message: %s", exc)
             return {"code": -1, "msg": str(exc)}
 
+    def edit_message(self, message_id: str, text: str) -> dict[str, Any]:
+        """Update an existing text message in place."""
+        access_token = self._get_access_token()
+        url = f"{self.api_base_url}/open-apis/im/v1/messages/{message_id}"
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json; charset=utf-8",
+        }
+        payload = {
+            "msg_type": "text",
+            "content": json.dumps({"text": text}, ensure_ascii=False),
+        }
+        response = httpx.put(url, headers=headers, json=payload, timeout=10)
+        self._raise_for_http_error(response, "message edit")
+        result = response.json()
+        if result.get("code") != 0:
+            raise RuntimeError(self._format_api_error("message edit", result))
+        return result
+
+    def delete_message(self, message_id: str) -> dict[str, Any]:
+        """Delete an existing message."""
+        access_token = self._get_access_token()
+        url = f"{self.api_base_url}/open-apis/im/v1/messages/{message_id}"
+        headers = {"Authorization": f"Bearer {access_token}"}
+        response = httpx.delete(url, headers=headers, timeout=10)
+        self._raise_for_http_error(response, "message delete")
+        result = response.json()
+        if result.get("code") != 0:
+            raise RuntimeError(self._format_api_error("message delete", result))
+        return result
+
     def upload_file(self, file_path: str | Path) -> dict[str, Any]:
         """Upload a local file and return Feishu's response containing file_key."""
         path = Path(file_path)

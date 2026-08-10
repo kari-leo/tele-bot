@@ -14,3 +14,4 @@ class OutgoingMessage:
     channel: str
     chat_id: str
     text: str
+    already_sent: bool = False

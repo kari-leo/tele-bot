@@ -61,8 +61,40 @@ GET /health
 - 报告写入及可选 Git 推送确认流程
 - 受限 Shell 执行
 - SQLite 会话状态持久化
+- 受控 Codex CLI（仅显式 `/codex` 命令触发）
+- 经确认的文件覆盖和隔离删除
 
 文件发送受允许目录、文件名长度和 30 MB 大小限制保护；工具不会向用户返回文件 key、会话 ID 或底层 API 响应。
+
+## Codex 和文件变更安全边界
+
+Codex 不会被普通自然语言或 Agent 自动调用。只有明确的命令才会进入 Codex 流程：
+
+```text
+/codex inspect <任务>
+/codex plan <任务>
+/codex apply <确认令牌>
+```
+
+`inspect` 和 `plan` 使用只读沙箱；覆盖文件和删除文件必须先生成操作摘要，再由同一会话使用确认令牌执行。删除默认移动到隔离目录，不直接永久删除。
+
+Windows 示例：
+
+```env
+TELE_BOT_WORKSPACE_ROOT=D:\\files_data\\windborne\\tele_bot
+TELE_BOT_ALLOWED_ROOTS=D:\\
+TELE_BOT_QUARANTINE_ROOT=D:\\files_data\\windborne\\tele_bot-quarantine
+```
+
+Ubuntu 示例：
+
+```env
+TELE_BOT_WORKSPACE_ROOT=/srv/telebot/workspace
+TELE_BOT_ALLOWED_ROOTS=/srv/telebot/workspace:/srv/telebot/tele_bot-quarantine
+TELE_BOT_QUARANTINE_ROOT=/srv/telebot/tele_bot-quarantine
+```
+
+Ubuntu 隔离目录需要由运行 telebot 的用户拥有写权限。Codex 进程使用固定工作区、`shell=False`、超时和输出上限；MCP 接入必须复用同一套工作区策略，不能绕过确认层。
 
 ## 测试
 

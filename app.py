@@ -25,6 +25,8 @@ from tele_bot.persistence import build_sqlite_saver
 from tele_bot.service import MessageService
 from tele_bot.skills import SkillLoader
 from tele_bot.tools.lc_adapters import build_core_tools
+from tele_bot.tools.codex_runner import CodexRunner
+from tele_bot.router.codex_service import CodexCommandService
 from tele_bot.workflows.react_graph import build_react_graph
 
 _LOG = logging.getLogger(__name__)
@@ -139,6 +141,8 @@ print(
 message_service = MessageService(
     agent_core=AgentCore(executor=executor),
     feishu_adapter=feishu_adapter,
+    streaming_enabled=feishu_adapter is not None,
+    codex_service=CodexCommandService(CodexRunner.from_env()),
  )
 
 app = FastAPI(title="tele_bot", version="0.1.0")
@@ -183,7 +187,7 @@ def _handle_feishu_message(message: IncomingMessage) -> None:
         return
     try:
         outgoing = message_service.handle(message)
-        if outgoing is not None:
+        if outgoing is not None and not outgoing.already_sent:
             feishu_adapter.send_text(outgoing)
     except Exception as exc:  # noqa: BLE001
         _LOG.exception("Failed to handle Feishu message: %s", exc)

@@ -44,6 +44,19 @@ _KNOWLEDGE_ALLOWED_ROOTS: tuple[Path, ...] = (
 CURRENT_CHAT_ID: ContextVar[str | None] = ContextVar("current_chat_id", default=None)
 
 
+def _chat_id_from_config(config: RunnableConfig | None) -> str:
+    if config:
+        configurable = config.get("configurable") if isinstance(config, dict) else None
+        if isinstance(configurable, dict):
+            chat_id = configurable.get("chat_id") or configurable.get("thread_id")
+            if chat_id:
+                return str(chat_id)
+    context_chat_id = CURRENT_CHAT_ID.get()
+    if context_chat_id:
+        return context_chat_id
+    raise ValueError("chat_id is missing from the current message context")
+
+
 def _validate_knowledge_output_path(output_path: str | None) -> str | None:
     """Raise ValueError if output_path escapes allowed directories."""
     if not output_path:
@@ -349,13 +362,23 @@ def _make_blog_publish_tool(publisher: BlogPublishTool | None) -> Any:
     pub = publisher or BlogPublishTool(posts_dir=_WINDBORNE_POSTS)
 
     @tool
-    def blog_publish(slug: str, content: str) -> str:
+    def blog_publish(
+        slug: str,
+        content: str,
+        git_push_enabled: bool = False,
+        push_confirm_token: str = "",
+        commit_message: str = "",
+        remote: str = "origin",
+        branch: str = "",
+        config: RunnableConfig | None = None,
+    ) -> str:
         """Publish a markdown article to the windborne blog.
 
         Writes `content` as `<slug>.md` in the blog's posts directory.
-        Fails if the slug already exists (no overwrite).
-        No git operations are performed — committing and pushing is handled
-        separately by the user.
+        Fails if the slug already exists (no overwrite). When
+        `git_push_enabled` is true, the first call creates a pending push
+        request and returns a confirmation token. A later call with that token
+        performs the commit and push without writing the article again.
 
         Args:
             slug: URL-safe identifier for the post, e.g. "my-first-post".
@@ -364,9 +387,30 @@ def _make_blog_publish_tool(publisher: BlogPublishTool | None) -> Any:
                      title, published (YYYY-MM-DD), and description fields.
 
         Returns:
-            Absolute path of the created file.
+            Absolute path, or a push confirmation/result message.
         """
-        return pub.publish(slug=slug, content=content)
+        if push_confirm_token.strip():
+            if not git_push_enabled:
+                raise ValueError(
+                    "git_push_enabled must be true when push_confirm_token is provided"
+                )
+            chat_id = _chat_id_from_config(config)
+            return pub.confirm_push(
+                chat_id=chat_id,
+                confirm_token=push_confirm_token.strip(),
+            )
+
+        out_path = pub.publish(slug=slug, content=content)
+        if not git_push_enabled:
+            return out_path
+        chat_id = _chat_id_from_config(config)
+        return pub.request_push(
+            chat_id=chat_id,
+            file_path=out_path,
+            commit_message=commit_message or None,
+            remote=remote or None,
+            branch=branch or None,
+        )
 
     return blog_publish
 

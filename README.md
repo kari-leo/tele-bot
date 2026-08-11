@@ -76,14 +76,23 @@ Codex 不会被普通自然语言或 Agent 自动调用。只有明确的命令�
 /codex apply <确认令牌>
 ```
 
+Codex 按飞书 chat 维护短期上下文：plan 的结果会随确认令牌传入 apply，后续
+`/codex inspect`、`/codex plan` 或直接 `/codex apply <任务>` 会继承最近一次工作区和
+Codex 结果。可在 `local.env` 中用 `TELE_BOT_CODEX_WORKSPACE_ROOT` 指定不带目录时的
+默认项目目录；显式写在命令中的目录优先级更高。
+
+Windows 未配置时，Codex 默认工作目录为 `D:\files_data\`。自然语言中的模糊目录不会
+被正则直接猜测；系统会在允许根目录内寻找候选，出现多个候选时先要求用户选择。
+
 `inspect` 和 `plan` 使用只读沙箱；覆盖文件和删除文件必须先生成操作摘要，再由同一会话使用确认令牌执行。删除默认移动到隔离目录，不直接永久删除。
 
 Windows 示例：
 
 ```env
 TELE_BOT_WORKSPACE_ROOT=D:\\files_data\\windborne\\tele_bot
-TELE_BOT_ALLOWED_ROOTS=D:\\
+TELE_BOT_ALLOWED_ROOTS=D:\\files_data
 TELE_BOT_QUARANTINE_ROOT=D:\\files_data\\windborne\\tele_bot-quarantine
+TELE_BOT_CODEX_WORKSPACE_ROOT=D:\\files_data\\
 ```
 
 Ubuntu 示例：

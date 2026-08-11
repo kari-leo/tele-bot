@@ -19,6 +19,33 @@ class CodexRunnerTests(unittest.TestCase):
         self.assertEqual(runner.command, "codex.cmd")
         self.assertEqual(runner.timeout_seconds, 42)
 
+    def test_from_env_reads_codex_workspace_from_local_env(self) -> None:
+        base_policy = WorkspacePolicy(
+            allowed_roots=(Path("D:/"),),
+            workspace_root=Path("D:/files_data/windborne/tele_bot"),
+            quarantine_root=Path("D:/files_data/windborne/tele_bot-quarantine"),
+        )
+        with patch(
+            "tele_bot.tools.codex_runner._local_env_values",
+            return_value={
+                "TELE_BOT_CODEX_WORKSPACE_ROOT": "D:/files_data/Job/Job_workspace"
+            },
+        ), patch("tele_bot.tools.codex_runner.WorkspacePolicy.from_env", return_value=base_policy):
+            runner = CodexRunner.from_env()
+
+        self.assertEqual(
+            runner.policy.workspace_root,
+            Path("D:/files_data/Job/Job_workspace").resolve(),
+        )
+
+    def test_from_env_defaults_codex_workspace_to_files_data(self) -> None:
+        with patch(
+            "tele_bot.tools.codex_runner._local_env_values", return_value={}
+        ), patch.dict(os.environ, {}, clear=True):
+            runner = CodexRunner.from_env()
+
+        self.assertEqual(runner.default_workspace, Path("D:/files_data"))
+
     def test_skip_git_repo_check_is_configurable(self) -> None:
         with patch(
             "tele_bot.tools.codex_runner._local_env_values",

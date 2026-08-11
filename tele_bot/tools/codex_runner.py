@@ -10,6 +10,8 @@ from pathlib import Path
 
 from tele_bot.tools.workspace_policy import WorkspacePolicy
 
+_DEFAULT_CODEX_WORKSPACE = Path("D:/files_data")
+
 
 def _local_env_values() -> dict[str, str]:
     """Read the ignored per-machine LLM environment file as a fallback."""
@@ -45,6 +47,7 @@ class CodexResult:
 @dataclass(frozen=True)
 class CodexRunner:
     policy: WorkspacePolicy
+    default_workspace: Path | None = None
     command: str = "codex"
     timeout_seconds: int = 600
     skip_git_repo_check: bool = False
@@ -62,8 +65,27 @@ class CodexRunner:
         skip_git_repo_check = os.environ.get("TELE_BOT_CODEX_SKIP_GIT_REPO_CHECK")
         if skip_git_repo_check is None:
             skip_git_repo_check = local_values.get("TELE_BOT_CODEX_SKIP_GIT_REPO_CHECK")
+        if policy is None:
+            policy = WorkspacePolicy.from_env()
+            configured_root = os.environ.get("TELE_BOT_CODEX_WORKSPACE_ROOT") or local_values.get(
+                "TELE_BOT_CODEX_WORKSPACE_ROOT", ""
+            )
+            if configured_root.strip():
+                policy = WorkspacePolicy(
+                    allowed_roots=policy.allowed_roots,
+                    workspace_root=Path(configured_root).expanduser(),
+                    quarantine_root=policy.quarantine_root,
+                    max_file_bytes=policy.max_file_bytes,
+                    max_content_chars=policy.max_content_chars,
+                    max_changed_files=policy.max_changed_files,
+                )
+        configured_root = os.environ.get("TELE_BOT_CODEX_WORKSPACE_ROOT") or local_values.get(
+            "TELE_BOT_CODEX_WORKSPACE_ROOT", ""
+        )
+        default_workspace = Path(configured_root).expanduser() if configured_root.strip() else _DEFAULT_CODEX_WORKSPACE
         return cls(
-            policy=policy or WorkspacePolicy.from_env(),
+            policy=policy,
+            default_workspace=default_workspace,
             command=command.strip() or "codex",
             timeout_seconds=max(1, int(timeout)),
             skip_git_repo_check=_parse_bool(skip_git_repo_check, default=True),
@@ -76,7 +98,7 @@ class CodexRunner:
         if not prompt.strip():
             raise ValueError("Codex prompt is required")
 
-        target = self.policy.workspace_root
+        target = (self.default_workspace or self.policy.workspace_root).expanduser().resolve()
         if workspace:
             target = self.policy.resolve_existing(workspace)
         if target is None or not target.is_dir():

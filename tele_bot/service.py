@@ -36,6 +36,14 @@ class MessageService:
         self.codex_service = codex_service
 
     def handle(self, message: IncomingMessage) -> OutgoingMessage:
+        if self.codex_service is not None:
+            confirmation = self.codex_service.handle_confirmation(message)
+            if confirmation is not None:
+                return OutgoingMessage(
+                    channel=message.channel,
+                    chat_id=message.chat_id,
+                    text=confirmation,
+                )
         if self.codex_service is not None and message.text.lstrip().lower().startswith("/codex"):
             response = self.codex_service.handle(message)
             if response is not None:

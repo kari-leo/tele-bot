@@ -27,6 +27,7 @@ from tele_bot.tools.opencli_search import OpenCLISearchTool
 from tele_bot.tools.shell_sandbox import ShellSandboxTool
 from tele_bot.tools.write_report import WriteReportTool
 from tele_bot.channels.feishu import FeishuWebhookAdapter
+from tele_bot.router.codex_service import CodexCommandService
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _WINDBORNE_POSTS = Path(
@@ -192,6 +193,7 @@ def build_core_tools(
     include_blog_publish: bool = False,
     include_domain_hotspot: bool = False,
     feishu_adapter: FeishuWebhookAdapter | None = None,
+    codex_service: CodexCommandService | None = None,
 ) -> list:
     """
     Return the FULL Phase 0-Core tool set covering all 7 legacy workflows
@@ -335,6 +337,80 @@ def build_core_tools(
         return request_result
 
     tools = base + [opencli_search, knowledge_restore, write_report]
+
+    if codex_service is not None:
+        @tool
+        def codex_inspect(
+            task: str,
+            workspace_hint: str = "",
+            use_context: bool = False,
+            config: RunnableConfig | None = None,
+        ) -> str:
+            """Ask Codex to inspect a project without changing files.
+
+            Use only when the user explicitly asks for Codex or a code/project
+            inspection. workspace_hint may be a path or a fuzzy project clue.
+            Never use this tool to apply changes.
+            """
+            chat_id = _chat_id_from_config(config)
+            user_id = str((config or {}).get("configurable", {}).get("user_id", "agent"))
+            return codex_service.handle_tool(
+                chat_id=chat_id,
+                user_id=user_id,
+                mode="inspect",
+                task=task,
+                workspace_hint=workspace_hint,
+                use_context=use_context,
+            )
+
+        @tool
+        def codex_plan(
+            task: str,
+            workspace_hint: str = "",
+            use_context: bool = False,
+            config: RunnableConfig | None = None,
+        ) -> str:
+            """Ask Codex for a read-only modification plan.
+
+            Use only when the user explicitly asks for a Codex plan. A later
+            file-changing apply still requires the user's explicit token.
+            """
+            chat_id = _chat_id_from_config(config)
+            user_id = str((config or {}).get("configurable", {}).get("user_id", "agent"))
+            return codex_service.handle_tool(
+                chat_id=chat_id,
+                user_id=user_id,
+                mode="plan",
+                task=task,
+                workspace_hint=workspace_hint,
+                use_context=use_context,
+            )
+
+        tools.extend([codex_inspect, codex_plan])
+
+        @tool
+        def codex_apply_request(
+            task: str,
+            workspace_hint: str = "",
+            use_context: bool = False,
+            config: RunnableConfig | None = None,
+        ) -> str:
+            """Prepare a Codex file-changing request for user confirmation.
+
+            This tool never changes files and never starts Codex apply. Use it
+            when the user explicitly asks to modify or delete files through
+            Codex. The returned structured command must be shown to the user;
+            execution requires the user to reply with confirmation.
+            """
+            chat_id = _chat_id_from_config(config)
+            return codex_service.create_apply_request(
+                chat_id=chat_id,
+                task=task,
+                workspace_hint=workspace_hint,
+                use_context=use_context,
+            )
+
+        tools.append(codex_apply_request)
 
     if feishu_adapter is not None:
         @tool

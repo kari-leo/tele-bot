@@ -1,8 +1,13 @@
 import unittest
+import re
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from tele_bot.models import IncomingMessage
 from tele_bot.router.codex_service import CodexCommandService
 from tele_bot.tools.codex_runner import CodexResult
+from tele_bot.tools.workspace_policy import WorkspacePolicy
+from tele_bot.tools.workspace_resolver import WorkspaceResolver
 
 
 class FakeCodexRunner:
@@ -59,11 +64,10 @@ class CodexCommandServiceTests(unittest.TestCase):
         apply_reply = self.service.handle(self.message(f"/codex apply {token}"))
 
         self.assertIn("Codex apply 完成", apply_reply)
-        self.assertEqual(self.runner.calls[1], (
-            "apply",
-            r"在 D:\files_data\Job\Job_workspace 更新岗位",
-            r"D:\files_data\Job\Job_workspace",
-        ))
+        self.assertEqual(self.runner.calls[1][0], "apply")
+        self.assertIn("请执行已确认的修改计划", self.runner.calls[1][1])
+        self.assertIn("只读 plan 输出", self.runner.calls[1][1])
+        self.assertEqual(self.runner.calls[1][2], r"D:\files_data\Job\Job_workspace")
 
     def test_apply_token_is_bound_to_chat_and_single_use(self) -> None:
         plan_reply = self.service.handle(self.message("/codex plan 检查"))
@@ -88,6 +92,121 @@ class CodexCommandServiceTests(unittest.TestCase):
             self.runner.calls,
             [("apply", r"在 D:\files_data\Job\Job_workspace 修改 README", r"D:\files_data\Job\Job_workspace")],
         )
+
+    def test_apply_request_previews_without_running_and_confirm_runs_once(self) -> None:
+        reply = self.service.create_apply_request(
+            chat_id="chat-1",
+            task=r"在 D:\files_data\Job\Job_workspace 删除 旺* 文件",
+            workspace_hint=r"D:\files_data\Job\Job_workspace",
+        )
+
+        self.assertIn('"sandbox": "workspace-write"', reply)
+        self.assertIn('"operation": "delete"', reply)
+        self.assertEqual(self.runner.calls, [])
+
+        confirmed = self.service.handle_confirmation(self.message("确认"))
+
+        self.assertIn("Codex apply 完成", confirmed)
+        self.assertEqual(len(self.runner.calls), 1)
+        self.assertIsNone(self.service.handle_confirmation(self.message("确认")))
+
+    def test_apply_request_token_is_bound_to_chat(self) -> None:
+        reply = self.service.create_apply_request(
+            chat_id="chat-1",
+            task="修改 README",
+            workspace_hint=r"D:\files_data\Job\Job_workspace",
+        )
+        token = re.search(r"/codex apply ([A-Za-z0-9_-]+)", reply).group(1)
+
+        wrong_chat = self.service.handle(self.message(f"/codex apply {token}", "chat-2"))
+        valid = self.service.handle(self.message(f"/codex apply {token}"))
+
+        self.assertIn("令牌无效", wrong_chat)
+        self.assertIn("Codex apply 完成", valid)
+
+    def test_follow_up_inspect_reuses_workspace_and_prior_codex_result(self) -> None:
+        plan_reply = self.service.handle(
+            self.message(r"/codex plan 在 D:\files_data\Job\Job_workspace 更新岗位偏好")
+        )
+        token = plan_reply.rsplit(" ", 1)[-1]
+        self.service.handle(self.message(f"/codex apply {token}"))
+
+        self.service.handle(self.message("/codex inspect 把刚才的修改点逐项列出来"))
+
+        inspect_prompt = self.runner.calls[2][1]
+        self.assertIn("这是同一个飞书会话中的后续 Codex 请求", inspect_prompt)
+        self.assertIn("把刚才的修改点逐项列出来", inspect_prompt)
+        self.assertIn("更新岗位偏好", inspect_prompt)
+        self.assertEqual(self.runner.calls[2][2], r"D:\files_data\Job\Job_workspace")
+
+    def test_fuzzy_workspace_requires_selection_when_candidates_are_ambiguous(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "files_data"
+            quarantine = Path(temp_dir) / "quarantine"
+            first = root / "Job_alpha"
+            second = root / "Job_beta"
+            first.mkdir(parents=True)
+            second.mkdir(parents=True)
+            (first / "README.md").write_text("alpha", encoding="utf-8")
+            (second / "README.md").write_text("beta", encoding="utf-8")
+            policy = WorkspacePolicy(
+                allowed_roots=(root, quarantine),
+                workspace_root=root,
+                quarantine_root=quarantine,
+            )
+            runner = FakeCodexRunner()
+            service = CodexCommandService(runner, WorkspaceResolver(policy))
+
+            reply = service.handle(self.message("/codex apply 在 Job 项目中修改 README"))
+
+        self.assertIn("多个可能的工作区", reply)
+        self.assertIn("Job_alpha", reply)
+        self.assertIn("Job_beta", reply)
+        self.assertEqual(runner.calls, [])
+
+    def test_fuzzy_workspace_selects_unique_candidate(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "files_data"
+            quarantine = Path(temp_dir) / "quarantine"
+            target = root / "Job_workspace"
+            target.mkdir(parents=True)
+            (target / "README.md").write_text("target", encoding="utf-8")
+            policy = WorkspacePolicy(
+                allowed_roots=(root, quarantine),
+                workspace_root=root,
+                quarantine_root=quarantine,
+            )
+            runner = FakeCodexRunner()
+            service = CodexCommandService(runner, WorkspaceResolver(policy, search_roots=(root,)))
+
+            reply = service.handle(self.message("/codex apply 在 Job 项目中修改 README"))
+
+        self.assertIn("Codex apply 完成", reply)
+        self.assertEqual(runner.calls[0][2], str(target.resolve()))
+
+    def test_fuzzy_workspace_supports_chinese_directory_name(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "files_data"
+            quarantine = Path(temp_dir) / "quarantine"
+            target = root / "奖学金"
+            target.mkdir(parents=True)
+            (target / "README.md").write_text("target", encoding="utf-8")
+            policy = WorkspacePolicy(
+                allowed_roots=(root, quarantine),
+                workspace_root=root,
+                quarantine_root=quarantine,
+            )
+            runner = FakeCodexRunner()
+            service = CodexCommandService(runner, WorkspaceResolver(policy, search_roots=(root,)))
+
+            reply = service.create_apply_request(
+                chat_id="chat-1",
+                task="删除旺*文件",
+                workspace_hint="filesdata目录下的奖学金目录",
+            )
+
+        self.assertIn("奖学金", reply)
+        self.assertEqual(runner.calls, [])
 
     def test_non_codex_message_is_ignored(self) -> None:
         self.assertIsNone(self.service.handle(self.message("请帮我检查岗位")))

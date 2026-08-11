@@ -47,6 +47,7 @@ def _build_executor(
     llm_settings: AliBailianSettings,
     sqlite_path: str,
     feishu_adapter: FeishuWebhookAdapter | None = None,
+    codex_service: CodexCommandService | None = None,
 ) -> ReactAgentExecutor:
     llm = build_chat_openai(
         api_key=llm_settings.api_key,
@@ -77,6 +78,7 @@ def _build_executor(
         include_blog_publish=include_blog,
         include_domain_hotspot=True,
         feishu_adapter=feishu_adapter,
+        codex_service=codex_service,
     )
     system_prompt = SkillLoader().build_system_prompt()
     saver = build_sqlite_saver(sqlite_path)
@@ -116,10 +118,12 @@ feishu_adapter = (
 )
 
 try:
+    codex_service = CodexCommandService(CodexRunner.from_env())
     executor = _build_executor(
         llm_settings,
         runtime_settings.sqlite_checkpoint_path,
         feishu_adapter=feishu_adapter,
+        codex_service=codex_service,
     )
 except sqlite3.DatabaseError as exc:
     _fatal(
@@ -142,7 +146,7 @@ message_service = MessageService(
     agent_core=AgentCore(executor=executor),
     feishu_adapter=feishu_adapter,
     streaming_enabled=feishu_adapter is not None,
-    codex_service=CodexCommandService(CodexRunner.from_env()),
+    codex_service=codex_service,
  )
 
 app = FastAPI(title="tele_bot", version="0.1.0")

@@ -161,8 +161,9 @@ class AliBailianChatClientTests(unittest.TestCase):
 
     def test_reads_model_settings_from_local_env(self) -> None:
         from tele_bot.config.llm import AliBailianSettings
+        from tele_bot.config.llm import settings as settings_module
 
-        local_env_path = Path("/home/johnny/tele_bot/tele_bot/config/llm/local.env")
+        local_env_path = Path(settings_module.__file__).with_name("local.env")
         original = local_env_path.read_text(encoding="utf-8") if local_env_path.exists() else None
 
         try:

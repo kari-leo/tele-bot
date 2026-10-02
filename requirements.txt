@@ -8,6 +8,8 @@ openai==1.109.1
 uvicorn==0.49.0
 httpx==0.28.1
 pycryptodome>=3.20,<4.0  # Feishu encrypted webhook events
+pypdf>=5,<7              # Knowledge-base PDF text extraction (no OCR)
+mcp>=2,<3                # Official Model Context Protocol Python SDK
 
 # Phase 0-Spike（已安装，实测版本）
 langchain-openai==0.3.35   # ChatOpenAI + bind_tools

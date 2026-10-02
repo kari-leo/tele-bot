@@ -30,6 +30,7 @@ class FeishuSettings:
     webhook_host: str
     webhook_port: int
     webhook_path: str
+    kb_creator_user_ids: tuple[str, ...] = ()
 
     @classmethod
     def _load_env_file(cls, env_file: Path) -> dict[str, str]:
@@ -76,4 +77,7 @@ class FeishuSettings:
             webhook_host=get_config("FEISHU_WEBHOOK_HOST", "127.0.0.1"),
             webhook_port=_parse_int(get_config("FEISHU_WEBHOOK_PORT"), 3000),
             webhook_path=webhook_path,
+            kb_creator_user_ids=tuple(
+                _parse_user_ids(get_config("KB_CREATOR_USER_IDS"))
+            ),
         )

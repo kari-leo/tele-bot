@@ -16,6 +16,12 @@ from typing import Any
 from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
 
+try:
+    from langchain_core.runnables import ensure_config
+except ImportError:  # Lightweight test stubs expose only RunnableConfig.
+    def ensure_config() -> RunnableConfig:
+        return {}  # type: ignore[return-value]
+
 from tele_bot.llm.opencli_gateway import OpenCLIGateway
 from tele_bot.tools.adviser import AdviserTool
 from tele_bot.tools.blog_publish import BlogPublishTool
@@ -46,6 +52,8 @@ CURRENT_CHAT_ID: ContextVar[str | None] = ContextVar("current_chat_id", default=
 
 
 def _chat_id_from_config(config: RunnableConfig | None) -> str:
+    if config is None:
+        config = ensure_config()
     if config:
         configurable = config.get("configurable") if isinstance(config, dict) else None
         if isinstance(configurable, dict):
@@ -226,6 +234,8 @@ def build_core_tools(
     git_push = GitPushTool(repo_root=_REPO_ROOT)
 
     def _chat_id_from_config(config: RunnableConfig | None) -> str:
+        if config is None:
+            config = ensure_config()
         if config:
             configurable = config.get("configurable") if isinstance(config, dict) else None
             if isinstance(configurable, dict):
@@ -403,11 +413,13 @@ def build_core_tools(
             execution requires the user to reply with confirmation.
             """
             chat_id = _chat_id_from_config(config)
+            user_id = str((config or ensure_config()).get("configurable", {}).get("user_id", "agent"))
             return codex_service.create_apply_request(
                 chat_id=chat_id,
                 task=task,
                 workspace_hint=workspace_hint,
                 use_context=use_context,
+                user_id=user_id,
             )
 
         tools.append(codex_apply_request)

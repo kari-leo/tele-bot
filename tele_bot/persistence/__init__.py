@@ -5,5 +5,6 @@ its `MemorySaver` default; callers must pass `checkpointer=` to opt in.
 """
 
 from tele_bot.persistence.sqlite_checkpointer import build_sqlite_saver
+from tele_bot.persistence.kb_store import KnowledgeStore
 
-__all__ = ["build_sqlite_saver"]
+__all__ = ["KnowledgeStore", "build_sqlite_saver"]

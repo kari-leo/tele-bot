@@ -19,6 +19,9 @@ class Capability(str, Enum):
     READ_FILESYSTEM = "read_filesystem"
     SEARCH_FILESYSTEM = "search_filesystem"
     EXECUTE_SHELL_SANDBOX = "execute_shell_sandbox"
+    QUERY_KNOWLEDGE = "query_knowledge"
+    IMPORT_KNOWLEDGE = "import_knowledge"
+    MANAGE_PROJECT_SPACE = "manage_project_space"
 
 
 class WorkflowName(str, Enum):

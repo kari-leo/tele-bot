@@ -14,10 +14,11 @@ def show_help() -> None:
     print(
         "tele_bot Feishu webhook launcher\n\n"
         "Usage:\n"
-        "  python start.py [feishu-webhook]\n\n"
+        "  python start.py [feishu-webhook|kb-mcp]\n\n"
         "Examples:\n"
         "  python start.py\n"
         "  python start.py feishu-webhook\n"
+        "  python start.py kb-mcp\n"
     )
 
 
@@ -56,6 +57,13 @@ def start_feishu_webhook() -> None:
     )
 
 
+def start_kb_mcp() -> None:
+    """Start the read-only project knowledge-base MCP server over stdio."""
+    from tele_bot.mcp_server import main as run_mcp
+
+    run_mcp()
+
+
 def main() -> None:
     if len(sys.argv) < 2:
         start_feishu_webhook()
@@ -66,6 +74,8 @@ def main() -> None:
         show_help()
     elif mode in ("feishu-webhook", "feishu"):
         start_feishu_webhook()
+    elif mode in ("kb-mcp", "mcp"):
+        start_kb_mcp()
     else:
         print(f"[X] Unknown mode: {mode}")
         print("Use 'python start.py help' to see available modes.")

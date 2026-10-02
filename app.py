@@ -20,13 +20,18 @@ from tele_bot.config import AliBailianSettings, RuntimeSettings
 from tele_bot.config.paths import configure_runtime_root
 from tele_bot.config.feishu import FeishuSettings
 from tele_bot.llm.react_client import build_chat_openai
+from tele_bot.llm.embeddings import AliBailianEmbeddingClient
+from tele_bot.knowledge.ingestion import DocumentParser
+from tele_bot.knowledge.search import KnowledgeIndexer, KnowledgeSearch
 from tele_bot.models import IncomingMessage
-from tele_bot.persistence import build_sqlite_saver
+from tele_bot.persistence import KnowledgeStore, build_sqlite_saver
 from tele_bot.service import MessageService
 from tele_bot.skills import SkillLoader
 from tele_bot.tools.lc_adapters import build_core_tools
 from tele_bot.tools.codex_runner import CodexRunner
 from tele_bot.router.codex_service import CodexCommandService
+from tele_bot.router.knowledge_service import KnowledgeCommandService
+from tele_bot.tools.workspace_policy import WorkspacePolicy
 from tele_bot.workflows.react_graph import build_react_graph
 
 _LOG = logging.getLogger(__name__)
@@ -136,9 +141,31 @@ except OSError as exc:
         f"cannot mkdir {Path(runtime_settings.sqlite_checkpoint_path).parent}: {exc}",
     )
 
+try:
+    knowledge_store = KnowledgeStore(
+        runtime_settings.kb_sqlite_path,
+        max_chunks_per_space=runtime_settings.kb_max_chunks_per_space,
+    )
+    embedding_client = AliBailianEmbeddingClient(llm_settings)
+    knowledge_indexer = KnowledgeIndexer(knowledge_store, embedding_client, llm_settings)
+    knowledge_service = KnowledgeCommandService(
+        store=knowledge_store,
+        parser=DocumentParser(max_bytes=runtime_settings.kb_max_import_bytes),
+        indexer=knowledge_indexer,
+        search=KnowledgeSearch(knowledge_store, embedding_client, llm_settings),
+        policy=WorkspacePolicy.from_env(),
+        feishu_adapter=feishu_adapter,
+        creator_user_ids=(
+            feishu_settings.kb_creator_user_ids if feishu_settings is not None else ()
+        ),
+    )
+except (sqlite3.DatabaseError, OSError, ValueError) as exc:
+    _fatal("knowledge-base", str(exc))
+
 print(
     f"tele_bot starting "
     f"sqlite={runtime_settings.sqlite_checkpoint_path}",
+    f" kb_sqlite={runtime_settings.kb_sqlite_path}",
     file=sys.stderr,
  )
 
@@ -147,6 +174,7 @@ message_service = MessageService(
     feishu_adapter=feishu_adapter,
     streaming_enabled=feishu_adapter is not None,
     codex_service=codex_service,
+    knowledge_service=knowledge_service,
  )
 
 app = FastAPI(title="tele_bot", version="0.1.0")
@@ -193,6 +221,8 @@ def _handle_feishu_message(message: IncomingMessage) -> None:
         outgoing = message_service.handle(message)
         if outgoing is not None and not outgoing.already_sent:
             feishu_adapter.send_text(outgoing)
+            for file_path in outgoing.file_paths:
+                feishu_adapter.send_file(outgoing.chat_id, file_path)
     except Exception as exc:  # noqa: BLE001
         _LOG.exception("Failed to handle Feishu message: %s", exc)
 
@@ -243,4 +273,3 @@ def handle_feishu_webhook(
     )
     background_tasks.add_task(_handle_feishu_message, incoming)
     return {"code": 0, "msg": "success"}
-

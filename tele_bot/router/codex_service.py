@@ -22,6 +22,7 @@ class PendingCodexRun:
     prompt: str
     workspace: str | None
     plan_output: str
+    user_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,7 @@ class PendingApplyRequest:
     operation: str
     target: str
     matched_files: tuple[str, ...]
+    user_id: str | None = None
 
 
 @dataclass
@@ -59,16 +61,38 @@ class CodexCommandService:
         if command is None:
             return None
         if command.mode == "apply":
-            return self._apply(message.chat_id, command.prompt, command.workspace)
-        return self._inspect_or_plan(message.chat_id, command)
+            return self._apply(message.chat_id, message.user_id, command.prompt, command.workspace)
+        return self._inspect_or_plan(message.chat_id, message.user_id, command)
 
     def handle_confirmation(self, message: IncomingMessage) -> str | None:
         """Handle plain-text confirmation only when this chat has a pending request."""
-        decision = message.text.strip().lower()
+        if message.card_action is not None:
+            action = message.card_action
+            if action.action_id not in {"codex_confirm", "codex_cancel"}:
+                return None
+            if action.action_id == "codex_confirm":
+                return self._apply(message.chat_id, message.user_id, action.value)
+            with self._lock:
+                apply_request = self._pending_apply.get((message.chat_id, action.value))
+                plan_request = self._pending.get((message.chat_id, action.value))
+                request = apply_request or plan_request
+                if request is None or request.user_id not in {None, message.user_id}:
+                    return "Codex 确认令牌无效、已使用或不属于当前用户/会话。"
+                self._pending_apply.pop((message.chat_id, action.value), None)
+                self._pending.pop((message.chat_id, action.value), None)
+            return "已取消 Codex 请求，未修改文件。"
+        else:
+            decision = message.text.strip().lower()
+            requested_token = None
         if decision not in {"确认", "确认执行", "yes", "y", "取消", "cancel", "no", "n"}:
             return None
         with self._lock:
-            has_pending = any(chat_id == message.chat_id for chat_id, _ in self._pending_apply)
+            has_pending = any(
+                chat_id == message.chat_id
+                and request.user_id in {None, message.user_id}
+                and (requested_token is None or token == requested_token)
+                for (chat_id, token), request in self._pending_apply.items()
+            )
         if not has_pending:
             return None
         if decision in {"取消", "cancel", "no", "n"}:
@@ -76,7 +100,11 @@ class CodexCommandService:
                 self._pending_apply = {
                     key: value
                     for key, value in self._pending_apply.items()
-                    if key[0] != message.chat_id
+                    if not (
+                        key[0] == message.chat_id
+                        and value.user_id in {None, message.user_id}
+                        and (requested_token is None or key[1] == requested_token)
+                    )
                 }
             return "已取消 Codex apply 请求，未修改文件。"
         with self._lock:
@@ -84,6 +112,8 @@ class CodexCommandService:
                 (key, value)
                 for key, value in self._pending_apply.items()
                 if key[0] == message.chat_id
+                and value.user_id in {None, message.user_id}
+                and (requested_token is None or key[1] == requested_token)
             ]
             if len(matches) != 1:
                 return "当前会话有多个待确认请求，请使用对应的 /codex apply <令牌>。"
@@ -98,6 +128,7 @@ class CodexCommandService:
         task: str,
         workspace_hint: str = "",
         use_context: bool = False,
+        user_id: str | None = None,
     ) -> str:
         """Create a preview only; no Codex process is started."""
         task = task.strip()
@@ -122,6 +153,7 @@ class CodexCommandService:
             operation="delete" if any(word in task.lower() for word in ("删除", "删掉", "remove", "delete")) else "modify",
             target=target,
             matched_files=matched_files,
+            user_id=user_id,
         )
         with self._lock:
             self._pending_apply[(chat_id, token)] = request
@@ -171,7 +203,7 @@ class CodexCommandService:
         )
         return response or "Codex 未返回结果。"
 
-    def _inspect_or_plan(self, chat_id: str, command: CodexCommand) -> str:
+    def _inspect_or_plan(self, chat_id: str, user_id: str, command: CodexCommand) -> str:
         workspace, resolution_error = self._resolve_workspace(chat_id, command.prompt, command.workspace)
         if resolution_error:
             return resolution_error
@@ -191,14 +223,25 @@ class CodexCommandService:
                     prompt=prompt,
                     workspace=result.workspace,
                     plan_output=text,
+                    user_id=user_id,
                 )
             text += f"\n\n确认执行请发送：/codex apply {token}"
         return text
 
-    def _apply(self, chat_id: str, token: str, direct_workspace: str | None = None) -> str:
+    def _apply(
+        self, chat_id: str, user_id: str, token: str, direct_workspace: str | None = None
+    ) -> str:
         with self._lock:
-            pending = self._pending.pop((chat_id, token), None)
-            pending_apply = self._pending_apply.pop((chat_id, token), None)
+            pending = self._pending.get((chat_id, token))
+            pending_apply = self._pending_apply.get((chat_id, token))
+            if pending is not None and pending.user_id in {None, user_id}:
+                del self._pending[(chat_id, token)]
+            else:
+                pending = None
+            if pending_apply is not None and pending_apply.user_id in {None, user_id}:
+                del self._pending_apply[(chat_id, token)]
+            else:
+                pending_apply = None
         if pending_apply is not None:
             return self._execute_apply_request(chat_id, pending_apply)
         if pending is not None:

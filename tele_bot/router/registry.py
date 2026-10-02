@@ -43,6 +43,9 @@ def build_default_capability_registry() -> CapabilityRegistry:
     registry.register(Capability.READ_FILESYSTEM, "Read directory and file contents inside allowed roots")
     registry.register(Capability.SEARCH_FILESYSTEM, "Search files inside allowed roots")
     registry.register(Capability.EXECUTE_SHELL_SANDBOX, "Run shell commands inside a strict sandbox")
+    registry.register(Capability.QUERY_KNOWLEDGE, "Search only the current authorized project space")
+    registry.register(Capability.IMPORT_KNOWLEDGE, "Import explicitly selected project documents")
+    registry.register(Capability.MANAGE_PROJECT_SPACE, "Manage project-space membership and settings")
     return registry
 
 

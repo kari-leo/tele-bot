@@ -124,6 +124,23 @@ class CodexCommandServiceTests(unittest.TestCase):
         self.assertIn("令牌无效", wrong_chat)
         self.assertIn("Codex apply 完成", valid)
 
+    def test_apply_request_token_is_bound_to_user_when_provided(self) -> None:
+        reply = self.service.create_apply_request(
+            chat_id="chat-1",
+            user_id="user-1",
+            task="修改 README",
+            workspace_hint=r"D:\files_data\Job\Job_workspace",
+        )
+        token = re.search(r"/codex apply ([A-Za-z0-9_-]+)", reply).group(1)
+        attacker = IncomingMessage("feishu", "user-2", "chat-1", f"/codex apply {token}")
+
+        denied = self.service.handle(attacker)
+        valid = self.service.handle(self.message(f"/codex apply {token}"))
+
+        self.assertIn("令牌无效", denied)
+        self.assertIn("Codex apply 完成", valid)
+        self.assertEqual(len(self.runner.calls), 1)
+
     def test_follow_up_inspect_reuses_workspace_and_prior_codex_result(self) -> None:
         plan_reply = self.service.handle(
             self.message(r"/codex plan 在 D:\files_data\Job\Job_workspace 更新岗位偏好")

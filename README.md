@@ -32,9 +32,44 @@ FEISHU_ENCRYPT_KEY=xxx
 FEISHU_WEBHOOK_HOST=127.0.0.1
 FEISHU_WEBHOOK_PORT=3000
 FEISHU_WEBHOOK_PATH=/feishu/webhook
+# 允许创建知识库项目空间的飞书 user_id/open_id，多个值用英文逗号分隔
+KB_CREATOR_USER_IDS=u_123456,ou_abcdef
 ```
 
 不要将包含密钥的 `local.env` 提交到 Git。
+
+### 知识库 MCP
+
+知识库同时提供本地 stdio MCP Server。它与飞书入口共用同一个 `KB_SQLITE_PATH`，
+并按项目空间成员关系鉴权。在 `tele_bot/config/feishu/local.env` 固定 MCP 身份：
+
+```env
+KB_MCP_USER_ID=ou_xxx
+```
+
+启动命令：
+
+```powershell
+& 'D:\Anaconda3\envs\telebot\python.exe' .\start.py kb-mcp
+```
+
+MCP Host 也可以直接以模块方式启动：
+
+```json
+{
+  "mcpServers": {
+    "tele-bot-kb": {
+      "command": "D:\\Anaconda3\\envs\\telebot\\python.exe",
+      "args": ["-m", "tele_bot.mcp_server"],
+      "cwd": "D:\\files_data\\windborne\\tele_bot"
+    }
+  }
+}
+```
+
+提供 `kb_list_spaces`、`kb_search`、`kb_list_documents` 和 `kb_budget` 四个只读工具。
+MCP 工具不能传入用户 ID，身份只能由服务端的 `KB_MCP_USER_ID` 决定；导入、删除、
+成员管理和目录绑定仍必须走飞书确认流程。
 
 ## 启动
 
@@ -104,6 +139,78 @@ TELE_BOT_QUARANTINE_ROOT=/srv/telebot/tele_bot-quarantine
 ```
 
 Ubuntu 隔离目录需要由运行 telebot 的用户拥有写权限。Codex 进程使用固定工作区、`shell=False`、超时和输出上限；MCP 接入必须复用同一套工作区策略，不能绕过确认层。
+
+## 项目知识库 MVP
+
+知识库项目空间与飞书 chat 相互独立；创建者自动成为空间管理员。任何读取都同时
+校验当前 chat 绑定的空间和提问者成员资格，不支持跨空间全局搜索。只有在飞书配置
+文件 `tele_bot/config/feishu/local.env` 的 `KB_CREATOR_USER_IDS` 中列出的用户可以
+创建空间；空间可绑定到多个群聊或私聊，每个
+会话同一时间只绑定一个空间。管理员使用以下显式命令：
+
+```text
+/kb whoami
+/kb create [空间名]
+/kb spaces
+/kb use <空间ID或名称>
+/kb bind <允许导入的目录>
+/kb import <文件、目录或模糊目录描述>
+/kb import-doc <飞书 docx 链接>
+/kb add-member <user_id> [member|admin]
+/kb delete <完整文档 ID>
+```
+
+成员可使用 `/kb search <问题>`、`/kb list` 和 `/kb budget`。绑定目录、导入、成员
+变更和删除都会先返回确认卡片；确认令牌绑定原 chat、用户和短期操作，仍可回复
+“确认”或“取消”作为兼容回退。飞书上传的文件同样先确认再入库。
+
+`/kb spaces` 列出当前用户有权读取的空间；用户可在另一个群聊或私聊中通过
+`/kb use <空间ID或名称>` 将该会话绑定到同一空间。绑定不会自动授权群内其他用户，
+每个提问者仍必须是该空间成员。在 `tele_bot/config/feishu/local.env` 中配置创建权限：
+
+```env
+KB_CREATOR_USER_IDS=u_123456,ou_abcdef
+```
+
+可先发送 `/kb whoami` 查看应写入白名单的飞书用户标识，修改配置后需重启服务。
+
+`/kb import` 可以接收精确文件、精确目录，也可以接收目录层级线索，例如：
+
+```text
+/kb import 将 files_data 目录下的 Job 目录下的八股目录里的文档全部导入
+```
+
+模糊解析只搜索当前空间已绑定目录；唯一匹配后递归收集支持格式并展示确认清单。
+存在多个匹配目录时不会猜测，必须补充更精确的目录名或路径。单次最多导入 200 个
+文件，隐藏目录、Git 元数据、依赖目录和非白名单文件会跳过。
+
+支持 Markdown、TXT、PDF 和 DOCX；压缩包、可执行文件和未知二进制会拒绝。图片只
+归档事件元数据并明确提示“一期不支持 OCR”，不会传给 Embedding API。文件必须在
+管理员绑定且同时通过 `WorkspacePolicy` 的目录内，默认单空间最多 10,000 个分块。
+
+知识库向量由百炼 OpenAI 兼容 `/embeddings` 接口生成，默认模型
+`text-embedding-v4`、1024 维。文档分块和查询文本会发送给百炼；聊天模型凭据与
+Embedding 凭据相互独立。请在 `tele_bot/config/llm/local.env` 配置：
+
+```env
+ALIBAILIAN_EMBEDDING_API_KEY=
+ALIBAILIAN_EMBEDDING_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+ALIBAILIAN_EMBEDDING_MODEL=text-embedding-v4
+ALIBAILIAN_EMBEDDING_DIMENSIONS=1024
+ALIBAILIAN_EMBEDDING_DAILY_TOKEN_BUDGET=1000000
+ALIBAILIAN_EMBEDDING_DAILY_COST_BUDGET_CNY=1.0
+KB_SQLITE_PATH=data/knowledge.sqlite
+KB_MAX_CHUNKS_PER_SPACE=10000
+```
+
+系统按文档和分块 SHA-256 去重，未变化内容不会再次请求 Embedding；达到每日 token
+或金额预算后，索引作业暂停并保留失败原因。估算金额默认按 ￥0.00025/千 token
+记录，仅用于本地预算门，实际费用以百炼所在区域、业务空间和账单为准。
+
+飞书应用至少需要消息读取/发送、消息资源下载以及云文档只读权限。遵循最小权限，
+云文档不会自动同步，仅管理员显式导入 `/docx/` 链接时读取一次。备份或恢复时同时
+处理会话 SQLite 与 `KB_SQLITE_PATH`；数据库启用 WAL，复制前应先停止服务或使用
+SQLite 在线备份。
 
 ## 测试
 

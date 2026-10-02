@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 
 from tele_bot.agents.feishu_streaming import FeishuProgressReporter
 from tele_bot.channels.feishu import FeishuWebhookAdapter
+from tele_bot.models import AttachmentDescriptor, CardAction, InteractiveCard, MessageType
 
 
 class FakeFeishuAdapter:
@@ -61,6 +62,50 @@ class FeishuWebhookAdapterTests(unittest.TestCase):
         self.assertEqual(incoming.user_id, "ou_1")
         self.assertEqual(incoming.chat_id, "oc_1")
         self.assertEqual(incoming.text, "hello")
+
+    def test_parse_file_and_image_metadata(self) -> None:
+        adapter = FeishuWebhookAdapter(app_id="app", app_secret="secret")
+        base = {
+            "header": {"event_type": "im.message.receive_v1"},
+            "event": {
+                "sender": {"sender_id": {"open_id": "ou_1"}},
+                "message": {
+                    "message_id": "om_1",
+                    "chat_id": "oc_1",
+                    "chat_type": "p2p",
+                    "message_type": "file",
+                    "content": json.dumps(
+                        {"file_key": "file_1", "file_name": "notes.md", "file_size": 12}
+                    ),
+                },
+            },
+        }
+        incoming = adapter.parse_incoming(base)
+        self.assertEqual(incoming.message_id, "om_1")
+        self.assertEqual(incoming.message_type, MessageType.FILE)
+        self.assertEqual(incoming.attachments[0].name, "notes.md")
+        self.assertEqual(incoming.attachments[0].size_bytes, 12)
+
+        base["event"]["message"]["message_type"] = "image"
+        base["event"]["message"]["content"] = json.dumps({"image_key": "img_1"})
+        incoming = adapter.parse_incoming(base)
+        self.assertEqual(incoming.message_type, MessageType.IMAGE)
+        self.assertIn("不支持 OCR", incoming.text)
+
+    def test_parse_card_action_callback(self) -> None:
+        adapter = FeishuWebhookAdapter(app_id="app", app_secret="secret")
+        incoming = adapter.parse_incoming(
+            {
+                "header": {"event_type": "card.action.trigger"},
+                "event": {
+                    "operator": {"operator_id": {"open_id": "ou_1"}},
+                    "context": {"open_chat_id": "oc_1", "open_message_id": "om_card"},
+                    "action": {"tag": "button", "value": {"action_id": "kb_confirm", "value": "token"}},
+                },
+            }
+        )
+        self.assertEqual(incoming.message_type, MessageType.INTERACTIVE)
+        self.assertEqual(incoming.card_action.value, "token")
 
     def test_parse_message_without_chat_id_is_ignored(self) -> None:
         adapter = FeishuWebhookAdapter(app_id="app", app_secret="secret")
@@ -165,6 +210,56 @@ class FeishuWebhookAdapterTests(unittest.TestCase):
             file_path.write_bytes(b"x" * (30 * 1024 * 1024 + 1))
             with self.assertRaisesRegex(ValueError, "30 MB"):
                 adapter.upload_file(file_path)
+
+    def test_build_card_exposes_only_fixed_fields(self) -> None:
+        card = InteractiveCard(
+            title="确认导入",
+            body="将导入 2 个文档",
+            status="pending",
+            actions=(CardAction("confirm", "确认", "token"),),
+            metadata={"raw_elements": [{"tag": "img"}]},
+        )
+        payload = FeishuWebhookAdapter.build_card(card)
+        self.assertEqual(payload["header"]["template"], "orange")
+        self.assertNotIn("raw_elements", json.dumps(payload))
+        self.assertEqual(
+            payload["elements"][1]["actions"][0]["value"]["action_id"],
+            "confirm",
+        )
+
+    @patch("tele_bot.channels.feishu.httpx.get")
+    def test_download_attachment_uses_message_resource_endpoint(self, get) -> None:
+        adapter = FeishuWebhookAdapter(app_id="app", app_secret="secret")
+        adapter._access_token = "token"
+        adapter._token_expires_at = 9999999999
+        response = Mock()
+        response.is_success = True
+        response.content = b"hello"
+        get.return_value = response
+
+        content = adapter.download_attachment(
+            "om_1", AttachmentDescriptor(MessageType.FILE, "file_1", "note.txt")
+        )
+        self.assertEqual(content, b"hello")
+        self.assertIn("/om_1/resources/file_1", get.call_args.args[0])
+
+    @patch("tele_bot.channels.feishu.httpx.post")
+    def test_token_refresh_is_serialized(self, post) -> None:
+        import concurrent.futures
+
+        adapter = FeishuWebhookAdapter(app_id="app", app_secret="secret")
+        response = Mock()
+        response.json.return_value = {
+            "code": 0,
+            "tenant_access_token": "token",
+            "expire": 7200,
+        }
+        response.raise_for_status.return_value = None
+        post.return_value = response
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            tokens = list(pool.map(lambda _: adapter._get_access_token(), range(8)))
+        self.assertEqual(tokens, ["token"] * 8)
+        self.assertEqual(post.call_count, 1)
 
 
 if __name__ == "__main__":

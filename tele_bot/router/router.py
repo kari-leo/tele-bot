@@ -158,7 +158,17 @@ class Router:
             )
 
         if search_requested:
-            return self._build_decision(skill_name="search_report", model=self.config.default_model, reason="search_required_workflow")
+            skill = self.skill_registry.get("chat")
+            return RouterDecision(
+                skill_name=skill.name,
+                workflow_name=skill.default_workflow.value,
+                mode=skill.mode,
+                model=self.config.default_model,
+                allow_markdown=False,
+                save_markdown=False,
+                required_capabilities=skill.capabilities + (Capability.SEARCH_WEB,),
+                reason="search_required_chat",
+            )
 
         if state.mode.value == "markdown" and state.report_paths:
             return self._build_decision(skill_name="chat", model=self.config.default_model, reason="reset_after_markdown")

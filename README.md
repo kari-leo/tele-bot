@@ -22,13 +22,11 @@ tele_bot/persistence/             SQLite 会话检查点
 - `tele_bot/config/feishu/local.env`
 - `tele_bot/config/llm/local.env`
 
-飞书配置至少包含：
+飞书基础配置：
 
 ```env
 FEISHU_APP_ID=cli_xxx
 FEISHU_APP_SECRET=xxx
-FEISHU_VERIFICATION_TOKEN=xxx
-FEISHU_ENCRYPT_KEY=xxx
 FEISHU_WEBHOOK_HOST=127.0.0.1
 FEISHU_WEBHOOK_PORT=3000
 FEISHU_WEBHOOK_PATH=/feishu/webhook
@@ -46,6 +44,9 @@ KB_CREATOR_USER_IDS=u_123456,ou_abcdef
 ```env
 KB_MCP_USER_ID=ou_xxx
 ```
+
+`FEISHU_VERIFICATION_TOKEN` 与 `FEISHU_ENCRYPT_KEY` 是原有的可选回调安全配置，
+定时任务不要求新增或启用它们。
 
 启动命令：
 
@@ -96,14 +97,14 @@ GET /health
 - 报告写入及可选 Git 推送确认流程
 - 受限 Shell 执行
 - SQLite 会话状态持久化
-- 受控 Codex CLI（仅显式 `/codex` 命令触发）
+- 受控 Codex CLI（显式 `/codex` 命令或已确认的定时任务触发）
 - 经确认的文件覆盖和隔离删除
 
 文件发送受允许目录、文件名长度和 30 MB 大小限制保护；工具不会向用户返回文件 key、会话 ID 或底层 API 响应。
 
 ## Codex 和文件变更安全边界
 
-Codex 不会被普通自然语言或 Agent 自动调用。只有明确的命令才会进入 Codex 流程：
+即时 Codex 请求可使用明确命令；定时 Codex 请求须创建任务并确认执行权限：
 
 ```text
 /codex inspect <任务>
@@ -115,6 +116,18 @@ Codex 按飞书 chat 维护短期上下文：plan 的结果会随确认令牌传
 `/codex inspect`、`/codex plan` 或直接 `/codex apply <任务>` 会继承最近一次工作区和
 Codex 结果。可在 `local.env` 中用 `TELE_BOT_CODEX_WORKSPACE_ROOT` 指定不带目录时的
 默认项目目录；显式写在命令中的目录优先级更高。
+`TELE_BOT_CODEX_MODEL` 默认使用经当前 ChatGPT 登录和 Codex CLI 0.160.0
+只读验证可用的 `gpt-6.1-sol`，并显式传给 Codex CLI；换账号后应按该账号
+实际可用模型调整。
+在 `tele_bot/config/llm/local.env` 中修改 `TELE_BOT_CODEX_MODEL` 后重启服务，
+新调用会使用指定模型。`TELE_BOT_CODEX_TIMEOUT` 默认 1200 秒，配置更大值也会
+限制在 20 分钟以内；定时执行的外层子进程同样最多运行 20 分钟。
+按任务指定或修改模型、跨多轮共享 20 分钟预算的编排方案见
+[Codex Task Orchestrator 设计文档](CODEX_TASK_ORCHESTRATOR.md)；当前即时命令仍按全局模型配置执行。
+若执行结果提示 `model is not supported when using Codex with a ChatGPT account`，
+应检查 CLI 版本、登录账号和模型可用性；`Reconnecting`、`request timed out` 表示连接重试，
+需单独检查网络。本机升级到 Codex CLI 0.160.0 后，`gpt-6.1-sol` 的只读验证
+在 WebSocket 超时并回退 HTTPS 后成功完成。
 
 Windows 未配置时，Codex 默认工作目录为 `D:\files_data\`。自然语言中的模糊目录不会
 被正则直接猜测；系统会在允许根目录内寻找候选，出现多个候选时先要求用户选择。
@@ -212,10 +225,63 @@ KB_MAX_CHUNKS_PER_SPACE=10000
 处理会话 SQLite 与 `KB_SQLITE_PATH`；数据库启用 WAL，复制前应先停止服务或使用
 SQLite 在线备份。
 
-## 测试
+## 定时触发（飞书）
 
-```powershell
-& 'D:\Anaconda3\envs\telebot\python.exe' -m pytest -q
+飞书消息可以用自然语言或 `/schedule` 命令管理任务，沿用现有飞书配置；
+`FEISHU_VERIFICATION_TOKEN` 仍是原有的可选回调校验配置，定时功能不依赖它。
+`/api/messages` 没有可信的用户认证，不开放定时任务管理。
+普通 Agent 将定时请求交给进程内的 `schedule_manage` MCP tool；MCP 工具只读取
+当前飞书消息和可信会话身份，再调用原有 `ScheduleService` 完成解析、确认和校验。
+时间更正与确认回复也走同一工具。模型不能替换消息正文或提交用户身份。
+定时任务数据库默认是 `data/scheduled.sqlite`，可用 `TELE_BOT_SCHEDULE_DB`
+改路径。服务启动时运行一个扫描线程和一个串行执行线程；执行时最多再启动一个
+受 1200 秒超时约束的子进程。多个服务进程共享数据库时，文件锁只允许一个调度器工作。
+
+```text
+/schedule list
+/schedule get <任务 ID>
+/schedule history <任务 ID>
+/schedule delete <任务 ID>
+/schedule create {"content":"提醒检查报告","at":"2026-10-10T19:00:00+08:00","rule":{"kind":"once"},"mode":"remind"}
+/schedule create {"content":"用 Codex 调用 autumn-recruitment-tracker skill 更新机器人/具身智能产品经理岗位，并将新增和修改项分别列成表格","at":"2026-10-10T14:00:00+08:00","rule":{"kind":"once"},"mode":"auto","scope":{"tools":["codex_apply"],"directories":["D:/files_data/Job/Job_workspace"]}}
 ```
 
-当前测试中若出现旧测试与新版 Agent 接口不一致、Linux 固定路径或缺少 chat_id 上下文等失败，应按对应测试和运行环境单独处理。
+`create` 也接受 JSON 数组，一次提交多条任务。`update` 接受同样的对象，增加
+`task_id` 字段。创建、修改、删除先返回摘要和 15 分钟确认令牌，再回复
+`确认 <令牌>`；预授权自动执行需要回复 `确认预授权 <令牌>`。同一会话只有一个
+待处理项时可直接回复“确认”。查询不需要确认。到期且需要逐次确认时，回复
+`授权 <执行 ID>` 或 `拒绝 <执行 ID>`；默认授权有效期为 15 分钟。
+
+周期规则支持 `once`、`daily`、`weekly`；`weekly` 的 `weekdays` 使用 0=周一
+到 6=周日，可附加 `interval`、计划触发 `count` 和带时区的 `until`。首次时间必须
+带时区。错过计划时间默认 5 分钟后跳过；`missed_policy` 可设为 `skip`、
+`run_once` 或 `ask`。关机期间遗漏多个周期时，历史记录逐次标记跳过，至多
+补执行或申请授权一次。单次任务结束后移出活跃列表，历史仍可查询。
+发送失败的提醒、授权申请和执行结果会留在数据库通知队列，网络恢复后重试。
+飞书 Agent 会显示思考和 `schedule_manage` 工具调用进度；到点执行时先通知入队，再通知开始执行，
+完成后发送结果。口语中的“四点半点”按“四点半”解析；时间已过时需要重新指定未来时刻。
+若自然语言请求因时间已过而未创建，15 分钟内在同一聊天回复“改成五点四十五”
+或直接回复“五点四十五”，会由 Agent 调用同一 MCP 工具，沿用原任务内容重新解析，
+并再次显示待确认摘要。
+
+当前自动执行工具白名单为 `opencli_search`、`filesystem_list_dir`、
+`filesystem_read_file`、`write_report`、`codex_apply`。文件工具必须明确指定 `scope.directories`，
+执行端只装载获准工具，并再次限制文件访问目录。`write_report` 仅在授权的第一个
+目录新建 Markdown，不修改已有文件。`codex_apply` 需要单独授权一个工作区，
+可在该工作区让 Codex 调用用户指定的 skill 并修改文件。`schedule_manage` MCP 工具
+仅管理任务，定时执行子进程不能调用任意 MCP 或 Shell 工具；涉及这些操作的请求会在创建时拒绝。创建确认与执行授权
+分开，原有操作级限制仍然有效。重要事件统一写入同一数据库的 `events` 表。
+
+## 测试
+
+统一入口为 `run_tests.py`。不传模块名时运行全部测试；可指定
+`schedule`、`codex`、`feishu`、`knowledge`、`tools` 或 `core`。
+其他参数会直接传给 pytest，例如 `-k model`。`--list` 列出每个模块包含的文件。
+
+```powershell
+$py = 'D:\Anaconda3\envs\telebot\python.exe'
+& $py .\run_tests.py schedule
+& $py .\run_tests.py codex -k model
+& $py .\run_tests.py --list
+& $py .\run_tests.py all
+```

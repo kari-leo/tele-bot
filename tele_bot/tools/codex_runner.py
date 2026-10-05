@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import subprocess
 from dataclasses import dataclass
@@ -11,6 +12,8 @@ from pathlib import Path
 from tele_bot.tools.workspace_policy import WorkspacePolicy
 
 _DEFAULT_CODEX_WORKSPACE = Path("D:/files_data")
+_DEFAULT_CODEX_MODEL = "gpt-6.1-sol"
+MAX_CODEX_TIMEOUT_SECONDS = 20 * 60
 
 
 def _local_env_values() -> dict[str, str]:
@@ -44,12 +47,28 @@ class CodexResult:
     truncated: bool
 
 
+def codex_failure_message(result: CodexResult) -> str:
+    """Return the actionable error instead of forwarding noisy CLI retries."""
+    details = result.stderr or result.stdout or "Codex 未返回错误信息。"
+    unsupported = re.search(
+        r"The '([^']+)' model is not supported when using Codex with a ChatGPT account",
+        details,
+    )
+    if unsupported:
+        return (f"当前 Codex CLI 登录会话无法使用模型 {unsupported.group(1)}。"
+                "请检查 CLI 版本、登录账号和模型可用性，或调整 TELE_BOT_CODEX_MODEL 后重试。")
+    if "request timed out" in details.lower() or "connection timed out" in details.lower():
+        return "连接 Codex 服务超时。请检查网络后重试。"
+    return details[-2000:]
+
+
 @dataclass(frozen=True)
 class CodexRunner:
     policy: WorkspacePolicy
     default_workspace: Path | None = None
     command: str = "codex"
-    timeout_seconds: int = 600
+    model: str = _DEFAULT_CODEX_MODEL
+    timeout_seconds: int = MAX_CODEX_TIMEOUT_SECONDS
     skip_git_repo_check: bool = False
     max_output_chars: int = 20_000
 
@@ -60,7 +79,10 @@ class CodexRunner:
             "TELE_BOT_CODEX_COMMAND", "codex"
         )
         timeout = os.environ.get("TELE_BOT_CODEX_TIMEOUT") or local_values.get(
-            "TELE_BOT_CODEX_TIMEOUT", "600"
+            "TELE_BOT_CODEX_TIMEOUT", str(MAX_CODEX_TIMEOUT_SECONDS)
+        )
+        model = os.environ.get("TELE_BOT_CODEX_MODEL") or local_values.get(
+            "TELE_BOT_CODEX_MODEL", _DEFAULT_CODEX_MODEL
         )
         skip_git_repo_check = os.environ.get("TELE_BOT_CODEX_SKIP_GIT_REPO_CHECK")
         if skip_git_repo_check is None:
@@ -87,7 +109,8 @@ class CodexRunner:
             policy=policy,
             default_workspace=default_workspace,
             command=command.strip() or "codex",
-            timeout_seconds=max(1, int(timeout)),
+            model=model.strip() or _DEFAULT_CODEX_MODEL,
+            timeout_seconds=max(1, min(int(timeout), MAX_CODEX_TIMEOUT_SECONDS)),
             skip_git_repo_check=_parse_bool(skip_git_repo_check, default=True),
         )
 
@@ -108,6 +131,7 @@ class CodexRunner:
 
         command = self._command_args(normalized_mode, prompt)
         environment = self._safe_environment()
+        timeout_seconds = max(1, min(self.timeout_seconds, MAX_CODEX_TIMEOUT_SECONDS))
         try:
             completed = subprocess.run(
                 command,
@@ -117,12 +141,12 @@ class CodexRunner:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                timeout=self.timeout_seconds,
+                timeout=timeout_seconds,
                 check=False,
                 shell=False,
             )
         except subprocess.TimeoutExpired as exc:
-            raise RuntimeError(f"Codex timed out after {self.timeout_seconds}s") from exc
+            raise RuntimeError(f"Codex timed out after {timeout_seconds}s") from exc
         except FileNotFoundError as exc:
             raise RuntimeError(f"Codex executable not found: {self.command}") from exc
 
@@ -143,7 +167,7 @@ class CodexRunner:
             raise ValueError("TELE_BOT_CODEX_COMMAND is empty")
         # Codex is always invoked in non-interactive exec mode. The application
         # decides whether a mode is authorized before this process is started.
-        args = [*executable, "exec"]
+        args = [*executable, "exec", "--model", self.model]
         if mode in {"inspect", "plan"}:
             args.extend(["--sandbox", "read-only"])
         else:

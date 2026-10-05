@@ -68,6 +68,9 @@ class MessageServiceTests(unittest.TestCase):
                 self.calls += 1
                 return message
 
+        class Adapter:
+            name = "feishu"
+
         runner = FakeRunner()
         agent = FakeAgent()
         codex = CodexCommandService(runner)
@@ -77,13 +80,18 @@ class MessageServiceTests(unittest.TestCase):
             workspace_hint="D:/files_data",
         )
 
-        response = MessageService(agent_core=agent, codex_service=codex).handle(
-            IncomingMessage("feishu", "7", "99", "确认")
-        )
+        with patch("tele_bot.service.FeishuProgressReporter") as reporter_type:
+            response = MessageService(
+                agent_core=agent, feishu_adapter=Adapter(), streaming_enabled=True,
+                codex_service=codex,
+            ).handle(IncomingMessage("feishu", "7", "99", "确认"))
 
         self.assertIn("Codex apply 完成", response.text)
         self.assertEqual(agent.calls, 0)
         self.assertEqual(len(runner.calls), 1)
+        reporter_type.return_value.start.assert_called_once_with()
+        reporter_type.return_value.finish.assert_called_once_with(response.text)
+        self.assertTrue(response.already_sent)
 
 
 if __name__ == "__main__":

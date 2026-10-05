@@ -7,6 +7,7 @@ ChatOpenAI via llm.bind_tools().
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from contextvars import ContextVar
@@ -15,6 +16,7 @@ from typing import Any
 
 from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
+from mcp import Client
 
 try:
     from langchain_core.runnables import ensure_config
@@ -33,7 +35,10 @@ from tele_bot.tools.opencli_search import OpenCLISearchTool
 from tele_bot.tools.shell_sandbox import ShellSandboxTool
 from tele_bot.tools.write_report import WriteReportTool
 from tele_bot.channels.feishu import FeishuWebhookAdapter
+from tele_bot.mcp.schedule import create_schedule_server
+from tele_bot.models import IncomingMessage
 from tele_bot.router.codex_service import CodexCommandService
+from tele_bot.scheduled.service import ScheduleService
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _WINDBORNE_POSTS = Path(
@@ -49,6 +54,10 @@ _KNOWLEDGE_ALLOWED_ROOTS: tuple[Path, ...] = (
     Path("/tmp"),
 )
 CURRENT_CHAT_ID: ContextVar[str | None] = ContextVar("current_chat_id", default=None)
+CURRENT_SCHEDULE_ALLOWED: ContextVar[bool] = ContextVar("current_schedule_allowed", default=False)
+CURRENT_SCHEDULE_MESSAGE: ContextVar[IncomingMessage | None] = ContextVar(
+    "current_schedule_message", default=None
+)
 
 
 def _chat_id_from_config(config: RunnableConfig | None) -> str:
@@ -202,6 +211,7 @@ def build_core_tools(
     include_domain_hotspot: bool = False,
     feishu_adapter: FeishuWebhookAdapter | None = None,
     codex_service: CodexCommandService | None = None,
+    schedule_service: ScheduleService | None = None,
 ) -> list:
     """
     Return the FULL Phase 0-Core tool set covering all 7 legacy workflows
@@ -347,6 +357,37 @@ def build_core_tools(
         return request_result
 
     tools = base + [opencli_search, knowledge_restore, write_report]
+
+    if schedule_service is not None:
+        @tool
+        def schedule_manage() -> str:
+            """Call the schedule MCP tool for the current user's message.
+
+            Use for future reminders or execution, scheduled Codex/skill work,
+            scheduling queries or changes, time corrections, and schedule
+            confirmation or authorization replies. This tool reads the exact
+            authenticated user message; it takes no model-supplied arguments.
+            Never claim scheduling is unavailable before calling this tool.
+            Do not call Codex immediately when the user requested a future run.
+            """
+            if not CURRENT_SCHEDULE_ALLOWED.get():
+                return json.dumps({"handled": True, "text":
+                    "此入口未校验调用者身份，暂不开放定时任务管理；请从飞书发送。"},
+                    ensure_ascii=False)
+            message = CURRENT_SCHEDULE_MESSAGE.get()
+            if message is None:
+                raise RuntimeError("当前消息上下文缺失，无法调用定时 MCP 工具。")
+
+            async def call_mcp() -> str:
+                async with Client(create_schedule_server(schedule_service, message)) as client:
+                    result = await client.call_tool("schedule_manage", {})
+                    if result.is_error or not result.content:
+                        raise RuntimeError("定时 MCP 工具调用失败。")
+                    return str(result.content[0].text)
+
+            return asyncio.run(call_mcp())
+
+        tools.append(schedule_manage)
 
     if codex_service is not None:
         @tool

@@ -38,13 +38,29 @@ class CodexRunnerTests(unittest.TestCase):
             Path("D:/files_data/Job/Job_workspace").resolve(),
         )
 
-    def test_from_env_defaults_codex_workspace_to_files_data(self) -> None:
+    def test_from_env_defaults_workspace_model_and_git_check(self) -> None:
         with patch(
             "tele_bot.tools.codex_runner._local_env_values", return_value={}
         ), patch.dict(os.environ, {}, clear=True):
             runner = CodexRunner.from_env()
 
         self.assertEqual(runner.default_workspace, Path("D:/files_data"))
+        self.assertEqual(runner.timeout_seconds, 1200)
+        self.assertTrue(runner.skip_git_repo_check)
+        args = runner._command_args("apply", "检查")
+        self.assertEqual(args[args.index("--model") + 1], "gpt-6.1-sol")
+
+    def test_model_setting_and_timeout_ceiling_are_applied(self) -> None:
+        with patch("tele_bot.tools.codex_runner._local_env_values", return_value={
+            "TELE_BOT_CODEX_MODEL": "gpt-6-astra",
+            "TELE_BOT_CODEX_TIMEOUT": "3600",
+        }), patch.dict(os.environ, {}, clear=True):
+            runner = CodexRunner.from_env()
+
+        self.assertEqual(runner.model, "gpt-6-astra")
+        self.assertEqual(runner.timeout_seconds, 1200)
+        args = runner._command_args("apply", "检查")
+        self.assertEqual(args[args.index("--model") + 1], "gpt-6-astra")
 
     def test_skip_git_repo_check_is_configurable(self) -> None:
         with patch(
@@ -58,14 +74,6 @@ class CodexRunnerTests(unittest.TestCase):
             "--skip-git-repo-check",
             runner._command_args("plan", "检查"),
         )
-
-    def test_skip_git_repo_check_defaults_to_true(self) -> None:
-        with patch(
-            "tele_bot.tools.codex_runner._local_env_values", return_value={}
-        ), patch.dict(os.environ, {}, clear=True):
-            runner = CodexRunner.from_env()
-
-        self.assertTrue(runner.skip_git_repo_check)
 
     def test_windows_prompt_requires_explicit_utf8_file_encoding(self) -> None:
         prompt = CodexRunner._prepare_prompt("读取 skill")
@@ -108,6 +116,22 @@ class CodexRunnerTests(unittest.TestCase):
             self.assertFalse(run.call_args.kwargs["shell"])
             self.assertEqual(run.call_args.args[0][:2], ["codex", "exec"])
             self.assertIn("--sandbox", run.call_args.args[0])
+            self.assertEqual(run.call_args.kwargs["timeout"], 1200)
+
+    def test_direct_runner_cannot_exceed_twenty_minutes(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "workspace"
+            quarantine = Path(temp_dir) / "quarantine"
+            root.mkdir()
+            policy = WorkspacePolicy(
+                allowed_roots=(root, quarantine), workspace_root=root,
+                quarantine_root=quarantine,
+            )
+            runner = CodexRunner(policy=policy, timeout_seconds=3600)
+            completed = type("Completed", (), {"returncode": 0, "stdout": "ok", "stderr": ""})()
+            with patch("tele_bot.tools.codex_runner.subprocess.run", return_value=completed) as run:
+                runner.run("inspect", "检查")
+            self.assertEqual(run.call_args.kwargs["timeout"], 1200)
 
     def test_runner_rejects_workspace_outside_root(self) -> None:
         with TemporaryDirectory() as temp_dir:

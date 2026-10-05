@@ -26,6 +26,9 @@ from tele_bot.knowledge.search import KnowledgeIndexer, KnowledgeSearch
 from tele_bot.models import IncomingMessage
 from tele_bot.persistence import KnowledgeStore, build_sqlite_saver
 from tele_bot.service import MessageService
+from tele_bot.scheduled.service import ScheduleParser, ScheduleService
+from tele_bot.scheduled.store import ScheduleStore
+from tele_bot.scheduled.worker import ScheduleWorker
 from tele_bot.skills import SkillLoader
 from tele_bot.tools.lc_adapters import build_core_tools
 from tele_bot.tools.codex_runner import CodexRunner
@@ -53,6 +56,7 @@ def _build_executor(
     sqlite_path: str,
     feishu_adapter: FeishuWebhookAdapter | None = None,
     codex_service: CodexCommandService | None = None,
+    schedule_service: ScheduleService | None = None,
 ) -> ReactAgentExecutor:
     llm = build_chat_openai(
         api_key=llm_settings.api_key,
@@ -84,6 +88,7 @@ def _build_executor(
         include_domain_hotspot=True,
         feishu_adapter=feishu_adapter,
         codex_service=codex_service,
+        schedule_service=schedule_service,
     )
     system_prompt = SkillLoader().build_system_prompt()
     saver = build_sqlite_saver(sqlite_path)
@@ -123,12 +128,27 @@ feishu_adapter = (
 )
 
 try:
+    schedule_store = ScheduleStore(os.environ.get("TELE_BOT_SCHEDULE_DB", "data/scheduled.sqlite"))
+    schedule_parser = ScheduleParser(build_chat_openai(
+        api_key=llm_settings.api_key,
+        base_url=llm_settings.base_url,
+        model=llm_settings.model,
+        temperature=0,
+        timeout=llm_settings.timeout_seconds,
+    ))
+    schedule_service = ScheduleService(schedule_store, schedule_parser)
+    schedule_worker = ScheduleWorker(schedule_store, feishu_adapter.send_text if feishu_adapter else None)
+except (sqlite3.DatabaseError, OSError, ValueError) as exc:
+    _fatal("scheduled-tasks", str(exc))
+
+try:
     codex_service = CodexCommandService(CodexRunner.from_env())
     executor = _build_executor(
         llm_settings,
         runtime_settings.sqlite_checkpoint_path,
         feishu_adapter=feishu_adapter,
         codex_service=codex_service,
+        schedule_service=schedule_service if feishu_adapter is not None else None,
     )
 except sqlite3.DatabaseError as exc:
     _fatal(
@@ -178,6 +198,18 @@ message_service = MessageService(
  )
 
 app = FastAPI(title="tele_bot", version="0.1.0")
+
+
+@app.on_event("startup")
+def start_schedule_worker() -> None:
+    schedule_worker.start()
+
+
+@app.on_event("shutdown")
+def stop_schedule_worker() -> None:
+    schedule_worker.stop()
+
+
 _feishu_webhook_path = (
     feishu_settings.webhook_path if feishu_settings is not None else "/feishu/webhook"
 )
@@ -196,7 +228,7 @@ def handle_message(payload: dict) -> dict:
         chat_id=str(payload["chat_id"]),
         text=str(payload["text"]),
     )
-    response = message_service.handle(message)
+    response = message_service.handle(message, allow_schedule=False)
     return asdict(response)
 
 

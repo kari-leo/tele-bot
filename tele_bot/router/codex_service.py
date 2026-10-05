@@ -11,7 +11,7 @@ from pathlib import Path
 
 from tele_bot.models import IncomingMessage
 from tele_bot.router.codex_commands import CodexCommand, parse_codex_command
-from tele_bot.tools.codex_runner import CodexResult, CodexRunner
+from tele_bot.tools.codex_runner import CodexResult, CodexRunner, codex_failure_message
 from tele_bot.tools.workspace_resolver import WorkspaceResolver
 
 
@@ -120,6 +120,15 @@ class CodexCommandService:
             (chat_id, token), request = matches[0]
             del self._pending_apply[(chat_id, token)]
         return self._execute_apply_request(message.chat_id, request)
+
+    def has_pending_confirmation(self, message: IncomingMessage) -> bool:
+        if message.card_action is not None:
+            return message.card_action.action_id == "codex_confirm"
+        if message.text.strip().lower() not in {"确认", "确认执行", "yes", "y"}:
+            return False
+        with self._lock:
+            return any(chat_id == message.chat_id and request.user_id in {None, message.user_id}
+                       for (chat_id, _), request in self._pending_apply.items())
 
     def create_apply_request(
         self,
@@ -391,6 +400,6 @@ class CodexCommandService:
         ]
         if result.stdout.strip():
             parts.append(f"输出：\n{result.stdout.strip()}")
-        if result.returncode != 0 and result.stderr.strip():
-            parts.append(f"错误输出：\n{result.stderr.strip()}")
+        if result.returncode != 0:
+            parts.append(f"错误输出：\n{codex_failure_message(result)}")
         return "\n".join(parts)

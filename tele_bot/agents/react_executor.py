@@ -21,10 +21,12 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from uuid import uuid4
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from tele_bot.agents.reply_filter import filter_outbound_reply
+from tele_bot.agents.task_results import current_turn, incomplete_reply, message_text
 from tele_bot.models import IncomingMessage
 from tele_bot.router import InMemoryConversationStateStore
 from tele_bot.router.models import AgentMode
@@ -86,12 +88,14 @@ class ReactAgentExecutor:
         tool_result_summary: str | None = None
         chat_id_token = CURRENT_CHAT_ID.set(message.chat_id)
         schedule_message_token = CURRENT_SCHEDULE_MESSAGE.set(message)
+        request = HumanMessage(content=message.text, id=str(uuid4()))
+        messages = []
         try:
             result = self.graph.invoke(
-                {"messages": [HumanMessage(content=message.text)], "iterations": 0},
+                {"messages": [request], "iterations": 0},
                 config=config,
             )
-            messages = result.get("messages", [])
+            messages = current_turn(result.get("messages", []), request.id)
             final = self._final_text(messages)
             schedule_reply = self._schedule_tool_reply(messages, message.text)
             if schedule_reply is not None:
@@ -100,9 +104,17 @@ class ReactAgentExecutor:
             used_tool = tool_calls_seen > 0
             if used_tool:
                 tool_result_summary = f"tools called: {tool_calls_seen}"
-            reply_text = filter_outbound_reply(final) or "（无回复）"
+            reply_text = filter_outbound_reply(final) or incomplete_reply(messages)
         except Exception as exc:
-            reply_text = f"处理失败：{exc}"
+            try:
+                messages = current_turn(self.graph.get_state(config).values.get("messages", []), request.id)
+            except Exception:
+                pass
+            reply_text = incomplete_reply(messages, reason=f"处理失败：{exc}")
+            tool_calls_seen = self._count_tool_calls(messages)
+            used_tool = tool_calls_seen > 0
+            if used_tool:
+                tool_result_summary = f"tools called: {tool_calls_seen}"
         finally:
             CURRENT_SCHEDULE_MESSAGE.reset(schedule_message_token)
             CURRENT_CHAT_ID.reset(chat_id_token)
@@ -123,9 +135,7 @@ class ReactAgentExecutor:
     def _final_text(messages: list) -> str:
         for msg in reversed(messages):
             if isinstance(msg, AIMessage) and not getattr(msg, "tool_calls", None):
-                return msg.content or ""
-        if messages:
-            return getattr(messages[-1], "content", "") or ""
+                return message_text(msg.content)
         return ""
 
     @staticmethod

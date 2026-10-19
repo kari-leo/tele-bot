@@ -39,6 +39,11 @@ class ShellSandboxTool:
                 raise ValueError(f"command contains forbidden token: {token}")
 
         argv = shlex.split(normalized, posix=not is_windows_runtime())
+        if is_windows_runtime():
+            # Non-POSIX shlex preserves outer quotes along with backslashes.
+            # Strip only paired outer quotes before resolving Windows paths.
+            argv = [arg[1:-1] if len(arg) >= 2 and arg[0] == arg[-1]
+                    and arg[0] in ("'", '"') else arg for arg in argv]
         if not argv:
             raise ValueError("command is required")
 
@@ -103,13 +108,13 @@ class ShellSandboxTool:
 
         if command in ("cat", "type"):
             path = self._last_path_arg(args, cwd)
-            return self._powershell("Get-Content -LiteralPath $args[0]", path)
+            return self._powershell("Get-Content -Encoding UTF8 -LiteralPath $args[0]", path)
 
         if command == "head":
             count = self._line_count(args, default=10)
             path = self._last_path_arg(args, cwd)
             return self._powershell(
-                "Get-Content -LiteralPath $args[0] -TotalCount ([int]$args[1])",
+                "Get-Content -Encoding UTF8 -LiteralPath $args[0] -TotalCount ([int]$args[1])",
                 path,
                 str(count),
             )
@@ -118,7 +123,7 @@ class ShellSandboxTool:
             count = self._line_count(args, default=10)
             path = self._last_path_arg(args, cwd)
             return self._powershell(
-                "Get-Content -LiteralPath $args[0] -Tail ([int]$args[1])",
+                "Get-Content -Encoding UTF8 -LiteralPath $args[0] -Tail ([int]$args[1])",
                 path,
                 str(count),
             )
@@ -146,6 +151,7 @@ class ShellSandboxTool:
     def _powershell(script: str, *args: object) -> list[str]:
         for index, arg in enumerate(args):
             script = script.replace(f"$args[{index}]", ShellSandboxTool._ps_literal(str(arg)))
+        script = "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); " + script
         return [
             "powershell",
             "-NoProfile",

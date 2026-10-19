@@ -94,6 +94,7 @@ class ScheduleStore:
                   id TEXT PRIMARY KEY, task_id TEXT NOT NULL, run_id TEXT,
                   user_id TEXT NOT NULL, channel TEXT NOT NULL, chat_id TEXT NOT NULL,
                   body TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'generic',
+                  file_paths_json TEXT NOT NULL DEFAULT '[]',
                   status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
                   next_attempt_at TEXT NOT NULL, last_error TEXT,
                   created_at TEXT NOT NULL, sent_at TEXT
@@ -103,6 +104,8 @@ class ScheduleStore:
             columns = {row["name"] for row in db.execute("PRAGMA table_info(notifications)")}
             if "kind" not in columns:
                 db.execute("ALTER TABLE notifications ADD COLUMN kind TEXT NOT NULL DEFAULT 'generic'")
+            if "file_paths_json" not in columns:
+                db.execute("ALTER TABLE notifications ADD COLUMN file_paths_json TEXT NOT NULL DEFAULT '[]'")
 
     @contextmanager
     def _db(self) -> Iterator[sqlite3.Connection]:
@@ -124,19 +127,21 @@ class ScheduleStore:
         with self._db() as db:
             self._event(db, *args, **kwargs)
 
-    def enqueue_notification(self, task: dict, body: str, kind: str = "generic") -> dict:
+    def enqueue_notification(self, task: dict, body: str, kind: str = "generic",
+                             file_paths: tuple[str, ...] = ()) -> dict:
         notice = {
             "id": uuid4().hex[:16],
             "task_id": task.get("task_id") or task["id"],
             "run_id": task.get("run_id"),
             "user_id": task["owner_id"], "channel": task["channel"],
             "chat_id": task["chat_id"], "body": body, "kind": kind,
+            "file_paths_json": json.dumps(file_paths, ensure_ascii=False),
         }
         stamp = iso(now_utc())
         with self._db() as db:
-            db.execute("INSERT INTO notifications(id,task_id,run_id,user_id,channel,chat_id,body,kind,status,next_attempt_at,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            db.execute("INSERT INTO notifications(id,task_id,run_id,user_id,channel,chat_id,body,kind,file_paths_json,status,next_attempt_at,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                 (notice["id"], notice["task_id"], notice["run_id"], notice["user_id"],
-                 notice["channel"], notice["chat_id"], body, kind, "pending", stamp, stamp))
+                 notice["channel"], notice["chat_id"], body, kind, notice["file_paths_json"], "pending", stamp, stamp))
             self._event(db, "feedback_queued", notice["task_id"], notice["run_id"], notice["user_id"], "pending")
         return notice
 

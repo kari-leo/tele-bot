@@ -19,7 +19,7 @@ from tele_bot.channels.feishu import FeishuWebhookAdapter
 from tele_bot.config import AliBailianSettings, RuntimeSettings
 from tele_bot.config.paths import configure_runtime_root
 from tele_bot.config.feishu import FeishuSettings
-from tele_bot.llm.react_client import build_chat_openai
+from tele_bot.llm.react_client import build_chat_openai, build_context_manager
 from tele_bot.llm.embeddings import AliBailianEmbeddingClient
 from tele_bot.knowledge.ingestion import DocumentParser
 from tele_bot.knowledge.search import KnowledgeIndexer, KnowledgeSearch
@@ -29,8 +29,10 @@ from tele_bot.service import MessageService
 from tele_bot.scheduled.service import ScheduleParser, ScheduleService
 from tele_bot.scheduled.store import ScheduleStore
 from tele_bot.scheduled.worker import ScheduleWorker
+from tele_bot.scheduled.delivery import send_scheduled_message
 from tele_bot.skills import SkillLoader
 from tele_bot.tools.lc_adapters import build_core_tools
+from tele_bot.tools.blog_publish import BlogPublishTool
 from tele_bot.tools.codex_runner import CodexRunner
 from tele_bot.router.codex_service import CodexCommandService
 from tele_bot.router.knowledge_service import KnowledgeCommandService
@@ -63,6 +65,7 @@ def _build_executor(
         base_url=llm_settings.base_url,
         model=llm_settings.model,
         temperature=0,
+        timeout=llm_settings.timeout_seconds,
     )
     posts_dir = Path(
         os.environ.get(
@@ -85,6 +88,7 @@ def _build_executor(
     tools = build_core_tools(
         include_adviser=True,
         include_blog_publish=include_blog,
+        blog_publish_tool=BlogPublishTool(posts_dir) if include_blog else None,
         include_domain_hotspot=True,
         feishu_adapter=feishu_adapter,
         codex_service=codex_service,
@@ -93,10 +97,11 @@ def _build_executor(
     system_prompt = SkillLoader().build_system_prompt()
     saver = build_sqlite_saver(sqlite_path)
     graph = build_react_graph(
-        llm.bind_tools(tools),
+        llm.bind_tools(tools, max_tokens=4096),
         tools,
         checkpointer=saver,
         system_prompt=system_prompt,
+        context_manager=build_context_manager(llm_settings, tools),
     )
     return ReactAgentExecutor(graph=graph, model_name=llm_settings.model)
 
@@ -137,7 +142,9 @@ try:
         timeout=llm_settings.timeout_seconds,
     ))
     schedule_service = ScheduleService(schedule_store, schedule_parser)
-    schedule_worker = ScheduleWorker(schedule_store, feishu_adapter.send_text if feishu_adapter else None)
+    schedule_worker = ScheduleWorker(schedule_store,
+                                    (lambda outgoing: send_scheduled_message(feishu_adapter, outgoing))
+                                    if feishu_adapter else None)
 except (sqlite3.DatabaseError, OSError, ValueError) as exc:
     _fatal("scheduled-tasks", str(exc))
 

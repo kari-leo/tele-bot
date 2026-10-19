@@ -12,12 +12,17 @@ Safety rules (enforced, not advisory):
 
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
+from threading import RLock
+from typing_extensions import NotRequired, TypedDict
 
-from tele_bot.tools.git_push import GitPushTool
+from tele_bot.tools.git_push import GitPushError, GitPushTool
+from tele_bot.tools.file_system import FileSystemTool
 
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9\-]{0,79}$")
 _FM_FIELD_RE = re.compile(r"^---\s*\n(.*?)\n---", re.DOTALL)
@@ -30,10 +35,20 @@ class BlogPublishError(Exception):
     pass
 
 
+class BlogSourceDocument(TypedDict):
+    source_path: str
+    slug: str
+    title: NotRequired[str]
+    description: NotRequired[str]
+    order: NotRequired[int]
+    published: NotRequired[str]
+
+
 @dataclass
 class BlogPublishTool:
     posts_dir: Path
     git_push_tool: GitPushTool | None = None
+    _publish_lock: RLock = field(default_factory=RLock, init=False, repr=False)
 
     def __post_init__(self) -> None:
         self.posts_dir = Path(self.posts_dir)
@@ -81,6 +96,140 @@ class BlogPublishTool:
         out_path.write_text(content.strip() + "\n", encoding="utf-8")
         return str(out_path)
 
+    def publish_from_file(
+        self, slug: str, source_path: str, *, title: str = "",
+        description: str = "", published: str = "", project: str = "",
+        order: int = 0, filesystem_tool: FileSystemTool | None = None,
+    ) -> str:
+        """Publish an allowed UTF-8 source without sending its body through the LLM.
+
+        Metadata replaces existing frontmatter; the Markdown body is verbatim.
+        A project document is attached to an existing project in the same site.
+        """
+        with self._publish_lock:
+            return self._publish_from_file(
+                slug, source_path, title=title, description=description, published=published,
+                project=project, order=order, filesystem_tool=filesystem_tool)
+
+    def _publish_from_file(self, slug, source_path, *, title, description, published,
+                           project, order, filesystem_tool) -> str:
+        self._validate_slug(slug)
+        source = (filesystem_tool or FileSystemTool()).resolve_file(source_path)
+        if source.stat().st_size > MAX_CONTENT_CHARS * 4:
+            raise BlogPublishError("source file is too large")
+        body = source.read_bytes().decode("utf-8-sig")
+        body = self._markdown_body(body)
+        if not body.strip():
+            raise BlogPublishError("source body is empty")
+        title = title.strip() or source.stem
+        def quote(value: str) -> str:
+            return json.dumps(value, ensure_ascii=False)
+        fields = [f"title: {quote(title)}", f"description: {quote(description)}"]
+        content_root = self.posts_dir.resolve().parent
+        if project:
+            self._validate_slug(project)
+            project_file = (content_root / "projects" / f"{project}.md").resolve()
+            if not project_file.is_relative_to(content_root / "projects") or not project_file.is_file():
+                raise BlogPublishError(f"project does not exist: {project}")
+            destination = (content_root / "projectDocuments" / project).resolve()
+            if not destination.is_relative_to(content_root):
+                raise BlogPublishError("project document destination is outside the content directory")
+            fields += [f"project: {quote(project)}", f"order: {int(order)}"]
+        else:
+            published = published or date.today().isoformat()
+            try:
+                date.fromisoformat(published)
+            except ValueError as exc:
+                raise BlogPublishError("published must be a valid YYYY-MM-DD date") from exc
+            if not _DATE_RE.fullmatch(published):
+                raise BlogPublishError("published must be YYYY-MM-DD")
+            if not description.strip():
+                raise BlogPublishError("description must not be empty for a post")
+            fields.append(f"published: {published}")
+            destination = self.posts_dir.resolve()
+        content = "---\n" + "\n".join(fields) + "\n---\n" + body
+        if len(content) > MAX_CONTENT_CHARS:
+            raise BlogPublishError(f"content exceeds {MAX_CONTENT_CHARS} chars")
+        destination.mkdir(parents=True, exist_ok=True)
+        out_path = (destination / f"{slug}.md").resolve()
+        if not out_path.is_relative_to(destination):
+            raise BlogPublishError("destination escapes the publishing directory")
+        # Reuse an already-published body even if the model invents another slug.
+        # This also works after restart and for files written by older versions.
+        candidates = sorted(destination.glob("*.md"))
+        if out_path.exists():
+            candidates = [out_path, *(path for path in candidates if path.resolve() != out_path)]
+        for path in candidates:
+            resolved = path.resolve()
+            if not resolved.is_relative_to(destination) or not resolved.is_file():
+                continue
+            if resolved.stat().st_size > MAX_CONTENT_CHARS * 4:
+                continue
+            try:
+                existing_body = self._markdown_body(resolved.read_bytes().decode("utf-8-sig"))
+            except UnicodeDecodeError:
+                continue
+            if existing_body == body:
+                return str(resolved)
+        try:
+            with out_path.open("x", encoding="utf-8", newline="") as stream:
+                stream.write(content)
+        except FileExistsError as exc:
+            raise BlogPublishError(f"slug already exists: {out_path}") from exc
+        return str(out_path)
+
+    @staticmethod
+    def _markdown_body(text: str) -> str:
+        frontmatter = re.match(r"\A---[ \t]*\r?\n.*?\r?\n---[ \t]*(?:\r?\n|\Z)", text, re.DOTALL)
+        return text[frontmatter.end():] if frontmatter else text
+
+    def publish_files(self, documents: list[BlogSourceDocument], *, project: str = "",
+                      filesystem_tool: FileSystemTool | None = None) -> dict:
+        """Prepare a complete batch, never relying on historical publication paths."""
+        receipt = {"status": "failed", "requested_count": len(documents),
+                   "written_count": 0, "pushed_count": 0, "files": []}
+        fs = filesystem_tool or FileSystemTool()
+        try:
+            if not 1 <= len(documents) <= 20:
+                raise BlogPublishError("batch requires 1–20 source documents")
+            # Validate all source locations before any document is written.
+            for document in documents:
+                self._validate_slug(document["slug"])
+                fs.resolve_file(document["source_path"])
+            if len({document["slug"] for document in documents}) != len(documents):
+                raise BlogPublishError("each batch document must have a unique slug")
+            with self._publish_lock:
+                for document in documents:
+                    path = self.publish_from_file(
+                        document["slug"], document["source_path"], project=project,
+                        title=document.get("title", ""), description=document.get("description", ""),
+                        order=document.get("order", 0), published=document.get("published", ""),
+                        filesystem_tool=fs)
+                    receipt["files"].append({"source_path": document["source_path"],
+                                             "path": path, "status": "written"})
+                    receipt["written_count"] += 1
+            if len({item["path"] for item in receipt["files"]}) != len(documents):
+                raise BlogPublishError("batch contains identical bodies that resolve to the same document")
+            receipt["status"] = "written"
+        except (BlogPublishError, ValueError, OSError, KeyError) as exc:
+            receipt["error"] = str(exc)
+        return receipt
+
+    def push_files(self, *, chat_id: str, file_paths: list[str], commit_message: str = "",
+                   remote: str = "origin", branch: str = "") -> str:
+        content_root = self.posts_dir.resolve().parent
+        roots = (self.posts_dir.resolve(), content_root / "projectDocuments")
+        paths = [Path(path).resolve() for path in file_paths]
+        if any(not any(path.is_relative_to(root) for root in roots) or path.suffix.lower() != ".md"
+               for path in paths):
+            raise BlogPublishError("only existing blog posts or projectDocuments Markdown files can be pushed")
+        try:
+            return self._git_push().push_files(
+                chat_id=chat_id, file_paths=[str(path) for path in paths],
+                commit_message=commit_message or None, remote=remote or None, branch=branch or None)
+        except GitPushError as exc:
+            raise GitPushError(f"{exc}\n博客文件：{', '.join(map(str, paths))}") from exc
+
     def request_push(
         self,
         *,
@@ -89,6 +238,7 @@ class BlogPublishTool:
         commit_message: str | None = None,
         remote: str | None = None,
         branch: str | None = None,
+        confirmation_tool: str = "blog_publish",
     ) -> str:
         return self._git_push().request_push(
             chat_id=chat_id,
@@ -96,6 +246,7 @@ class BlogPublishTool:
             commit_message=commit_message,
             remote=remote,
             branch=branch,
+            confirmation_tool=confirmation_tool,
         )
 
     def confirm_push(self, *, chat_id: str, confirm_token: str) -> str:
@@ -105,9 +256,10 @@ class BlogPublishTool:
         )
 
     def _git_push(self) -> GitPushTool:
-        if self.git_push_tool is None:
-            self.git_push_tool = GitPushTool(repo_root=self.posts_dir)
-        return self.git_push_tool
+        with self._publish_lock:
+            if self.git_push_tool is None:
+                self.git_push_tool = GitPushTool(repo_root=self.posts_dir.resolve().parent)
+            return self.git_push_tool
 
     # ------------------------------------------------------------------
     # internal helpers
@@ -146,9 +298,9 @@ class BlogPublishTool:
                 f"frontmatter missing required fields: {sorted(missing)}"
             )
 
-        for field in ("title", "description"):
-            if not fm_values.get(field):
-                raise BlogPublishError(f"frontmatter field '{field}' must not be empty")
+        for field_name in ("title", "description"):
+            if not fm_values.get(field_name):
+                raise BlogPublishError(f"frontmatter field '{field_name}' must not be empty")
 
         published = fm_values.get("published", "")
         if not published:
@@ -160,6 +312,6 @@ class BlogPublishTool:
 
     def _safe_path(self, slug: str) -> Path:
         resolved = (self.posts_dir / f"{slug}.md").resolve()
-        if not str(resolved).startswith(str(self.posts_dir.resolve())):
+        if not resolved.is_relative_to(self.posts_dir.resolve()):
             raise BlogPublishError(f"path traversal detected for slug {slug!r}")
         return resolved

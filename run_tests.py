@@ -20,9 +20,9 @@ GROUPS = {
     "core": (
         "test_agent.py", "test_alibailian_client.py", "test_executor.py",
         "test_router.py", "test_runtime_paths.py", "test_service.py",
-        "test_state_store.py",
+        "test_state_store.py", "test_react_graph.py", "test_context_manager.py",
     ),
-    "schedule": ("test_scheduled.py", "test_scheduled_execution.py", "test_mcp_schedule.py"),
+    "schedule": ("test_scheduled.py", "test_scheduled_execution.py", "test_scheduled_artifacts.py", "test_mcp_schedule.py"),
     "codex": ("test_codex_commands.py", "test_codex_runner.py", "test_codex_service.py"),
     "feishu": ("test_feishu_adapter.py",),
     "knowledge": (
@@ -32,7 +32,7 @@ GROUPS = {
         "test_project_space_permissions.py",
     ),
     "tools": (
-        "test_blog_publish_git_push_flow.py", "test_file_mutations.py",
+        "test_blog_publish_from_file.py", "test_blog_publish_git_push_flow.py", "test_file_mutations.py", "test_file_reading.py",
         "test_git_push_tool.py", "test_opencli_search_tool.py",
         "test_write_report_git_push_flow.py",
     ),

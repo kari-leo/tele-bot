@@ -171,6 +171,34 @@ class ScheduledTests(unittest.TestCase):
         worker.execute_one()
         self.assertTrue(any("开始执行" in item for item in notices))
 
+    def test_result_attachments_survive_delivery_failure_and_restart(self):
+        future = now_utc() + timedelta(hours=1)
+        report = Path(self.temp.name) / "changes.xlsx"
+        report.write_bytes(b"report")
+        task = spec(future, "auto", scope={"tools": ["codex_apply"], "directories": [self.temp.name]})
+        task_id = self.store.create_many("alice", "feishu", "chat", [task])[0]
+        self.store.trigger(task_id, iso(future), future)
+        sent = []
+
+        def failing_send(outgoing):
+            if outgoing.file_paths:
+                sent.append(outgoing.file_paths)
+                raise RuntimeError("upload unavailable")
+            return {"code": 0}
+
+        worker = ScheduleWorker(self.store, failing_send, runner=lambda payload, timeout: {
+            "status": "failed", "result": "部分步骤失败，表格已生成", "paths": [str(report)]})
+        worker.execute_one()
+        self.assertEqual(sent, [(str(report),)])
+        restarted = ScheduleWorker(ScheduleStore(self.store.path), lambda outgoing: sent.append(outgoing.file_paths) or {"code": 0})
+        retry_at = now_utc() + timedelta(seconds=20)
+        with patch("tele_bot.scheduled.store.now_utc", return_value=retry_at):
+            restarted.tick(retry_at)
+        self.assertEqual(sent, [(str(report),), (str(report),)])
+        with self.store._db() as db:
+            self.assertEqual(db.execute("SELECT status FROM notifications WHERE kind='result_file'").fetchone()[0], "sent")
+
+
     def test_once_confirmation_expiry_and_history(self):
         future = now_utc() + timedelta(hours=1)
         task = spec(future, "confirm", scope={"tools": ["opencli_search"], "directories": []})

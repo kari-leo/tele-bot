@@ -27,20 +27,29 @@ class FileSystemTool:
 
         return {"path": str(target), "depth": effective_depth, "entries": entries}
 
-    def read_file(self, path: str, max_lines: int | None = None) -> dict:
+    def read_file(self, path: str, max_lines: int | None = None,
+                  start_line: int = 1) -> dict:
+        if start_line < 1:
+            raise ValueError("start_line must be at least 1")
+        if max_lines is not None and max_lines < 1:
+            raise ValueError("max_lines must be at least 1")
         target = self._resolve_allowed_path(path)
         if not target.is_file():
             raise ValueError(f"not a file: {target}")
 
         effective_max_lines = min(max_lines or self.max_lines, self.max_lines)
         content = target.read_text(encoding="utf-8").splitlines()
-        truncated = len(content) > effective_max_lines
-        lines = content[:effective_max_lines]
+        lines = content[start_line - 1:start_line - 1 + effective_max_lines]
+        next_start_line = start_line + len(lines)
+        truncated = next_start_line <= len(content)
         return {
             "path": str(target),
             "line_count": len(content),
+            "start_line": start_line,
             "truncated": truncated,
-            "lines": [{"line": index + 1, "content": line} for index, line in enumerate(lines)],
+            "next_start_line": next_start_line if truncated else None,
+            "lines": [{"line": start_line + index, "content": line}
+                      for index, line in enumerate(lines)],
         }
 
     def resolve_file(self, path: str) -> Path:

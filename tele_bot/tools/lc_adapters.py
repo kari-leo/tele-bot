@@ -10,12 +10,14 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
+from langgraph.prebuilt import InjectedState
 from mcp import Client
 
 try:
@@ -26,10 +28,10 @@ except ImportError:  # Lightweight test stubs expose only RunnableConfig.
 
 from tele_bot.llm.opencli_gateway import OpenCLIGateway
 from tele_bot.tools.adviser import AdviserTool
-from tele_bot.tools.blog_publish import BlogPublishTool
+from tele_bot.tools.blog_publish import BlogPublishTool, BlogSourceDocument
 from tele_bot.tools.domain_hotspot import DomainHotspotTool, to_json as _hotspot_to_json
 from tele_bot.tools.file_system import FileSystemTool
-from tele_bot.tools.git_push import GitPushTool
+from tele_bot.tools.git_push import GitPushError, GitPushTool
 from tele_bot.tools.knowledge_tool import KnowledgeTool
 from tele_bot.tools.opencli_search import OpenCLISearchTool
 from tele_bot.tools.shell_sandbox import ShellSandboxTool
@@ -39,6 +41,7 @@ from tele_bot.mcp.schedule import create_schedule_server
 from tele_bot.models import IncomingMessage
 from tele_bot.router.codex_service import CodexCommandService
 from tele_bot.scheduled.service import ScheduleService
+from tele_bot.scheduled.proposals import ScheduleRequest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _WINDBORNE_POSTS = Path(
@@ -75,6 +78,23 @@ def _chat_id_from_config(config: RunnableConfig | None) -> str:
     raise ValueError("chat_id is missing from the current message context")
 
 
+def _blog_push_authorized(config: RunnableConfig | None) -> bool:
+    """Use the actual current user message, never model-supplied tool arguments."""
+    actual = config or ensure_config()
+    configurable = actual.get("configurable", {})
+    text = configurable.get("message_text", "")
+    if not text and CURRENT_SCHEDULE_MESSAGE.get() is not None:
+        text = CURRENT_SCHEDULE_MESSAGE.get().text
+    if not isinstance(text, str):
+        return False
+    if re.search(r"不要|无需|不需要|暂不|别推|别发布|只写入|仅写入|为什么|为何|怎么回事|解释|看看|检查|没有直接推|do not|don't|without|\b(?:explain|why|what|how)\b", text, re.I):
+        return False
+    actions = r"推出去|推送|推到|直接推|上线|发布|\bpush\b|\bpublish\b|\bdeploy\b"
+    command = r"请|帮我|替我|将|把|直接|立即|现在|继续|重新|执行|重试|再|\bplease\b"
+    return bool(re.search(rf"(?:{command}).*(?:{actions})", text, re.I | re.S)
+                or re.match(rf"\s*(?:{actions})", text, re.I))
+
+
 def _validate_knowledge_output_path(output_path: str | None) -> str | None:
     """Raise ValueError if output_path escapes allowed directories."""
     if not output_path:
@@ -93,10 +113,50 @@ def _validate_knowledge_output_path(output_path: str | None) -> str | None:
 
 
 def _truncate_json(obj: Any, max_chars: int = 8000) -> str:
+    """Bound tool output without cutting JSON syntax or losing a file cursor.
+
+    File pages retain whole lines. A single oversized line is returned intact
+    so the reader can always advance, even if it exceeds the usual budget.
+    Other oversized results return a JSON preview with short scalar metadata.
+    """
     text = json.dumps(obj, ensure_ascii=False, default=str)
     if len(text) <= max_chars:
         return text
-    return text[:max_chars] + f'... <truncated, total {len(text)} chars>'
+    if isinstance(obj, dict) and "next_start_line" in obj and obj.get("lines"):
+        lines = obj["lines"]
+
+        def page_text(count: int) -> str:
+            page = {**obj, "lines": lines[:count]}
+            if count < len(lines):
+                page.update(truncated=True, next_start_line=lines[count]["line"])
+            return json.dumps(page, ensure_ascii=False, default=str)
+
+        # Search for the largest complete page that fits the output budget.
+        low, high = 1, len(lines)
+        while low < high:
+            mid = (low + high + 1) // 2
+            if len(page_text(mid)) <= max_chars:
+                low = mid
+            else:
+                high = mid - 1
+        return page_text(low)
+
+    preview = {key: value for key, value in obj.items()
+               if value is None or isinstance(value, (bool, int, float))
+               or isinstance(value, str) and len(value) < 200} if isinstance(obj, dict) else {}
+    preview.update(truncated=True, total_chars=len(text), preview="")
+    if len(json.dumps(preview, ensure_ascii=False)) > max_chars:
+        preview = {"truncated": True, "total_chars": len(text), "preview": ""}
+    low, high = 0, len(text)
+    while low < high:
+        mid = (low + high + 1) // 2
+        preview["preview"] = text[:mid]
+        if len(json.dumps(preview, ensure_ascii=False)) <= max_chars:
+            low = mid
+        else:
+            high = mid - 1
+    preview["preview"] = text[:low]
+    return json.dumps(preview, ensure_ascii=False)
 
 
 def build_spike_tools(
@@ -136,16 +196,23 @@ def build_spike_tools(
         return _truncate_json(fs.list_dir(path, depth=depth))
 
     @tool
-    def filesystem_read_file(path: str, max_lines: int = 200) -> str:
-        """Read a text file inside allowed roots.
+    def filesystem_read_file(path: str, max_lines: int = 200, start_line: int = 1) -> str:
+        """Read a page of a text file inside allowed roots.
+
+        When truncated is true, continue with start_line=next_start_line.
+        Increasing max_lines cannot bypass the output budget; never repeatedly
+        read from line 1 to obtain the remainder of a long document.
 
         Args:
             path: absolute path or path relative to the bot runtime root.
-            max_lines: read at most this many lines from the start of the file.
+            max_lines: read at most this many lines per page (maximum 500).
+            start_line: first line to read, numbered from 1.
 
-        Returns a JSON string with {path, line_count, truncated, lines}.
+        Returns JSON {path, line_count, start_line, truncated, next_start_line,
+        lines}. next_start_line is null at EOF. A single oversized line may
+        exceed the usual output budget to preserve its complete content.
         """
-        return _truncate_json(fs.read_file(path, max_lines=max_lines))
+        return _truncate_json(fs.read_file(path, max_lines=max_lines, start_line=start_line))
 
     @tool
     def shell_execute(command: str) -> str:
@@ -360,13 +427,24 @@ def build_core_tools(
 
     if schedule_service is not None:
         @tool
-        def schedule_manage() -> str:
+        def schedule_manage(
+            request: ScheduleRequest | None = None,
+            context_messages: Annotated[list, InjectedState("tool_context_messages")] = None,
+        ) -> str:
             """Call the schedule MCP tool for the current user's message.
 
             Use for future reminders or execution, scheduled Codex/skill work,
             scheduling queries or changes, time corrections, and schedule
-            confirmation or authorization replies. This tool reads the exact
-            authenticated user message; it takes no model-supplied arguments.
+            confirmation or authorization replies. Conversation context is
+            injected automatically, including this turn's earlier tool results.
+            For resolved references or task requirements, request may contain
+            operation (create/update/delete/list/get/history/clarify), task_id,
+            tasks (content, at, rule, mode, scope, missed_policy). Derive these
+            from the user's intent and available context; clarify ambiguous IDs.
+            create/update needs a nonempty tasks array with content and at in
+            each item. If uncertain or incomplete, omit request: the scheduling
+            parser resolves the authenticated text and conversation for you.
+            Identity and confirmation always use the original user message.
             Never claim scheduling is unavailable before calling this tool.
             Do not call Codex immediately when the user requested a future run.
             """
@@ -379,8 +457,10 @@ def build_core_tools(
                 raise RuntimeError("当前消息上下文缺失，无法调用定时 MCP 工具。")
 
             async def call_mcp() -> str:
-                async with Client(create_schedule_server(schedule_service, message)) as client:
-                    result = await client.call_tool("schedule_manage", {})
+                async with Client(create_schedule_server(
+                    schedule_service, message, context_messages=context_messages,
+                )) as client:
+                    result = await client.call_tool("schedule_manage", {"request": request})
                     if result.is_error or not result.content:
                         raise RuntimeError("定时 MCP 工具调用失败。")
                     return str(result.content[0].text)
@@ -480,9 +560,16 @@ def build_core_tools(
 
         tools.append(feishu_send_file)
 
+    publishing_tools = []
+    if include_blog_publish:
+        publisher = blog_publish_tool or BlogPublishTool(posts_dir=_WINDBORNE_POSTS)
+        publishing_tools = [_make_blog_publish_tool(publisher),
+                            _make_blog_publish_from_file_tool(publisher, filesystem_tool),
+                            _make_blog_publish_files_tool(publisher, filesystem_tool),
+                            _make_blog_push_tool(publisher)]
     return (
         tools
-        + ([_make_blog_publish_tool(blog_publish_tool)] if include_blog_publish else [])
+        + publishing_tools
         + ([_make_domain_hotspot_tool(domain_hotspot_tool)] if include_domain_hotspot else [])
     )
 
@@ -504,10 +591,12 @@ def _make_blog_publish_tool(publisher: BlogPublishTool | None) -> Any:
         """Publish a markdown article to the windborne blog.
 
         Writes `content` as `<slug>.md` in the blog's posts directory.
-        Fails if the slug already exists (no overwrite). When
-        `git_push_enabled` is true, the first call creates a pending push
-        request and returns a confirmation token. A later call with that token
-        performs the commit and push without writing the article again.
+        Fails if the slug already exists (no overwrite). Set git_push_enabled
+        when the user requests publishing/pushing: an explicit current user
+        instruction authorizes direct commit/push. Otherwise return a pending
+        confirmation token. Confirming a token never writes the article again.
+        Use blog_push for existing files and retries; never invent new slugs
+        to retry a failed push.
 
         Args:
             slug: URL-safe identifier for the post, e.g. "my-first-post".
@@ -533,6 +622,9 @@ def _make_blog_publish_tool(publisher: BlogPublishTool | None) -> Any:
         if not git_push_enabled:
             return out_path
         chat_id = _chat_id_from_config(config)
+        if _blog_push_authorized(config):
+            return pub.push_files(chat_id=chat_id, file_paths=[out_path],
+                                  commit_message=commit_message, remote=remote, branch=branch)
         return pub.request_push(
             chat_id=chat_id,
             file_path=out_path,
@@ -542,6 +634,115 @@ def _make_blog_publish_tool(publisher: BlogPublishTool | None) -> Any:
         )
 
     return blog_publish
+
+
+def _make_blog_publish_from_file_tool(pub: BlogPublishTool, filesystem_tool) -> Any:
+    @tool
+    def blog_publish_from_file(
+        slug: str, source_path: str, title: str = "", description: str = "",
+        published: str = "", project: str = "", order: int = 0,
+        git_push_enabled: bool = False, push_confirm_token: str = "",
+        commit_message: str = "", remote: str = "origin", branch: str = "",
+        config: RunnableConfig | None = None,
+    ) -> str:
+        """Publish a complete UTF-8 Markdown source file, preserving its body verbatim.
+
+        Prefer this tool for publishing original documents: pass source_path,
+        never copy their bodies into tool arguments. Paths must be inside the
+        configured filesystem roots. Generated metadata replaces any existing
+        frontmatter. Leave project empty for a post (description required);
+        set project to an existing project slug, e.g. telebot, to create a
+        projectDocuments/<project>/<slug>.md portfolio document. order controls
+        its position. Identical bodies reuse the existing document even with
+        a new slug; existing files are never overwritten. Set git_push_enabled
+        when the user requests publishing/pushing. An explicit current user
+        instruction authorizes direct commit/push; otherwise return a pending
+        confirmation token. Token confirmation never reads/writes the source.
+        For existing files or a failed push, use blog_push; do not change slugs.
+        """
+        if push_confirm_token.strip():
+            if not git_push_enabled:
+                raise ValueError("git_push_enabled must be true when push_confirm_token is provided")
+            return pub.confirm_push(chat_id=_chat_id_from_config(config),
+                                    confirm_token=push_confirm_token.strip())
+        out_path = pub.publish_from_file(
+            slug=slug, source_path=source_path, title=title, description=description,
+            published=published, project=project, order=order, filesystem_tool=filesystem_tool)
+        if not git_push_enabled:
+            return out_path
+        if _blog_push_authorized(config):
+            return pub.push_files(chat_id=_chat_id_from_config(config), file_paths=[out_path],
+                                  commit_message=commit_message, remote=remote, branch=branch)
+        return pub.request_push(chat_id=_chat_id_from_config(config), file_path=out_path,
+                                commit_message=commit_message or None,
+                                remote=remote or None, branch=branch or None,
+                                confirmation_tool="blog_publish_from_file")
+
+    return blog_publish_from_file
+
+
+def _make_blog_push_tool(pub: BlogPublishTool) -> Any:
+    @tool
+    def blog_push(file_paths: list[str], commit_message: str = "", remote: str = "origin",
+                  branch: str = "", push_confirm_token: str = "",
+                  config: RunnableConfig | None = None) -> str:
+        """Commit and push existing blog Markdown files without creating any documents.
+
+        Prefer one batch of all returned paths after writing multiple documents.
+        Use this for network retries, already-written documents, and existing
+        pending tokens. Requires an explicit current user push/publish request
+        or a valid chat-bound confirmation token. On network failure retry the
+        same paths at most once, then report failure and stop; never republish
+        or change slugs. A successful local write is not a successful push.
+        """
+        chat_id = _chat_id_from_config(config)
+        if push_confirm_token.strip():
+            return pub.confirm_push(chat_id=chat_id, confirm_token=push_confirm_token.strip())
+        if not _blog_push_authorized(config):
+            raise ValueError("当前消息未明确要求推送博客；请先取得用户的推送指令或确认已有令牌。")
+        return pub.push_files(chat_id=chat_id, file_paths=file_paths, commit_message=commit_message,
+                              remote=remote, branch=branch)
+
+    return blog_push
+
+
+def _make_blog_publish_files_tool(pub: BlogPublishTool, filesystem_tool) -> Any:
+    @tool
+    def blog_publish_files(documents: list[BlogSourceDocument], project: str = "",
+                           git_push_enabled: bool = False, commit_message: str = "",
+                           remote: str = "origin", branch: str = "",
+                           config: RunnableConfig | None = None) -> str:
+        """Publish ALL requested original source documents as one complete batch.
+
+        Prefer this tool when the user asks to publish multiple documents.
+        Supply every requested source_path and slug in documents, even when old
+        logs claim some were published. It checks actual source files, preserves
+        their bodies, reuses existing identical documents, and pushes all paths
+        in one commit when git_push_enabled=true and the current user authorizes
+        publishing. project attaches every document to the portfolio project.
+        Returns requested_count, written_count, pushed_count and per-file paths.
+        A failed write prevents push of an incomplete set. Only status=pushed
+        confirms full batch publication. On push_failed use blog_push with the
+        returned paths once, never change slugs; report any remaining failure.
+        """
+        receipt = pub.publish_files(documents, project=project, filesystem_tool=filesystem_tool)
+        if receipt["status"] == "written" and git_push_enabled:
+            if not _blog_push_authorized(config):
+                receipt.update(status="awaiting_authorization",
+                               error="文件已写入；当前消息未明确授权推送。请取得推送指令后用 blog_push 推送这些路径。")
+            else:
+                paths = [item["path"] for item in receipt["files"]]
+                try:
+                    result = pub.push_files(chat_id=_chat_id_from_config(config), file_paths=paths,
+                                            commit_message=commit_message, remote=remote, branch=branch)
+                    receipt.update(status="pushed", pushed_count=len(paths), push_result=result)
+                    for item in receipt["files"]:
+                        item["status"] = "pushed"
+                except GitPushError as exc:
+                    receipt.update(status="push_failed", error=str(exc))
+        return json.dumps(receipt, ensure_ascii=False)
+
+    return blog_publish_files
 
 
 def _make_domain_hotspot_tool(hotspot: DomainHotspotTool | None) -> Any:

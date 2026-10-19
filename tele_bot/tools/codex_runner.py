@@ -114,7 +114,8 @@ class CodexRunner:
             skip_git_repo_check=_parse_bool(skip_git_repo_check, default=True),
         )
 
-    def run(self, mode: str, prompt: str, workspace: str | None = None) -> CodexResult:
+    def run(self, mode: str, prompt: str, workspace: str | None = None,
+            *, output_schema: str | Path | None = None) -> CodexResult:
         normalized_mode = mode.strip().lower()
         if normalized_mode not in {"inspect", "plan", "apply"}:
             raise ValueError("Codex mode must be inspect, plan, or apply")
@@ -130,6 +131,11 @@ class CodexRunner:
             raise ValueError("Codex workspace must be inside the configured workspace root")
 
         command = self._command_args(normalized_mode, prompt)
+        if output_schema is not None:
+            schema = Path(output_schema).resolve()
+            if not schema.is_file() or not self._is_within(schema, target):
+                raise ValueError("Codex output schema must be a file inside the selected workspace")
+            command[-1:-1] = ["--output-schema", str(schema)]
         environment = self._safe_environment()
         timeout_seconds = max(1, min(self.timeout_seconds, MAX_CODEX_TIMEOUT_SECONDS))
         try:
@@ -138,6 +144,7 @@ class CodexRunner:
                 cwd=str(target),
                 env=environment,
                 capture_output=True,
+                input=self._prepare_prompt(prompt),
                 text=True,
                 encoding="utf-8",
                 errors="replace",
@@ -174,7 +181,9 @@ class CodexRunner:
             args.extend(["--sandbox", "workspace-write"])
         if self.skip_git_repo_check:
             args.append("--skip-git-repo-check")
-        args.append(self._prepare_prompt(prompt))
+        # Windows npm .cmd shims split multiline argv at newlines. Stdin also
+        # avoids cmd.exe expansion of user task text and its command-length cap.
+        args.append("-")
         return args
 
     @staticmethod

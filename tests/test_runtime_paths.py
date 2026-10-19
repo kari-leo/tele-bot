@@ -56,6 +56,26 @@ class RuntimePathTests(unittest.TestCase):
             self.assertEqual(result["returncode"], 0)
             self.assertIn("note.txt", result["stdout"])
 
+    def test_shell_reads_quoted_absolute_unicode_path(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            note = root / "产品案例 v2.md"
+            note.write_text("完整的中文内容\n", encoding="utf-8")
+            tool = ShellSandboxTool(root=root, allowed_roots=(root,))
+
+            result = tool.execute_shell(f'cat "{note}"')
+
+            self.assertEqual(result["returncode"], 0, result["stderr"])
+            self.assertIn("完整的中文内容", result["stdout"])
+
+    def test_shell_quoted_path_does_not_bypass_allowed_roots(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            tool = ShellSandboxTool(root=root, allowed_roots=(root,))
+            outside = root.parent / "outside.md"
+            with self.assertRaisesRegex(ValueError, "outside allowed roots"):
+                tool.execute_shell(f'cat "{outside}"')
+
 
 if __name__ == "__main__":
     unittest.main()

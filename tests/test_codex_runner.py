@@ -1,4 +1,6 @@
 import os
+import json
+import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -9,6 +11,38 @@ from tele_bot.tools.workspace_policy import WorkspacePolicy
 
 
 class CodexRunnerTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "nt", "Windows npm shim regression")
+    def test_real_cmd_shim_receives_complete_utf8_stdin_without_shell_expansion(self):
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "workspace"
+            root.mkdir()
+            receiver = root / "receiver.py"
+            receiver.write_text("import json, sys\nprint(json.dumps({'args': sys.argv[1:], 'input': sys.stdin.read()}, ensure_ascii=False))", encoding="utf-8")
+            shim = root / "codex.cmd"
+            shim.write_text(f'@echo off\n"{sys.executable}" "{receiver}" %*\n', encoding="utf-8")
+            policy = WorkspacePolicy((Path(temp_dir),), root, Path(temp_dir) / "quarantine")
+            runner = CodexRunner(policy=policy, command=str(shim))
+            prompt = "指定 skill：秋招\n任务：产品经理\n表格发给我\n%PATH% & exit 9"
+            result = runner.run("apply", prompt)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            receipt = json.loads(result.stdout)
+            self.assertEqual(receipt["input"], runner._prepare_prompt(prompt))
+            self.assertEqual(receipt["args"][-1], "-")
+
+    def test_multiline_task_is_passed_via_stdin_to_windows_cmd_shim(self):
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "workspace"
+            root.mkdir()
+            policy = WorkspacePolicy((Path(temp_dir),), root, Path(temp_dir) / "quarantine")
+            runner = CodexRunner(policy=policy, command="codex.cmd")
+            prompt = "执行指定 skill\n任务：更新产品经理岗位\n将新增和修改表格发给我"
+            completed = type("Completed", (), {"returncode": 0, "stdout": "ok", "stderr": ""})()
+            with patch("tele_bot.tools.codex_runner.subprocess.run", return_value=completed) as run:
+                runner.run("apply", prompt)
+            self.assertEqual(run.call_args.args[0][-1], "-")
+            self.assertEqual(run.call_args.kwargs["input"], runner._prepare_prompt(prompt))
+            self.assertNotIn(prompt, run.call_args.args[0])
+
     def test_from_env_reads_ignored_local_env_as_fallback(self) -> None:
         with patch(
             "tele_bot.tools.codex_runner._local_env_values",

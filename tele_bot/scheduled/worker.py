@@ -156,33 +156,46 @@ class ScheduleWorker:
                          f"任务 {run['task_id']} 开始执行，请稍候。", kind="started")
         try:
             outcome = self.runner(payload, self.execution_timeout)
+            paths = ()
             if isinstance(outcome, dict):
                 status = outcome["status"]
                 result = outcome["result"]
+                paths = tuple(outcome.get("paths", ()))
             else:
                 status, result = "success", str(outcome)
             error = ""
         except subprocess.TimeoutExpired:
             status, result, error = "timeout", "执行超过时间限制。", "execution timeout"
+            paths = ()
         except ExecutionCancelled:
             status, result, error = "cancelled", "执行期间任务被取消。", ""
+            paths = ()
         except ServiceStopping:
             return True  # recovery marks the unfinished run after restart
         except Exception as exc:  # noqa: BLE001
             status, result, error = "failed", "执行失败。", str(exc)
+            paths = ()
         row = self.store.finish_run(run["id"], status, result, error)
         if row:
+            row = {**row, "run_id": run["id"]}
             next_at = f"\n下次触发：{row['next_at']}" if row["next_at"] else ""
             self._notify(row, f"任务 {run['task_id']} 本次执行{status}。\n结果：{result}"
-                         + (f"\n错误：{error}" if error else "") + next_at)
+                         + (f"\n错误：{error}" if error else "") + next_at, kind="result")
+            # Separate durable notices prevent an upload retry from resending
+            # the summary and every previously delivered attachment.
+            for path in paths:
+                self._notify(row, "", kind="result_file", file_paths=(path,))
         return True
 
     def _subprocess_runner(self, payload: dict, timeout: int) -> dict:
         project_root = Path(__file__).resolve().parents[2]
+        # Popen's encoding applies only to the parent. Windows Python children
+        # otherwise read/write the pipe using the locale (often GBK).
+        environment = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
         process = subprocess.Popen(
             [sys.executable, "-m", "tele_bot.scheduled.execution"],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, cwd=project_root,
+            text=True, encoding="utf-8", errors="strict", cwd=project_root, env=environment,
         )
         input_text = json.dumps(payload, ensure_ascii=False)
         deadline = time.monotonic() + timeout
@@ -211,10 +224,11 @@ class ScheduleWorker:
             raise RuntimeError((stderr or stdout)[-1000:] or "executor returned no result") from exc
         if process.returncode or not data.get("ok"):
             raise RuntimeError(data.get("error") or stderr[-1000:])
-        return {"status": data["status"], "result": str(data["result"])}
+        return {"status": data["status"], "result": str(data["result"]), "paths": data.get("paths", [])}
 
-    def _notify(self, task: dict, text: str, kind: str = "generic") -> None:
-        notice = self.store.enqueue_notification(task, text, kind)
+    def _notify(self, task: dict, text: str, kind: str = "generic",
+                file_paths: tuple[str, ...] = ()) -> None:
+        notice = self.store.enqueue_notification(task, text, kind, file_paths)
         if self.send is None:
             self.store.event("feedback_unavailable", notice["task_id"], notice["run_id"],
                              notice["user_id"], "pending", text[:500])
@@ -232,7 +246,8 @@ class ScheduleWorker:
             self.store.supersede_notification(notice)
             return
         try:
-            result = self.send(OutgoingMessage(notice["channel"], notice["chat_id"], notice["body"]))
+            result = self.send(OutgoingMessage(notice["channel"], notice["chat_id"], notice["body"],
+                                               file_paths=tuple(json.loads(notice["file_paths_json"]))))
             if isinstance(result, dict) and result.get("code") not in (None, 0):
                 raise RuntimeError(str(result.get("msg", "send failed")))
             self.store.mark_notification(notice)

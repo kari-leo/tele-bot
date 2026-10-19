@@ -1,6 +1,7 @@
 """The scheduled executor exposes only approved tools and file roots."""
 
 import tempfile
+import json
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,6 +18,68 @@ class FakeLLM:
 
 
 class ExecutionScopeTests(unittest.TestCase):
+    def test_table_request_without_current_attachment_is_failed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            payload = {"content": "查询岗位，将新增和修改总结成表格发给我", "planned_at": "2026-10-05T18:30:00+00:00",
+                       "scope": {"tools": ["codex_apply"], "directories": [directory]}}
+            with patch.object(execution.CodexRunner, "from_env") as factory:
+                factory.return_value.run.return_value = SimpleNamespace(
+                    returncode=0, stdout=json.dumps({"status": "success", "result": "已查询岗位", "paths": []}), stderr="")
+                result = execution.execute(payload)
+            self.assertEqual(result["status"], "failed")
+            self.assertIn("未生成并确认本轮表格附件", result["result"])
+
+    def test_partial_failure_keeps_completed_current_attachments(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            report = root / "partial.csv"
+            payload = {"content": "生成表格", "planned_at": "2026-10-05T18:30:00+00:00",
+                       "scope": {"tools": ["codex_apply"], "directories": [directory]}}
+            def run(*args, **kwargs):
+                report.write_text("部分结果", encoding="utf-8")
+                return SimpleNamespace(returncode=0, stdout=json.dumps({"status": "failed", "result": "一个来源失败", "paths": [str(report)]}), stderr="")
+            with patch.object(execution.CodexRunner, "from_env") as factory:
+                factory.return_value.run.side_effect = run
+                result = execution.execute(payload)
+            self.assertEqual(result["status"], "failed")
+            self.assertEqual(result["paths"], [str(report)])
+
+    def test_codex_artifacts_are_validated_and_skill_state_is_writable_and_persistent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / ".codex" / "skills" / "autumn-recruitment-tracker"
+            (source / "state").mkdir(parents=True)
+            (source / "SKILL.md").write_text("skill", encoding="utf-8")
+            (source / "state" / "seen_postings.json").write_text('{"postings": {}}', encoding="utf-8")
+            (source / "config.json").write_text(json.dumps({"excel_output_path": "../../../tracking_outputs/tracker.xlsx"}), encoding="utf-8")
+            report = root / "tracking_outputs" / "changes.xlsx"
+            report.parent.mkdir()
+            payload = {"content": "用 autumn-recruitment-tracker skill 更新产品经理岗位，将表格文件发给我",
+                       "planned_at": "2026-10-05T18:30:00+00:00", "run_id": "r1",
+                       "scope": {"tools": ["codex_apply"], "directories": [str(root)]}}
+
+            def fake_run(mode, prompt, workspace, **kwargs):
+                self.assertIn(payload["content"], prompt)
+                self.assertIn("用户原始任务优先", prompt)
+                runtime = root / "telebot_runtime" / "skills" / source.name
+                self.assertIn(str(runtime / "SKILL.md"), prompt)
+                self.assertTrue((runtime / "state" / "seen_postings.json").is_file())
+                config = json.loads((runtime / "config.json").read_text(encoding="utf-8"))
+                self.assertEqual(Path(config["excel_output_path"]), root / "tracking_outputs" / "tracker.xlsx")
+                (runtime / "state" / "seen_postings.json").write_text('{"postings": {"new": 1}}', encoding="utf-8")
+                report.write_bytes(b"current report")
+                return SimpleNamespace(returncode=0, stdout=json.dumps({"status": "success", "result": "执行结论：成功", "paths": [str(report)]}), stderr="", truncated=False)
+
+            with patch.object(execution.CodexRunner, "from_env") as factory:
+                factory.return_value.run.side_effect = fake_run
+                result = execution.execute(payload)
+            self.assertEqual(result["paths"], [str(report)])
+            self.assertEqual(result["status"], "success")
+            self.assertEqual(json.loads((source / "state" / "seen_postings.json").read_text()), {"postings": {}})
+            from tele_bot.scheduled.codex_artifacts import prepare_skill_runtime
+            runtime = prepare_skill_runtime(root, source.name)
+            self.assertEqual(json.loads((runtime / "state" / "seen_postings.json").read_text()), {"postings": {"new": 1}})
+
     def test_misspelled_skill_is_resolved_before_codex_runs(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -104,6 +167,7 @@ class ExecutionScopeTests(unittest.TestCase):
             with patch.object(execution.AliBailianSettings, "from_env", return_value=SimpleNamespace(
                 api_key="test", base_url="https://example.com", model="fake", timeout_seconds=10)), \
                  patch.object(execution, "build_chat_openai", return_value=FakeLLM()), \
+                 patch.object(execution, "build_context_manager", return_value=None), \
                  patch.object(execution, "build_react_graph", side_effect=fake_graph):
                 result = execution.execute(payload)
             self.assertIn("done", result["result"])

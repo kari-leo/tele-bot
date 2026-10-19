@@ -24,6 +24,7 @@ def build_chat_openai(
     model: str = "qwen-plus",
     temperature: float = 0,
     timeout: int = 60,
+    max_retries: int = 2,
 ) -> ChatOpenAI:
     """Construct a ChatOpenAI pointed at the Dashscope OpenAI-compatible endpoint."""
     _strip_socks_proxy()
@@ -33,4 +34,15 @@ def build_chat_openai(
         model=model,
         temperature=temperature,
         timeout=timeout,
+        max_retries=max_retries,
     )
+
+
+def build_context_manager(settings, tools):
+    """Separate bounded summary requests from the tool-enabled agent client."""
+    from tele_bot.workflows.context_manager import ContextManager
+    summarizer = build_chat_openai(
+        api_key=settings.api_key, base_url=settings.base_url, model=settings.model,
+        temperature=0, timeout=min(settings.timeout_seconds, 30), max_retries=0,
+    ).bind(max_tokens=1200)
+    return ContextManager.for_tools(tools, summarizer=summarizer)

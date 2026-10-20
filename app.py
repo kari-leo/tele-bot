@@ -21,7 +21,8 @@ from tele_bot.config.paths import configure_runtime_root
 from tele_bot.config.feishu import FeishuSettings
 from tele_bot.llm.react_client import build_chat_openai, build_context_manager
 from tele_bot.llm.embeddings import AliBailianEmbeddingClient
-from tele_bot.knowledge.ingestion import DocumentParser
+from tele_bot.knowledge.ingestion import DocumentParser, TextChunker
+from tele_bot.knowledge.config import IndexingSettings
 from tele_bot.knowledge.search import KnowledgeIndexer, KnowledgeSearch
 from tele_bot.models import IncomingMessage
 from tele_bot.persistence import KnowledgeStore, build_sqlite_saver
@@ -59,6 +60,7 @@ def _build_executor(
     feishu_adapter: FeishuWebhookAdapter | None = None,
     codex_service: CodexCommandService | None = None,
     schedule_service: ScheduleService | None = None,
+    knowledge_search: KnowledgeSearch | None = None,
 ) -> ReactAgentExecutor:
     llm = build_chat_openai(
         api_key=llm_settings.api_key,
@@ -85,6 +87,7 @@ def _build_executor(
             f"[INFO] blog_publish disabled - posts_dir not found: {posts_dir}",
             file=sys.stderr,
         )
+    skill_loader = SkillLoader()
     tools = build_core_tools(
         include_adviser=True,
         include_blog_publish=include_blog,
@@ -93,8 +96,11 @@ def _build_executor(
         feishu_adapter=feishu_adapter,
         codex_service=codex_service,
         schedule_service=schedule_service,
+        knowledge_search=knowledge_search,
+        skill_loader=skill_loader,
     )
-    system_prompt = SkillLoader().build_system_prompt()
+    skill_loader.available_tools = {tool.name for tool in tools}
+    system_prompt = skill_loader.build_system_prompt()
     saver = build_sqlite_saver(sqlite_path)
     graph = build_react_graph(
         llm.bind_tools(tools, max_tokens=4096),
@@ -102,8 +108,10 @@ def _build_executor(
         checkpointer=saver,
         system_prompt=system_prompt,
         context_manager=build_context_manager(llm_settings, tools),
+        skill_loader=skill_loader,
     )
-    return ReactAgentExecutor(graph=graph, model_name=llm_settings.model)
+    return ReactAgentExecutor(graph=graph, model_name=llm_settings.model,
+                              knowledge_store=knowledge_search.store if knowledge_search is not None else None)
 
 
 try:
@@ -149,37 +157,23 @@ except (sqlite3.DatabaseError, OSError, ValueError) as exc:
     _fatal("scheduled-tasks", str(exc))
 
 try:
-    codex_service = CodexCommandService(CodexRunner.from_env())
-    executor = _build_executor(
-        llm_settings,
-        runtime_settings.sqlite_checkpoint_path,
-        feishu_adapter=feishu_adapter,
-        codex_service=codex_service,
-        schedule_service=schedule_service if feishu_adapter is not None else None,
-    )
-except sqlite3.DatabaseError as exc:
-    _fatal(
-        "sqlite",
-        f"corrupt: {runtime_settings.sqlite_checkpoint_path}: {exc}",
-    )
-except OSError as exc:
-    _fatal(
-        "sqlite",
-        f"cannot mkdir {Path(runtime_settings.sqlite_checkpoint_path).parent}: {exc}",
-    )
-
-try:
     knowledge_store = KnowledgeStore(
         runtime_settings.kb_sqlite_path,
         max_chunks_per_space=runtime_settings.kb_max_chunks_per_space,
     )
     embedding_client = AliBailianEmbeddingClient(llm_settings)
-    knowledge_indexer = KnowledgeIndexer(knowledge_store, embedding_client, llm_settings)
+    indexing_settings = IndexingSettings.from_env()
+    knowledge_indexer = KnowledgeIndexer(
+        knowledge_store, embedding_client, llm_settings,
+        chunker=TextChunker(max_chars=indexing_settings.max_chars, overlap_chars=indexing_settings.overlap_chars),
+        embedding_context_prefix=indexing_settings.context_prefix,
+    )
+    knowledge_search = KnowledgeSearch(knowledge_store, embedding_client, llm_settings)
     knowledge_service = KnowledgeCommandService(
         store=knowledge_store,
         parser=DocumentParser(max_bytes=runtime_settings.kb_max_import_bytes),
         indexer=knowledge_indexer,
-        search=KnowledgeSearch(knowledge_store, embedding_client, llm_settings),
+        search=knowledge_search,
         policy=WorkspacePolicy.from_env(),
         feishu_adapter=feishu_adapter,
         creator_user_ids=(
@@ -188,6 +182,17 @@ try:
     )
 except (sqlite3.DatabaseError, OSError, ValueError) as exc:
     _fatal("knowledge-base", str(exc))
+
+try:
+    codex_service = CodexCommandService(CodexRunner.from_env())
+    executor = _build_executor(
+        llm_settings, runtime_settings.sqlite_checkpoint_path,
+        feishu_adapter=feishu_adapter, codex_service=codex_service,
+        schedule_service=schedule_service if feishu_adapter is not None else None,
+        knowledge_search=knowledge_search,
+    )
+except (sqlite3.DatabaseError, OSError, ValueError) as exc:
+    _fatal("agent", str(exc))
 
 print(
     f"tele_bot starting "
@@ -235,7 +240,7 @@ def handle_message(payload: dict) -> dict:
         chat_id=str(payload["chat_id"]),
         text=str(payload["text"]),
     )
-    response = message_service.handle(message, allow_schedule=False)
+    response = message_service.handle(message, allow_schedule=False, allow_knowledge=False)
     return asdict(response)
 
 

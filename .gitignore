@@ -9,6 +9,7 @@ tele_bot/config/llm/local.env
 tele_bot/config/feishu/local.env
 outputs/
 reports/
+evaluation/
 .runtime/
 issues/
 docs/

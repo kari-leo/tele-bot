@@ -23,6 +23,7 @@ from tele_bot.models import CardAction, IncomingMessage, InteractiveCard, Outgoi
 from tele_bot.router.codex_service import CodexCommandService
 from tele_bot.router.knowledge_service import KnowledgeCommandService
 from tele_bot.tools.lc_adapters import CURRENT_SCHEDULE_ALLOWED
+from tele_bot.tools.knowledge_search import CURRENT_KNOWLEDGE_MESSAGE
 from tele_bot.workflows.react_graph import PROGRESS_CONTEXTVAR
 
 
@@ -41,8 +42,9 @@ class MessageService:
         self.codex_service = codex_service
         self.knowledge_service = knowledge_service
 
-    def handle(self, message: IncomingMessage, *, allow_schedule: bool = True) -> OutgoingMessage:
-        if self.knowledge_service is not None:
+    def handle(self, message: IncomingMessage, *, allow_schedule: bool = True,
+               allow_knowledge: bool = True) -> OutgoingMessage:
+        if self.knowledge_service is not None and allow_knowledge:
             knowledge_response = self.knowledge_service.handle(message)
             if knowledge_response is not None:
                 return knowledge_response
@@ -96,6 +98,10 @@ class MessageService:
             allow_schedule and self.feishu_adapter is not None
             and message.channel == self.feishu_adapter.name
         )
+        knowledge_token = CURRENT_KNOWLEDGE_MESSAGE.set(
+            message if allow_knowledge and self.feishu_adapter is not None
+            and message.channel == self.feishu_adapter.name else None
+        )
         try:
             if self._should_stream_feishu(message):
                 reporter = FeishuProgressReporter(
@@ -122,6 +128,7 @@ class MessageService:
                     PROGRESS_CONTEXTVAR.reset(token)
             return self.agent_core.handle_message(message)
         finally:
+            CURRENT_KNOWLEDGE_MESSAGE.reset(knowledge_token)
             CURRENT_SCHEDULE_ALLOWED.reset(schedule_token)
 
     def _should_stream_feishu(self, message: IncomingMessage) -> bool:

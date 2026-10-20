@@ -304,6 +304,76 @@ KB_MAX_CHUNKS_PER_SPACE=10000
 处理会话 SQLite 与 `KB_SQLITE_PATH`；数据库启用 WAL，复制前应先停止服务或使用
 SQLite 在线备份。
 
+## 知识库检索与 Skill 按需加载
+
+主 Agent 已注册 `knowledge_search(query, limit)`，可以用自然语言查询已导入的项目资料；
+`/kb search` 保留为直接查看片段的入口。主 Agent 使用 LangChain 适配器直接调用
+`KnowledgeSearch`，与独立只读 MCP 共用成员校验和当前版本过滤，没有另一套授权规则。
+工具参数不接受身份或空间；服务端使用已认证飞书消息中的用户及当前 chat 绑定的空间。
+未认证的 `/api/messages` 不开放知识库工具和管理命令。Agent 检查点按 chat、用户、绑定空间
+隔离，避免用户切换或重新绑定空间后读到旧检索结果；旧检查点保留，新上下文重新开始。
+
+在 `tele_bot/config/llm/local.env` 或环境变量配置（环境变量优先，重启生效）：
+
+| 配置 | 默认值 | 含义 |
+|---|---|---|
+| `KB_SEARCH_MODE` | `vector` | `hybrid` 并行 BM25 + 向量并以 RRF 融合；`keyword` 仅关键词 |
+| `KB_SEARCH_CANDIDATES` | `30` | 每支候选数；单次不得小于最终数量 |
+| `KB_SEARCH_RESULTS` | `5` | 默认返回数，1–20；显式工具 limit 可覆盖 |
+| `KB_RRF_CONSTANT` | `60` | 每支贡献 `1/(k+rank)`；分数仅用于排序 |
+| `KB_MIN_VECTOR_SCORE` | `-1` | 保留原基线全量余弦排序；可在真实评测后提高阈值 |
+| `KB_QUERY_EXPANSION` | `false` | 启用可选别名扩写，始终保留原始查询 |
+| `KB_QUERY_MAX_EXPANSIONS` | `2` | 最多附加查询数，0–5 |
+| `KB_QUERY_EXPANSIONS_FILE` | 空 | 可信 JSON：`{"原查询": ["别名查询"]}`；无映射时使用原查询 |
+| `KB_CHUNK_MAX_CHARS` | `1200` | 单块最大字符数 |
+| `KB_CHUNK_OVERLAP_CHARS` | `120` | 超长块拆分的重叠长度，小于最大长度 |
+| `KB_EMBEDDING_CONTEXT_PREFIX` | `false` | 为向量输入附加独立保存的文档名和章节路径 |
+
+分块优先保留 Markdown ATX/Setext 标题、DOCX Heading/outline 标题与自然段边界；
+PDF 保留页码并识别显式标题、编号和中文章节。视觉标题无法识别时按页和自然段回退，
+无结构文本按自然段、句子、字符顺序回退。表格按原行保存，代码内的 `#` 不当作标题；
+超过长度的表格、代码或段落按句子/行或字符拆分，保留可追溯范围。
+`source_locator` 中的字符范围是规范化提取文本的半开区间，不是 PDF 字节坐标；
+DOCX 另有块号、PDF 另有页码。每块同时保留章节路径、文档版本、序号和原文哈希。
+上下文前缀不进入展示原文；向量复用键包含端点、模型、维度和完整向量输入。
+不同位置的相同正文各保留引用，共用兼容向量；重导历史内容会重新激活相应内容版本。
+数据库自动迁移至 v4，保留旧分块；重新导入后才构建结构元数据和明确模型身份的复用键。
+
+Skill 常驻提示只包含 `global.md` 规则和名称/用途目录。模型通过 `load_skill(name)` 加载
+相关领域正文；多个匹配可分别加载。正文仅在当前请求的系统提示中生效，历史正文在模型
+视图中变成凭据，完整记录仍保留。Skill 声明的 `tool`/逗号分隔 `tools` 与实际注册工具校验；
+缺失时标记 unavailable，不能靠加载 Skill 授权工具。名称错误、不可读或过长正文均显式降级；
+全局规则或目录超限会明确报错，关键要求不会被静默截断。未选择 Skill 时按全局规则和
+工具说明处理，普通闲聊不载入领域正文。
+
+可复现评测及结果见 [离线回归报告](evaluation/KNOWLEDGE_REPORT.md) 和
+[真实 Embedding 报告](evaluation/KNOWLEDGE_LIVE_REPORT.md)：
+
+```powershell
+python -m tele_bot.knowledge.evaluation --output evaluation/KNOWLEDGE_REPORT.md
+# 调用已配置的 Embedding API，消耗少量 token；只处理公开评测语料。
+python -m tele_bot.knowledge.evaluation --live --output evaluation/KNOWLEDGE_LIVE_REPORT.md
+python run_tests.py knowledge
+```
+
+公开小语料上，真实向量与混合模式的 MRR@5 均为 0.938，未证明默认启用混合更优；
+人工别名扩写有所提升，样本仍不足以支持默认开启。固定向量报告只验证排名算法。
+无相关资料仍可能返回近邻；RRF 分数不代表答案可信度，回答必须核对引用原文。
+检索召回和生成答案忠实度需分开评估。
+
+## 工具与 Skill 召回评测
+
+默认评测包含工具调用与 Skill 加载各 50 条不同的自然语言正例，通过实际 ReAct 图测量
+正确调用率、Micro/Macro Recall、Precision、延迟均值/P50/P95、token 和路由成本，以及失败分桶。
+业务工具全部模拟，不实际发布、创建任务或操作文件；Skill 加载和模型 API 调用真实执行。
+`python run_tests.py recall` 验证本地评测框架；真实运行及轨迹重放命令见
+[100 例测试说明](evaluation/CAPABILITY_100_TEST.md)。输出 Markdown、JSON、CSV 和逐例断点，费用为
+按官方价格及实测 token 用量的估算，模拟业务工具耗时不当作真实服务耗时。
+本轮 [100 例实测报告](evaluation/CAPABILITY_100_REPORT.md) 中，工具组召回率/正确调用率为
+98%/80%，Skill 组为 29.6%/28%；[逐例 CSV](evaluation/CAPABILITY_100_REPORT.csv) 可直接查看耗时、费用和失败分桶。
+此前 24 条混合正负例及其结果保留在 [旧评测说明](evaluation/CAPABILITY_TEST.md) 和
+[旧实测报告](evaluation/CAPABILITY_REPORT.md)，不混入各 50 例的新分母。
+
 ## 定时触发（飞书）
 
 飞书消息可以用自然语言或 `/schedule` 命令管理任务，沿用现有飞书配置；

@@ -279,6 +279,8 @@ def build_core_tools(
     feishu_adapter: FeishuWebhookAdapter | None = None,
     codex_service: CodexCommandService | None = None,
     schedule_service: ScheduleService | None = None,
+    knowledge_search=None,
+    skill_loader=None,
 ) -> list:
     """
     Return the FULL Phase 0-Core tool set covering all 7 legacy workflows
@@ -424,6 +426,13 @@ def build_core_tools(
         return request_result
 
     tools = base + [opencli_search, knowledge_restore, write_report]
+
+    if knowledge_search is not None:
+        from tele_bot.tools.knowledge_search import build_knowledge_search_tool
+        tools.append(build_knowledge_search_tool(knowledge_search))
+    if skill_loader is not None:
+        from tele_bot.skills.loader import build_skill_tool
+        tools.append(build_skill_tool(skill_loader))
 
     if schedule_service is not None:
         @tool

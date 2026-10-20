@@ -20,6 +20,7 @@ Design choices:
 from __future__ import annotations
 
 import json
+import hashlib
 from dataclasses import dataclass
 from uuid import uuid4
 
@@ -33,6 +34,7 @@ from tele_bot.router.models import AgentMode
 from tele_bot.tools.lc_adapters import (
     CURRENT_CHAT_ID, CURRENT_SCHEDULE_ALLOWED, CURRENT_SCHEDULE_MESSAGE,
 )
+from tele_bot.tools.knowledge_search import CURRENT_KNOWLEDGE_MESSAGE
 
 
 @dataclass(frozen=True)
@@ -54,6 +56,7 @@ class ReactAgentExecutor:
         graph,
         model_name: str,
         state_store: InMemoryConversationStateStore | None = None,
+        knowledge_store=None,
     ) -> None:
         """
         graph: a compiled LangGraph CompiledStateGraph (from build_react_graph()).
@@ -63,6 +66,7 @@ class ReactAgentExecutor:
         self.graph = graph
         self.model_name = model_name
         self.state_store = state_store or InMemoryConversationStateStore()
+        self.knowledge_store = knowledge_store
 
     def handle(self, message: IncomingMessage) -> AgentExecutionResult:
         self.state_store.set_mode(message.chat_id, AgentMode.CHAT)
@@ -73,9 +77,22 @@ class ReactAgentExecutor:
             message.chat_id, role="user", content=message.text
         )
 
+        thread_id = message.chat_id
+        if self.knowledge_store is not None:
+            authenticated = CURRENT_KNOWLEDGE_MESSAGE.get()
+            scope = "untrusted"
+            if authenticated is not None:
+                try:
+                    scope = self.knowledge_store.require_member(message.chat_id, message.user_id).id
+                except PermissionError:
+                    scope = "no-membership"
+            # Prevent old knowledge results/answers leaking via chat history after
+            # rebinding a conversation or switching users (including the raw API).
+            identity = json.dumps([message.chat_id, message.user_id, scope])
+            thread_id = "scoped-" + hashlib.sha256(identity.encode()).hexdigest()
         config = {
             "configurable": {
-                "thread_id": message.chat_id,
+                "thread_id": thread_id,
                 "chat_id": message.chat_id,
                 "user_id": message.user_id,
                 "channel": message.channel,

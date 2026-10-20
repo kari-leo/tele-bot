@@ -81,7 +81,8 @@ class ReactState(TypedDict):
 def build_react_graph(llm_with_tools, tools: list, checkpointer=None,
                       system_prompt: str = "",
                       on_progress: Optional[ProgressCallback] = None,
-                      context_manager: ContextManager | None = None):
+                      context_manager: ContextManager | None = None,
+                      skill_loader=None):
     """
     Build the ReAct loop graph.
 
@@ -122,8 +123,11 @@ def build_react_graph(llm_with_tools, tools: list, checkpointer=None,
         instruction = (INCOMPLETE_RESPONSE_INSTRUCTION if message_text(state["messages"][-1].content)
                        else EMPTY_RESPONSE_INSTRUCTION)
         prompt = system_prompt + ("\n\n" + instruction if recovering else "")
+        messages = state["messages"]
+        if skill_loader is not None:
+            messages, prompt = skill_loader.prepare_request(messages, prompt)
         prepared = manager.prepare(
-            state["messages"], system_prompt=prompt,
+            messages, system_prompt=prompt,
             summary=state.get("context_summary", ""),
             cursor=state.get("summary_until_message_id"),
             refs=state.get("context_refs", []), token_scale=state.get("token_scale", 1.0),

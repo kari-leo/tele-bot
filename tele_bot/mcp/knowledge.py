@@ -45,6 +45,16 @@ class KnowledgeMCPService:
                     "chunk_ordinal": hit.ordinal,
                     "text": hit.text,
                     "score": hit.score,
+                    "chunk_id": hit.chunk_id,
+                    "document_version_id": hit.document_version_id,
+                    "section_path": list(hit.section_path),
+                    "source_locator": hit.source_locator,
+                    "source_url": hit.source_url,
+                    "rank": hit.rank,
+                    "keyword_rank": hit.keyword_rank,
+                    "vector_rank": hit.vector_rank,
+                    "keyword_score": hit.keyword_score,
+                    "vector_score": hit.vector_score,
                 }
                 for hit in hits
             ],

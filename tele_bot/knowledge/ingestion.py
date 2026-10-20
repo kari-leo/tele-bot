@@ -23,11 +23,20 @@ REJECTED_EXTENSIONS = {
 
 
 @dataclass(frozen=True)
+class DocumentSection:
+    start: int
+    end: int
+    path: tuple[str, ...] = ()
+    locator: str = ""
+
+
+@dataclass(frozen=True)
 class ParsedDocument:
     name: str
     text: str
     content_sha256: str
     mime_type: str | None
+    sections: tuple[DocumentSection, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -35,6 +44,10 @@ class TextChunk:
     ordinal: int
     text: str
     content_sha256: str
+    section_path: tuple[str, ...] = ()
+    source_locator: str = ""
+    start_char: int | None = None
+    end_char: int | None = None
 
 
 class DocumentParser:
@@ -66,12 +79,13 @@ class DocumentParser:
             raise ValueError("image metadata may be archived, but OCR is not supported")
         if suffix in REJECTED_EXTENSIONS or suffix not in SUPPORTED_EXTENSIONS:
             raise ValueError(f"unsupported or unsafe document type: {suffix or 'unknown'}")
+        sections = ()
         if suffix in {".md", ".markdown", ".txt"}:
             text = self._decode_text(data)
         elif suffix == ".docx":
-            text = self._extract_docx(data)
+            text, sections = self._extract_docx_sections(data)
         else:
-            text = self._extract_pdf(data)
+            text, sections = self._extract_pdf_sections(data)
         normalized = normalize_text(text)
         if not normalized:
             raise ValueError("document contains no extractable text")
@@ -80,6 +94,7 @@ class DocumentParser:
             text=normalized,
             content_sha256=sha256_text(normalized),
             mime_type=mime_type or mimetypes.guess_type(name)[0],
+            sections=sections,
         )
 
     @staticmethod
@@ -92,7 +107,7 @@ class DocumentParser:
         raise ValueError("text document encoding is not supported")
 
     @staticmethod
-    def _extract_docx(data: bytes) -> str:
+    def _extract_docx_sections(data: bytes) -> tuple[str, tuple[DocumentSection, ...]]:
         try:
             with zipfile.ZipFile(io.BytesIO(data)) as archive:
                 if "word/document.xml" not in archive.namelist():
@@ -101,21 +116,56 @@ class DocumentParser:
         except (zipfile.BadZipFile, ElementTree.ParseError) as exc:
             raise ValueError("invalid DOCX document") from exc
         paragraphs: list[str] = []
+        sections = []
+        headings: list[str] = []
+        offset = 0
         namespace = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
-        for paragraph in root.iter(f"{namespace}p"):
-            text = "".join(node.text or "" for node in paragraph.iter(f"{namespace}t"))
-            if text.strip():
+        body = root.find(f"{namespace}body")
+        for index, element in enumerate(body if body is not None else root, 1):
+            if element.tag == f"{namespace}tbl":
+                rows = ["\t".join("".join(n.text or "" for n in cell.iter(f"{namespace}t"))
+                                  for cell in row.findall(f"{namespace}tc"))
+                        for row in element.findall(f"{namespace}tr")]
+                text = normalize_text("\n".join(rows))
+            else:
+                text = normalize_text("".join(n.text or "" for n in element.iter(f"{namespace}t")))
+                style = element.find(f"{namespace}pPr/{namespace}pStyle")
+                outline = element.find(f"{namespace}pPr/{namespace}outlineLvl")
+                style_name = style.get(f"{namespace}val", "") if style is not None else ""
+                match = re.search(r"(?:heading|标题)\s*([1-6])", style_name, re.I)
+                level = int(match[1]) if match else None
+                if outline is not None:
+                    raw_level = outline.get(f"{namespace}val", "")
+                    if raw_level.isdigit() and int(raw_level) < 6:
+                        level = int(raw_level) + 1
+                if level and text:
+                    headings = headings[:level - 1] + [text]
+            if text:
+                if paragraphs:
+                    offset += 2
+                sections.append(DocumentSection(offset, offset + len(text), tuple(headings), f"docx:block:{index}"))
                 paragraphs.append(text)
-        return "\n\n".join(paragraphs)
+                offset += len(text)
+        return "\n\n".join(paragraphs), tuple(sections)
 
     @staticmethod
-    def _extract_pdf(data: bytes) -> str:
+    def _extract_pdf_sections(data: bytes) -> tuple[str, tuple[DocumentSection, ...]]:
         try:
             from pypdf import PdfReader
         except ImportError as exc:
             raise RuntimeError("PDF parsing requires the pypdf dependency") from exc
         try:
-            return "\n\n".join(page.extract_text() or "" for page in PdfReader(io.BytesIO(data)).pages)
+            pages, sections, offset = [], [], 0
+            for number, page in enumerate(PdfReader(io.BytesIO(data)).pages, 1):
+                text = normalize_text(page.extract_text() or "")
+                if not text:
+                    continue
+                if pages:
+                    offset += 2
+                sections.append(DocumentSection(offset, offset + len(text), (), f"pdf:page:{number}"))
+                pages.append(text)
+                offset += len(text)
+            return "\n\n".join(pages), tuple(sections)
         except Exception as exc:  # pypdf exposes several parser-specific exceptions
             raise ValueError("invalid or unreadable PDF document") from exc
 
@@ -126,29 +176,92 @@ class TextChunker:
             raise ValueError("invalid chunk size or overlap")
         self.max_chars, self.overlap_chars = max_chars, overlap_chars
 
-    def split(self, text: str) -> list[TextChunk]:
+    def split_document(self, parsed: ParsedDocument) -> list[TextChunk]:
+        return self.split(parsed.text, sections=parsed.sections)
+
+    def split(self, text: str, *, sections: tuple[DocumentSection, ...] = ()) -> list[TextChunk]:
+        """Pack paragraphs within sections; split oversized code/tables without losing text.
+
+        Offsets are half-open character ranges in normalized extracted text.
+        PDF headings use explicit Markdown/numbered/Chinese chapter lines only;
+        unrecognizable visual headings fall back to page + paragraph boundaries.
+        """
         normalized = normalize_text(text)
         chunks: list[TextChunk] = []
-        start = 0
-        while start < len(normalized):
-            target_end = min(start + self.max_chars, len(normalized))
-            end = target_end
-            if target_end < len(normalized):
-                boundary = max(
-                    normalized.rfind("\n\n", start, target_end),
-                    normalized.rfind("。", start, target_end),
-                    normalized.rfind(". ", start, target_end),
-                )
-                if boundary > start + self.max_chars // 2:
-                    end = boundary + (1 if normalized[boundary] == "。" else 0)
-            chunk_text = normalized[start:end].strip()
-            if chunk_text:
-                chunks.append(TextChunk(len(chunks), chunk_text, sha256_text(chunk_text)))
-            if end >= len(normalized):
-                break
-            next_start = max(start + 1, end - self.overlap_chars)
-            start = next_start
+        ranges = sections or (DocumentSection(0, len(normalized)),)
+        pdf_path = ()
+        for section in ranges:
+            if section.locator.startswith("pdf:page:") and not section.path:
+                section = DocumentSection(section.start, section.end, pdf_path, section.locator)
+            blocks = self._blocks(normalized, section)
+            if section.locator.startswith("pdf:page:") and blocks:
+                pdf_path = blocks[-1][2]
+            packed = []
+            for start, end, path in blocks:
+                if packed and packed[-1][2] == path and end - packed[-1][0] <= self.max_chars:
+                    packed[-1] = (packed[-1][0], end, path)
+                else:
+                    packed.append((start, end, path))
+            for start, stop, path in packed:
+                while start < stop:
+                    end = min(start + self.max_chars, stop)
+                    if end < stop:
+                        # Prefer complete lines/sentences; the hard split is bounded.
+                        boundaries = [m.end() for m in re.finditer(r"\n|[。！？]|[.!?](?:\s|$)", normalized[start:end])]
+                        if boundaries and boundaries[-1] > self.max_chars // 2:
+                            end = start + boundaries[-1]
+                    left = start
+                    while left < end and normalized[left].isspace():
+                        left += 1
+                    right = end
+                    while right > left and normalized[right - 1].isspace():
+                        right -= 1
+                    body = normalized[left:right]
+                    if body:
+                        locator = f"{section.locator or 'text'}:chars:{left}-{right}"
+                        chunks.append(TextChunk(len(chunks), body, sha256_text(body), path, locator, left, right))
+                    if end == stop:
+                        break
+                    start = max(start + 1, end - self.overlap_chars)
         return chunks
+
+    @staticmethod
+    def _blocks(text: str, section: DocumentSection) -> list[tuple[int, int, tuple[str, ...]]]:
+        blocks = []
+        path = list(section.path)
+        start = None
+        offset = section.start
+        fence = None
+        lines = text[section.start:section.end].splitlines(keepends=True)
+        for index, line in enumerate(lines):
+            stripped = line.strip()
+            marker = re.match(r"^(`{3,}|~{3,})", stripped)
+            heading = None if fence else re.match(r"^(#{1,6})\s+(.+?)(?:\s+#+)?$", stripped)
+            chapter = None if fence else re.match(r"^(?:第[一二三四五六七八九十百0-9]+[章节篇]|\d+(?:\.\d+)*[.、 ]\s*\S).{0,70}$", stripped)
+            setext = (re.fullmatch(r"(={3,}|-{3,})\s*", lines[index + 1].strip())
+                      if not fence and stripped and index + 1 < len(lines) else None)
+            if heading or chapter or setext:
+                if start is not None:
+                    blocks.append((start, offset, tuple(path)))
+                level = len(heading[1]) if heading else (2 if setext and setext[1][0] == "-" else 1)
+                title = heading[2] if heading else stripped
+                path = path[:level - 1] + [title]
+                start = offset
+            elif not stripped and not fence:
+                if start is not None:
+                    blocks.append((start, offset, tuple(path)))
+                    start = None
+            elif start is None:
+                start = offset
+            if marker:
+                if fence is None:
+                    fence = marker[1]
+                elif marker[1][0] == fence[0] and len(marker[1]) >= len(fence):
+                    fence = None
+            offset += len(line)
+        if start is not None:
+            blocks.append((start, section.end, tuple(path)))
+        return blocks
 
 
 def normalize_text(text: str) -> str:

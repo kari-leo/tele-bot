@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import json
 from contextlib import contextmanager
 from pathlib import Path
 from threading import RLock
@@ -67,8 +68,8 @@ class KnowledgeStore:
     def _migrate(self) -> None:
         with self._lock:
             version = self._conn.execute("PRAGMA user_version").fetchone()[0]
-            if version > 3:
-                raise RuntimeError(f"knowledge DB schema {version} is newer than supported schema 3")
+            if version > 4:
+                raise RuntimeError(f"knowledge DB schema {version} is newer than supported schema 4")
             if version == 0:
                 self._conn.executescript(
                 """
@@ -163,6 +164,36 @@ class KnowledgeStore:
                     UPDATE project_spaces SET chat_id='space:' || id
                     WHERE chat_id NOT LIKE 'space:%';
                     PRAGMA user_version=3;
+                    """
+                )
+                version = 3
+            if version == 3:
+                self._conn.executescript(
+                    """
+                    BEGIN IMMEDIATE;
+                    CREATE TABLE knowledge_chunks_v4 (
+                        id TEXT PRIMARY KEY,
+                        document_id TEXT NOT NULL REFERENCES knowledge_documents(id) ON DELETE CASCADE,
+                        document_version_id TEXT NOT NULL REFERENCES document_versions(id) ON DELETE CASCADE,
+                        project_space_id TEXT NOT NULL REFERENCES project_spaces(id) ON DELETE CASCADE,
+                        ordinal INTEGER NOT NULL, text TEXT NOT NULL, content_sha256 TEXT NOT NULL,
+                        embedding BLOB, token_count INTEGER,
+                        section_path TEXT NOT NULL DEFAULT '[]', source_locator TEXT NOT NULL DEFAULT '',
+                        start_char INTEGER, end_char INTEGER,
+                        embedding_prefix TEXT NOT NULL DEFAULT '', embedding_key TEXT NOT NULL DEFAULT '',
+                        UNIQUE(document_version_id, ordinal)
+                    );
+                    INSERT INTO knowledge_chunks_v4
+                        (id,document_id,document_version_id,project_space_id,ordinal,text,content_sha256,embedding,token_count)
+                        SELECT id,document_id,document_version_id,project_space_id,ordinal,text,content_sha256,embedding,token_count
+                        FROM knowledge_chunks;
+                    DROP TABLE knowledge_chunks;
+                    ALTER TABLE knowledge_chunks_v4 RENAME TO knowledge_chunks;
+                    CREATE INDEX idx_chunks_space ON knowledge_chunks(project_space_id,document_id);
+                    CREATE INDEX idx_chunks_hash ON knowledge_chunks(project_space_id,content_sha256);
+                    CREATE INDEX idx_chunks_embedding_key ON knowledge_chunks(project_space_id,embedding_key);
+                    PRAGMA user_version=4;
+                    COMMIT;
                     """
                 )
             self._conn.commit()
@@ -352,7 +383,27 @@ class KnowledgeStore:
                     (document_id, content_sha256),
                 ).fetchone()
                 if existing_version is not None:
-                    return self._document(row), self._version(existing_version), False
+                    last_job = conn.execute(
+                        "SELECT status FROM index_jobs WHERE document_id=? ORDER BY created_at DESC LIMIT 1", (document_id,)
+                    ).fetchone()
+                    if (row["current_version_id"] == existing_version["id"]
+                            and row["status"] != DocumentStatus.DELETED.value
+                            and (last_job is None or last_job["status"] not in {"failed", "paused_budget"})
+                            and existing_version["source_version"] == source_version
+                            and row["title"] == title):
+                        return self._document(row), self._version(existing_version), False
+                    # Reactivation and retry reuse the content version, but must
+                    # rebuild under the requested index profile before searching.
+                    conn.execute(
+                        """UPDATE knowledge_documents SET current_version_id=?,title=?,source_url=?,status=?,updated_at=?
+                           WHERE id=?""",
+                        (existing_version["id"], title, source_url, DocumentStatus.PENDING.value, now, document_id),
+                    )
+                    conn.execute("UPDATE document_versions SET source_version=? WHERE id=?",
+                                 (source_version, existing_version["id"]))
+                    updated = conn.execute("SELECT * FROM knowledge_documents WHERE id=?", (document_id,)).fetchone()
+                    updated_version = conn.execute("SELECT * FROM document_versions WHERE id=?", (existing_version["id"],)).fetchone()
+                    return self._document(updated), self._version(updated_version), True
                 version_number = conn.execute(
                     "SELECT COALESCE(MAX(version),0)+1 FROM document_versions WHERE document_id=?",
                     (document_id,),
@@ -389,8 +440,11 @@ class KnowledgeStore:
         document_id: str,
         document_version_id: str,
         chunks: Sequence[tuple[str, str, bytes | None, int | None]],
+        chunk_metadata: Sequence[dict] | None = None,
     ) -> list[KnowledgeChunk]:
         space = self.require_member(chat_id, actor_user_id, admin=True)
+        if chunk_metadata is not None and len(chunk_metadata) != len(chunks):
+            raise ValueError("one metadata entry is required per chunk")
         with self._transaction() as conn:
             version = conn.execute(
                 """SELECT v.id FROM document_versions v JOIN knowledge_documents d ON d.id=v.document_id
@@ -400,7 +454,9 @@ class KnowledgeStore:
             if version is None:
                 raise PermissionError("document version does not belong to this project space")
             other_count = conn.execute(
-                "SELECT COUNT(*) FROM knowledge_chunks WHERE project_space_id=? AND document_id<>?",
+                """SELECT COUNT(*) FROM knowledge_chunks c JOIN knowledge_documents d ON d.id=c.document_id
+                   WHERE c.project_space_id=? AND c.document_id<>?
+                   AND c.document_version_id=d.current_version_id AND d.status<>'deleted'""",
                 (space.id, document_id),
             ).fetchone()[0]
             if other_count + len(chunks) > self.max_chunks_per_space:
@@ -409,24 +465,29 @@ class KnowledgeStore:
                 "DELETE FROM knowledge_chunks WHERE document_version_id=?", (document_version_id,)
             )
             created: list[KnowledgeChunk] = []
-            seen_hashes: set[str] = set()
+            seen_hashes = set()
             for ordinal, (text, content_sha256, embedding, token_count) in enumerate(chunks):
-                if content_sha256 in seen_hashes:
+                # Legacy callers have no locations to distinguish repeated text.
+                if chunk_metadata is None and content_sha256 in seen_hashes:
                     continue
                 seen_hashes.add(content_sha256)
+                metadata = chunk_metadata[ordinal] if chunk_metadata is not None else {}
                 chunk_id = uuid4().hex
                 conn.execute(
                     """INSERT INTO knowledge_chunks
-                       (id,document_id,document_version_id,project_space_id,ordinal,text,content_sha256,embedding,token_count)
-                       VALUES(?,?,?,?,?,?,?,?,?)""",
+                       (id,document_id,document_version_id,project_space_id,ordinal,text,content_sha256,embedding,token_count,
+                        section_path,source_locator,start_char,end_char,embedding_prefix,embedding_key)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (chunk_id, document_id, document_version_id, space.id, ordinal, text,
-                     content_sha256, embedding, token_count),
+                     content_sha256, embedding, token_count,
+                     json.dumps(metadata.get("section_path", ()), ensure_ascii=False),
+                     metadata.get("source_locator", ""), metadata.get("start_char"), metadata.get("end_char"),
+                     metadata.get("embedding_prefix", ""), metadata.get("embedding_key", "")),
                 )
-                created.append(KnowledgeChunk(chunk_id, document_id, document_version_id,
-                    space.id, ordinal, text, content_sha256, embedding, token_count))
+                created.append(self._chunk(conn.execute("SELECT * FROM knowledge_chunks WHERE id=?", (chunk_id,)).fetchone()))
             conn.execute(
-                "UPDATE knowledge_documents SET status=?,updated_at=? WHERE id=?",
-                (DocumentStatus.INDEXED.value, _now(), document_id),
+                "UPDATE knowledge_documents SET status=?,updated_at=? WHERE id=? AND current_version_id=? AND status<>?",
+                (DocumentStatus.INDEXED.value, _now(), document_id, document_version_id, DocumentStatus.DELETED.value),
             )
         return created
 
@@ -457,7 +518,7 @@ class KnowledgeStore:
                           d.created_at AS document_created_at,d.updated_at
                    FROM knowledge_chunks c JOIN knowledge_documents d ON d.id=c.document_id
                    WHERE c.project_space_id=? AND d.current_version_id=c.document_version_id
-                   AND d.status=? AND c.embedding IS NOT NULL""",
+                   AND d.status=? ORDER BY d.source_ref,c.ordinal,c.id""",
                 (space.id, DocumentStatus.INDEXED.value),
             ).fetchall()
         material = []
@@ -486,6 +547,22 @@ class KnowledgeStore:
                 (space.id, *hashes),
             ).fetchall()
         return {row["content_sha256"]: row["embedding"] for row in rows}
+
+    def find_embeddings_by_key(self, chat_id: str, actor_user_id: str, keys: Sequence[str]) -> dict[str, bytes]:
+        """Reuse only vectors with an identical model/dimensions/prefix/text identity."""
+        space = self.require_member(chat_id, actor_user_id, admin=True)
+        found = {}
+        unique = list(dict.fromkeys(keys))
+        with self._lock:
+            for start in range(0, len(unique), 500):
+                batch = unique[start:start + 500]
+                placeholders = ",".join("?" for _ in batch)
+                rows = self._conn.execute(
+                    f"""SELECT embedding_key,embedding FROM knowledge_chunks WHERE project_space_id=?
+                        AND embedding IS NOT NULL AND embedding_key IN ({placeholders})""", (space.id, *batch),
+                ).fetchall()
+                found.update({row["embedding_key"]: row["embedding"] for row in rows})
+        return found
 
     def create_index_job(self, chat_id: str, actor_user_id: str, document_id: str) -> IndexJob:
         space = self.require_member(chat_id, actor_user_id, admin=True)
@@ -579,7 +656,8 @@ class KnowledgeStore:
     def _chunk(row: sqlite3.Row) -> KnowledgeChunk:
         return KnowledgeChunk(row["id"], row["document_id"], row["document_version_id"],
             row["project_space_id"], row["ordinal"], row["text"], row["content_sha256"],
-            row["embedding"], row["token_count"])
+            row["embedding"], row["token_count"], tuple(json.loads(row["section_path"])),
+            row["source_locator"], row["start_char"], row["end_char"], row["embedding_prefix"], row["embedding_key"])
 
     @staticmethod
     def _job(row: sqlite3.Row) -> IndexJob:

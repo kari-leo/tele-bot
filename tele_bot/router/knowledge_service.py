@@ -118,7 +118,9 @@ class KnowledgeCommandService:
             lines = ["知识库命中："]
             for hit in hits:
                 excerpt = hit.text.replace("\n", " ")[:240]
-                lines.append(f"- {hit.title}（{hit.source.value}，片段 {hit.ordinal + 1}，{hit.score:.3f}）：{excerpt}")
+                section = " / ".join(hit.section_path) or "无标题章节"
+                lines.append(f"- {hit.rank}. {hit.title}（{section}，片段 {hit.ordinal + 1}，{hit.score:.3f}）：{excerpt}\n"
+                             f"  来源：{hit.source_url or hit.source_ref} {hit.source_locator}；版本：{hit.document_version_id}")
             return self._out(message, "\n".join(lines))
         if verb in {"list", "docs"}:
             documents = self.store.list_documents(message.chat_id, message.user_id)

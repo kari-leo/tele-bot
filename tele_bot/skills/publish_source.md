@@ -1,6 +1,7 @@
 ---
 name: publish-source
 description: Publish original Markdown files without copying their bodies through the model
+tools: blog_publish_from_file, blog_publish_files, blog_push
 ---
 
 用户要求发布本地文档原文时，优先使用 `blog_publish_from_file`，直接传入源文件

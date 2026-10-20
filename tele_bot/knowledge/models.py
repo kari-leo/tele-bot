@@ -87,6 +87,12 @@ class KnowledgeChunk:
     content_sha256: str
     embedding: bytes | None = None
     token_count: int | None = None
+    section_path: tuple[str, ...] = ()
+    source_locator: str = ""
+    start_char: int | None = None
+    end_char: int | None = None
+    embedding_prefix: str = ""
+    embedding_key: str = ""
 
 
 @dataclass(frozen=True)
@@ -99,6 +105,15 @@ class SearchHit:
     ordinal: int
     text: str
     score: float
+    section_path: tuple[str, ...] = ()
+    source_locator: str = ""
+    document_version_id: str = ""
+    source_url: str | None = None
+    rank: int = 0
+    keyword_rank: int | None = None
+    vector_rank: int | None = None
+    keyword_score: float | None = None
+    vector_score: float | None = None
 
 
 @dataclass(frozen=True)

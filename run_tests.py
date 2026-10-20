@@ -25,11 +25,14 @@ GROUPS = {
     "schedule": ("test_scheduled.py", "test_scheduled_execution.py", "test_scheduled_artifacts.py", "test_mcp_schedule.py"),
     "codex": ("test_codex_commands.py", "test_codex_runner.py", "test_codex_service.py"),
     "feishu": ("test_feishu_adapter.py",),
+    "recall": ("test_capability_recall.py", "test_capability_metrics.py", "test_skill_loading.py"),
     "knowledge": (
         "test_embeddings.py", "test_kb_store.py", "test_knowledge_ingestion.py",
         "test_knowledge_search.py", "test_knowledge_sources.py",
         "test_mcp_knowledge.py", "test_message_and_kb_models.py",
         "test_project_space_permissions.py",
+        "test_knowledge_hybrid.py", "test_knowledge_structure.py", "test_knowledge_agent.py",
+        "test_skill_loading.py",
     ),
     "tools": (
         "test_blog_publish_from_file.py", "test_blog_publish_git_push_flow.py", "test_file_mutations.py", "test_file_reading.py",

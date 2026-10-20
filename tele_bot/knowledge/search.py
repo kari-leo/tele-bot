@@ -38,6 +38,9 @@ class PendingIndex:
     job: IndexJob | None
     parsed: ParsedDocument
     changed: bool
+    defer_publish: bool = False
+    source_url: str | None = None
+    cloud_state: dict | None = None
 
 
 class KnowledgeIndexer:
@@ -56,28 +59,34 @@ class KnowledgeIndexer:
         self.cost_per_1000_tokens_cny = cost_per_1000_tokens_cny
         self.embedding_context_prefix = embedding_context_prefix
 
-    def _profile(self) -> str:
+    def _profile(self, parsed: ParsedDocument | None = None) -> str:
         return sha256_text(json.dumps({
-            "format": "structure-v2", "chunker": type(self.chunker).__name__,
+            "format": "structure-v3", "chunker": type(self.chunker).__name__,
             "max_chars": getattr(self.chunker, "max_chars", None),
             "overlap_chars": getattr(self.chunker, "overlap_chars", None),
             "prefix": self.embedding_context_prefix,
             "model": self.settings.embedding_model, "dimensions": self.settings.embedding_dimensions,
             "endpoint": self.settings.embedding_base_url,
+            "parser_profile": parsed.parser_profile if parsed else "",
+            # A location-only change must refresh citations while retaining the
+            # embedding key for every unchanged input. Never use remote revision here.
+            "locations": [(s.start, s.end, s.path, s.locator, s.kind) for s in parsed.sections] if parsed else [],
         }, sort_keys=True))
 
     def enqueue(
         self, *, chat_id: str, actor_user_id: str, source: DocumentSource,
-        source_ref: str, parsed: ParsedDocument, source_url: str | None = None
+        source_ref: str, parsed: ParsedDocument, source_url: str | None = None, defer_publish: bool = False,
+        cloud_state: dict | None = None
     ) -> PendingIndex:
         document, version, changed = self.store.upsert_document_version(
             chat_id=chat_id, actor_user_id=actor_user_id, source=source,
             source_ref=source_ref, title=parsed.name, content_sha256=parsed.content_sha256,
             source_url=source_url,
-            source_version=self._profile(),
+            source_version=self._profile(parsed),
+            defer_publish=defer_publish,
         )
         job = self.store.create_index_job(chat_id, actor_user_id, document.id) if changed else None
-        return PendingIndex(document, version, job, parsed, changed)
+        return PendingIndex(document, version, job, parsed, changed, defer_publish, source_url, cloud_state)
 
     def run(self, chat_id: str, actor_user_id: str, pending: PendingIndex) -> IndexJob | None:
         if not pending.changed or pending.job is None:
@@ -123,6 +132,8 @@ class KnowledgeIndexer:
                     for chunk, meta in zip(chunks, metadata, strict=True)
                 ],
                 chunk_metadata=metadata,
+                publish={"source_version":self._profile(pending.parsed),"title":pending.parsed.name,
+                         "source_url":pending.source_url,"cloud_source":pending.cloud_state} if pending.defer_publish else None,
             )
         except EmbeddingBudgetExceeded as exc:
             return self.store.transition_index_job(
@@ -291,7 +302,9 @@ class KnowledgeSearch:
 def make_hit(chunk, document, score):
     return SearchHit(chunk.id, document.id, document.title, document.source,
                      document.source_ref, chunk.ordinal, chunk.text, score,
-                     chunk.section_path, chunk.source_locator, chunk.document_version_id, document.source_url)
+                     chunk.section_path, chunk.source_locator, chunk.document_version_id, document.source_url,
+                     indexed_at=document.updated_at,source_read_at=document.source_read_at,
+                     source_status=document.source_status,source_revision=document.source_revision,source_error=document.source_error)
 
 
 def hit_order(hit):

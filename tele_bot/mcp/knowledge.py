@@ -36,6 +36,8 @@ class KnowledgeMCPService:
         return {
             "project_space_id": project_space_id,
             "query": query,
+            "coverage": "retrieved_chunks_only",
+            "full_source_coverage": "not_verified",
             "hits": [
                 {
                     "document_id": hit.document_id,
@@ -55,6 +57,11 @@ class KnowledgeMCPService:
                     "vector_rank": hit.vector_rank,
                     "keyword_score": hit.keyword_score,
                     "vector_score": hit.vector_score,
+                    "indexed_at": hit.indexed_at,
+                    "source_read_at": hit.source_read_at,
+                    "source_status": hit.source_status,
+                    "source_revision": hit.source_revision,
+                    "source_error": hit.source_error,
                 }
                 for hit in hits
             ],

@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+import hashlib
+import json
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from secrets import token_urlsafe
 from threading import Lock
 
 from tele_bot.channels.feishu import FeishuWebhookAdapter
-from tele_bot.knowledge.ingestion import DocumentParser, parse_feishu_document_url
+from tele_bot.knowledge.ingestion import DocumentParser, ParsedDocument
+from tele_bot.knowledge.tables import TableReadOptions
 from tele_bot.knowledge.models import DocumentSource, MemberRole
 from tele_bot.knowledge.search import KnowledgeIndexer, KnowledgeSearch
 from tele_bot.knowledge.sources import KnowledgeSourceResolver
+from tele_bot.knowledge.cloud_sources import CloudSourceConnector, canonical, parse_cloud_url, normalize_selection
+from tele_bot.knowledge.feishu_docs import CloudAPIError
 from tele_bot.models import CardAction, IncomingMessage, InteractiveCard, MessageType, OutgoingMessage
 from tele_bot.persistence.kb_store import KnowledgeStore
 from tele_bot.tools.workspace_policy import WorkspacePolicy
@@ -27,6 +32,13 @@ class PendingKnowledgeOperation:
     arguments: tuple[object, ...]
     summary: str
     expires_at: float
+    project_space_id: str | None = None
+
+
+@dataclass(frozen=True)
+class LocalDocumentSnapshot:
+    path: str
+    parsed: ParsedDocument
 
 
 class KnowledgeCommandService:
@@ -41,12 +53,14 @@ class KnowledgeCommandService:
         feishu_adapter: FeishuWebhookAdapter | None = None,
         confirmation_ttl_seconds: int = 600,
         creator_user_ids: tuple[str, ...] = (),
+        docs_connector: CloudSourceConnector | None = None,
     ) -> None:
         self.store, self.parser, self.indexer, self.search = store, parser, indexer, search
         self.policy, self.feishu_adapter = policy, feishu_adapter
         self.source_resolver = KnowledgeSourceResolver(policy)
         self.confirmation_ttl_seconds = confirmation_ttl_seconds
         self.creator_user_ids = frozenset(creator_user_ids)
+        self.docs_connector = docs_connector
         self._pending: dict[str, PendingKnowledgeOperation] = {}
         self._lock = Lock()
 
@@ -69,7 +83,7 @@ class KnowledgeCommandService:
             if not normalized.lower().startswith("/kb"):
                 return None
             return self._command(message, normalized[3:].strip())
-        except (ValueError, PermissionError, RuntimeError, KeyError) as exc:
+        except (ValueError, PermissionError, RuntimeError, KeyError, OSError) as exc:
             return self._out(message, f"知识库操作失败：{exc}")
 
     def _command(self, message: IncomingMessage, command: str) -> OutgoingMessage:
@@ -115,12 +129,14 @@ class KnowledgeCommandService:
             hits = self.search.search(message.chat_id, message.user_id, argument)
             if not hits:
                 return self._out(message, "当前项目空间没有相关资料。")
-            lines = ["知识库命中："]
+            lines = ["知识库命中（检索片段，不代表整表完整结果，不能直接用于全表计数/求和）："]
             for hit in hits:
                 excerpt = hit.text.replace("\n", " ")[:240]
                 section = " / ".join(hit.section_path) or "无标题章节"
                 lines.append(f"- {hit.rank}. {hit.title}（{section}，片段 {hit.ordinal + 1}，{hit.score:.3f}）：{excerpt}\n"
-                             f"  来源：{hit.source_url or hit.source_ref} {hit.source_locator}；版本：{hit.document_version_id}")
+                             f"  来源：{hit.source_url or hit.source_ref} {hit.source_locator}；版本：{hit.document_version_id}；索引时间：{hit.indexed_at}")
+                if hit.source_status:
+                    lines.append(f"  最近成功读取：{hit.source_read_at}；源状态：{hit.source_status}；源 revision：{hit.source_revision}；缺失/失败：{hit.source_error or '无'}")
             return self._out(message, "\n".join(lines))
         if verb in {"list", "docs"}:
             documents = self.store.list_documents(message.chat_id, message.user_id)
@@ -142,34 +158,61 @@ class KnowledgeCommandService:
             space = self.store.require_member(message.chat_id, message.user_id, admin=True)
             if not space.allowed_directory:
                 raise ValueError("请先使用 /kb bind <目录> 绑定允许目录")
-            selection = self.source_resolver.resolve(
-                argument, bound_directory=space.allowed_directory
-            )
-            visible_files = [
-                str(path.relative_to(selection.directory)) for path in selection.files[:20]
-            ]
-            remainder = len(selection.files) - len(visible_files)
-            file_list = "\n".join(f"- {name}" for name in visible_files)
-            if remainder:
-                file_list += f"\n- ……另有 {remainder} 个文件"
+            hint, _, configuration = argument.partition(" --table-options ")
+            options = self._table_options(configuration)
+            selection = self.source_resolver.resolve(hint, bound_directory=space.allowed_directory)
+            snapshots, descriptions, total = [], [], 0
+            for path in selection.files:
+                parsed = self.parser.parse_file(str(path), policy=self.policy,
+                                                bound_directory=space.allowed_directory, table_options=options)
+                total += len(parsed.text)
+                self.parser.table_limits.check(total, self.parser.table_limits.max_output_chars, "批次预览输出字符数")
+                snapshots.append(LocalDocumentSnapshot(str(path), parsed))
+                descriptions.append(self._describe_document(parsed))
+            file_list = "\n".join(descriptions)
             summary = (
-                f"从目录批量导入 {len(selection.files)} 个文档：\n"
+                f"项目空间：{space.name}（{space.id}）\n从目录批量导入 {len(selection.files)} 个文档：\n"
                 f"{selection.directory}\n{file_list}"
+                f"\n读取配置：{json.dumps(configuration and json.loads(configuration) or {}, ensure_ascii=False)}"
+                "\n确认后将把以上内容作为当前知识库的副本，供空间成员读取。"
             )
             return self._preview(
                 message,
                 "import_files",
-                tuple(str(path) for path in selection.files),
+                tuple(snapshots),
                 summary,
             )
         if verb == "import-doc":
             self.store.require_member(message.chat_id, message.user_id, admin=True)
-            kind, document_id = parse_feishu_document_url(argument)
-            if kind != "docx":
-                raise ValueError("一期云文档导入仅支持 /docx/ 链接")
-            return self._preview(
-                message, "import_doc", (argument, document_id), f"导入飞书云文档：{document_id}"
-            )
+            url, _, configuration = argument.partition(" --options ")
+            return self._prepare_cloud(message,url,json.loads(configuration) if configuration else {})
+        if verb == "inspect-doc":
+            self.store.require_member(message.chat_id,message.user_id,admin=True)
+            if self.docs_connector is None:
+                raise RuntimeError("飞书 Docs 连接器未配置")
+            try:
+                data=self.docs_connector.inspect(argument)
+            except CloudAPIError as exc:
+                parsed=parse_cloud_url(argument)
+                for source in self.store.list_cloud_sources(message.chat_id,message.user_id):
+                    stored=json.loads(source["resource_json"])
+                    if source["entry_url"]==argument or (stored["kind"]==parsed.kind and stored["token"]==parsed.token):
+                        self.store.cloud_failure(message.chat_id,message.user_id,source["source_ref"],exc.kind,str(exc))
+                raise
+            return self._out(message,json.dumps(data,ensure_ascii=False,indent=2))
+        if verb == "sources":
+            sources=self.store.list_cloud_sources(message.chat_id,message.user_id)
+            return self._out(message,"\n".join(
+                f"- {s['source_ref']} [{s['status']}] {s['actual_url']}\n"
+                f"  范围：{s['selection_json']}；最近成功读取：{s['last_success_at'] or '无'}；"
+                f"revision：{s['remote_revision']}；原因：{s['error'] or '无'}" for s in sources) or "当前空间没有已确认的云来源。")
+        if verb == "refresh":
+            sources=self.store.list_cloud_sources(message.chat_id,message.user_id)
+            matches=[s for s in sources if s["source_ref"]==argument or s["source_ref"].startswith(argument)] if argument else []
+            if len(matches)!=1:
+                raise ValueError("请用 /kb sources 查看并指定唯一完整来源 ID：/kb refresh <cloud:...>")
+            source=matches[0]
+            return self._prepare_cloud(message,source["entry_url"],json.loads(source["selection_json"]),expected_ref=source["source_ref"])
         if verb == "add-member":
             self.store.require_member(message.chat_id, message.user_id, admin=True)
             values = argument.split()
@@ -193,22 +236,99 @@ class KnowledgeCommandService:
         raise ValueError("未知命令。发送 /kb help 查看用法")
 
     def _prepare_attachment(self, message: IncomingMessage) -> OutgoingMessage:
-        self.store.require_member(message.chat_id, message.user_id, admin=True)
+        space = self.store.require_member(message.chat_id, message.user_id, admin=True)
         if not message.message_id or len(message.attachments) != 1:
             raise ValueError("飞书附件缺少可下载标识")
         attachment = message.attachments[0]
+        if self.feishu_adapter is None:
+            raise RuntimeError("飞书附件下载未配置")
+        raw = self.feishu_adapter.download_attachment(message.message_id, attachment,
+                                                       max_bytes=self.parser.max_bytes)
+        parsed = self.parser.parse_bytes(attachment.name or "upload.bin", raw, attachment.mime_type)
         return self._preview(
-            message, "import_attachment", (message.message_id, attachment),
-            f"导入飞书附件：{attachment.name or attachment.key}"
+            message, "import_attachment", (attachment.key, parsed),
+            f"项目空间：{space.name}（{space.id}）\n导入飞书附件：{attachment.name or attachment.key}\n"
+            + self._describe_document(parsed) + "\n导入内容成为当前空间成员可读取的副本。"
         )
+
+    def _prepare_cloud(self,message,url,selection,expected_ref=None):
+        space=self.store.require_member(message.chat_id,message.user_id,admin=True)
+        if self.docs_connector is None:
+            raise RuntimeError("飞书 Docs 连接器未配置")
+        # Validate the URL before any remote request. Resolve Wiki to the real token.
+        original=parse_cloud_url(url)
+        generations={s["source_ref"]:s["generation"] for s in self.store.list_cloud_sources(message.chat_id,message.user_id)}
+        source_ref=expected_ref
+        try:
+            resource=self.docs_connector.resolve(url)
+            selected=normalize_selection(resource,selection)
+            source_ref=self.docs_connector.source_ref(resource,selected)
+            if expected_ref and expected_ref!=source_ref:
+                raise ValueError("来源实际资源/范围已改变，请用 import-doc 重新审阅新来源")
+            snapshot=self.docs_connector.load(resource,selected)
+        except CloudAPIError as exc:
+            known=self.store.list_cloud_sources(message.chat_id,message.user_id)
+            candidates=[source_ref] if source_ref else [s["source_ref"] for s in known if s["entry_url"]==original.entry_url]
+            if exc.kind=="revoked" and source_ref:
+                candidates.extend(s["source_ref"] for s in known if
+                    (json.loads(s["resource_json"])["kind"],json.loads(s["resource_json"])["token"])==(resource.kind,resource.token))
+            for ref in set(candidates):
+                self.store.cloud_failure(message.chat_id,message.user_id,ref,exc.kind,str(exc))
+            raise
+        for ref in json.loads(snapshot.references_json):
+            if ref.get("failure_kind"):
+                self.store.cloud_failure(message.chat_id,message.user_id,ref["source_ref"],ref["failure_kind"],ref["reason"])
+        descriptions=[self._describe_document(s.parsed)+f"\n实际来源：{self.docs_connector.actual_url(s.resource,json.loads(s.selection_json))}"
+                      +f"\n快照读取时间：{s.read_at}；远端 revision：{s.revision or 'API 未提供'}"
+                      for s in (snapshot,*snapshot.children)]
+        summary=(f"项目空间：{space.name}（{space.id}）\n云来源：{url}\n读取范围：{snapshot.selection_json}\n"
+                 +"\n".join(descriptions)+f"\n嵌入引用：{snapshot.references_json}\n"
+                 "导入内容成为空间成员可读的副本，不继承源文档/视图的行列 ACL；未选择的引用不会自动读取。")
+        return self._preview(message,"import_cloud",(snapshot,canonical(generations)),summary)
+
+    @staticmethod
+    def _table_options(configuration: str) -> TableReadOptions:
+        if not configuration:
+            return TableReadOptions()
+        try:
+            values = json.loads(configuration)
+            if not isinstance(values, dict) or set(values) - {"header_rows", "delimiter", "encoding", "sheets", "cell_range"}:
+                raise ValueError("unknown table option")
+            if "header_rows" in values and (type(values["header_rows"]) is not int or values["header_rows"] < 0):
+                raise ValueError("header_rows must be a nonnegative integer")
+            if "sheets" in values:
+                if not isinstance(values["sheets"], list) or any(not isinstance(s, str) for s in values["sheets"]):
+                    raise ValueError("sheets must be a list of names")
+                values["sheets"] = tuple(values["sheets"])
+            for key in ("delimiter", "encoding", "cell_range"):
+                if key in values and not isinstance(values[key], str):
+                    raise ValueError(f"{key} must be text")
+            return TableReadOptions(**values)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"无效 --table-options JSON：{exc}") from exc
+
+    @staticmethod
+    def _describe_document(parsed: ParsedDocument) -> str:
+        lines = [f"- {parsed.name}：正文/规范化文本 {len(parsed.text)} 字符，表格 {len(parsed.tables)} 个"]
+        for table in parsed.tables:
+            lines.append(f"  - {table.title}；{table.locator()}；数据记录 {len(table.rows)}；表头源行 {table.header_rows}；"
+                         + "字段：" + "；".join(c.name for c in table.columns))
+        lines.extend(f"  缺失内容：{item}" for item in parsed.missing_content)
+        lines.extend(f"  提示：{warning}" for warning in parsed.warnings)
+        return "\n".join(lines)
 
     def _preview(
         self, message: IncomingMessage, operation: str, arguments: tuple[object, ...], summary: str
     ) -> OutgoingMessage:
+        if len(summary.encode("utf-8")) > 24000:
+            raise ValueError("预览范围/字段清单过长，请减少文件、工作表或列后重试；未生成确认操作")
         token = token_urlsafe(18)
         pending = PendingKnowledgeOperation(
             token, message.chat_id, message.user_id, operation, arguments, summary,
             time.time() + self.confirmation_ttl_seconds,
+            self.store.get_space(message.chat_id, message.user_id).id if operation in {
+                "import_files", "import_attachment", "import_doc", "import_cloud"
+            } else None,
         )
         with self._lock:
             self._purge_expired()
@@ -240,6 +360,10 @@ class KnowledgeCommandService:
 
     def _execute(self, message: IncomingMessage, pending: PendingKnowledgeOperation) -> OutgoingMessage:
         operation, args = pending.operation, pending.arguments
+        if pending.project_space_id is not None:
+            space = self.store.require_member(message.chat_id, message.user_id, admin=True)
+            if space.id != pending.project_space_id:
+                raise PermissionError("会话绑定空间已变化，请在目标空间重新生成导入预览")
         if operation == "bind":
             self.store.bind_directory(message.chat_id, message.user_id, str(args[0]))
             return self._out(message, "目录绑定完成。")
@@ -256,13 +380,24 @@ class KnowledgeCommandService:
             space = self.store.require_member(message.chat_id, message.user_id, admin=True)
             indexed = skipped = 0
             failures: list[str] = []
-            for raw_path in args:
+            missing: list[str] = []
+            for snapshot in args:
+                raw_path = snapshot.path
                 try:
-                    parsed = self.parser.parse_file(
-                        str(raw_path),
-                        policy=self.policy,
-                        bound_directory=space.allowed_directory or "",
-                    )
+                    # Revalidate current path/binding and byte identity; index exactly
+                    # the parsed scope the administrator reviewed, never a new selection.
+                    path = self.policy.resolve_existing(raw_path)
+                    bound = self.policy.resolve_existing(space.allowed_directory or "")
+                    try:
+                        path.relative_to(bound)
+                    except ValueError as exc:
+                        raise PermissionError("导入文件已不在当前绑定目录内") from exc
+                    with path.open("rb") as stream:
+                        raw = stream.read(self.parser.max_bytes + 1)
+                    if hashlib.sha256(raw).hexdigest() != snapshot.parsed.input_sha256:
+                        raise ValueError("文件在预览后已变化，请重新导入并确认")
+                    parsed = snapshot.parsed
+                    missing.extend(parsed.missing_content)
                     pending_index = self.indexer.enqueue(
                         chat_id=message.chat_id,
                         actor_user_id=message.user_id,
@@ -279,24 +414,63 @@ class KnowledgeCommandService:
                     indexed += 1
                 except (ValueError, PermissionError, RuntimeError, OSError) as exc:
                     failures.append(f"{Path(str(raw_path)).name}: {exc}")
-            result = f"批量导入完成：已索引 {indexed}，未变化 {skipped}，失败 {len(failures)}。"
+            status = "完整成功" if not failures and not missing else ("部分成功" if indexed + skipped else "失败")
+            result = f"批量导入{status}：已索引 {indexed}，未变化 {skipped}，失败 {len(failures)}。"
             if failures:
                 result += "\n" + "\n".join(f"- {failure}" for failure in failures[:10])
+            if missing:
+                result += "\n缺失内容（可检索公式表达式，无法提供缓存结果）：\n" + "\n".join(missing)
             return self._out(message, result)
         if operation == "import_attachment":
-            if self.feishu_adapter is None:
-                raise RuntimeError("飞书附件下载未配置")
-            raw = self.feishu_adapter.download_attachment(str(args[0]), args[1])
-            parsed = self.parser.parse_bytes(args[1].name or "upload.bin", raw, args[1].mime_type)
-            return self._run_import(message, DocumentSource.FEISHU_UPLOAD, args[1].key, parsed)
-        if operation == "import_doc":
-            if self.feishu_adapter is None:
-                raise RuntimeError("飞书云文档读取未配置")
-            content, _revision = self.feishu_adapter.fetch_cloud_document(str(args[1]))
-            parsed = self.parser.parse_bytes(f"{args[1]}.md", content.encode("utf-8"), "text/markdown")
-            return self._run_import(
-                message, DocumentSource.FEISHU_DOCUMENT, str(args[1]), parsed, source_url=str(args[0])
-            )
+            return self._run_import(message, DocumentSource.FEISHU_UPLOAD, str(args[0]), args[1])
+        if operation == "import_cloud":
+            root=args[0]
+            generations=json.loads(args[1])
+            indexed=unchanged=0
+            failures=[]
+            missing=list(root.parsed.missing_content)
+            units={s.source_ref:s for s in (*root.children,root)}
+            for snapshot in units.values():
+                sources=self.store.list_cloud_sources(message.chat_id,message.user_id)
+                previous=next((s for s in sources if s["source_ref"]==snapshot.source_ref),None)
+                expected_generation=generations.get(snapshot.source_ref,0)
+                if (previous["generation"] if previous else 0)!=expected_generation:
+                    failures.append(f"{snapshot.parsed.name}：来源在预览后已有新状态，请重新预览")
+                    continue
+                actual_url=self.docs_connector.actual_url(snapshot.resource,json.loads(snapshot.selection_json))
+                state="partial" if snapshot.parsed.missing_content else "indexed"
+                error="; ".join(snapshot.parsed.missing_content) or None
+                if snapshot is root and failures:
+                    state="partial"
+                    error="; ".join(failures+[error] if error else failures)
+                cloud_state=dict(source_ref=snapshot.source_ref,
+                    resource_json=canonical(asdict(snapshot.resource)),selection_json=snapshot.selection_json,
+                    entry_url=snapshot.resource.entry_url,actual_url=actual_url,revision=snapshot.revision,
+                    read_at=snapshot.read_at,status=state,error=error,
+                    manifest_json=snapshot.references_json,expected_generation=expected_generation)
+                try:
+                    pending_index=self.indexer.enqueue(chat_id=message.chat_id,actor_user_id=message.user_id,
+                        source=DocumentSource.FEISHU_DOCUMENT,source_ref=snapshot.source_ref,source_url=actual_url,
+                        parsed=snapshot.parsed,defer_publish=True,cloud_state=cloud_state)
+                    if not pending_index.changed:
+                        if cloud_state["status"]!="partial":
+                            cloud_state["status"]="unchanged"
+                        self.store.save_cloud_source(message.chat_id,message.user_id,document_id=pending_index.document.id,**cloud_state)
+                        unchanged+=1
+                        continue
+                    job=self.indexer.run(message.chat_id,message.user_id,pending_index)
+                    if job is None or job.status.value!="succeeded":
+                        cloud_state["status"]=job.status.value if job else "failed"
+                        cloud_state["error"]=job.error if job else "索引作业未启动"
+                        self.store.save_cloud_source(message.chat_id,message.user_id,document_id=pending_index.document.id,**cloud_state)
+                        raise RuntimeError(cloud_state["error"])
+                    indexed+=1
+                except (PermissionError,RuntimeError,ValueError) as exc:
+                    failures.append(f"{snapshot.parsed.name}：{exc}")
+            status="失败" if failures and not indexed+unchanged else "部分成功" if failures or missing else "完整成功"
+            unsupported=sum(any(word in item for word in ("未支持","暂不支持","未提取块类型")) for item in missing)
+            result=f"云来源导入{status}：已索引 {indexed}，未变化 {unchanged}，未支持 {unsupported}，失败 {len(failures)}，缺失内容 {len(missing)}。"
+            return self._out(message,result+("\n"+"\n".join(failures+missing) if failures or missing else ""))
         raise RuntimeError(f"unsupported pending operation: {operation}")
 
     def _run_import(self, message, source, source_ref, parsed, source_url=None):
@@ -305,11 +479,13 @@ class KnowledgeCommandService:
             source_ref=source_ref, parsed=parsed, source_url=source_url,
         )
         if not pending.changed:
-            return self._out(message, "文档内容未变化，已跳过 Embedding。")
+            return self._out(message, "文档内容未变化，已跳过 Embedding。"
+                             + ("\n部分内容仍缺失：\n" + "\n".join(parsed.missing_content) if parsed.missing_content else ""))
         job = self.indexer.run(message.chat_id, message.user_id, pending)
         if job is None or job.status.value != "succeeded":
             raise RuntimeError(job.error if job else "索引作业未启动")
-        return self._out(message, f"文档已索引：{parsed.name}")
+        return self._out(message, f"文档已索引：{parsed.name}"
+                         + ("\n部分成功，缺失内容：\n" + "\n".join(parsed.missing_content) if parsed.missing_content else ""))
 
     def _take(self, token: str, chat_id: str, user_id: str) -> PendingKnowledgeOperation:
         with self._lock:
@@ -346,6 +522,8 @@ class KnowledgeCommandService:
         return (
             "/kb whoami；/kb create [名称]；/kb spaces；/kb use <空间ID或名称>；"
             "/kb bind <目录>；/kb import <文件、目录或模糊目录描述>；"
-            "/kb import-doc <飞书 docx 链接>；/kb search <问题>；/kb list；"
+            "表格可附加 --table-options JSON（header_rows、sheets、cell_range、delimiter、encoding）；"
+            "/kb import-doc <docx/wiki/sheets/base 链接> [--options JSON]；/kb inspect-doc <链接>；"
+            "/kb sources；/kb refresh <来源ID>；/kb search <问题>；/kb list；"
             "/kb add-member <user_id> [member|admin]；/kb delete <文档ID>；/kb budget"
         )

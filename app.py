@@ -23,6 +23,8 @@ from tele_bot.llm.react_client import build_chat_openai, build_context_manager
 from tele_bot.llm.embeddings import AliBailianEmbeddingClient
 from tele_bot.knowledge.ingestion import DocumentParser, TextChunker
 from tele_bot.knowledge.config import IndexingSettings
+from tele_bot.knowledge.cloud_sources import CloudSourceConnector
+from tele_bot.knowledge.feishu_docs import FeishuDocsClient
 from tele_bot.knowledge.search import KnowledgeIndexer, KnowledgeSearch
 from tele_bot.models import IncomingMessage
 from tele_bot.persistence import KnowledgeStore, build_sqlite_saver
@@ -169,9 +171,14 @@ try:
         embedding_context_prefix=indexing_settings.context_prefix,
     )
     knowledge_search = KnowledgeSearch(knowledge_store, embedding_client, llm_settings)
+    knowledge_parser = DocumentParser(max_bytes=runtime_settings.kb_max_import_bytes,
+                                      table_chunk_chars=indexing_settings.max_chars)
+    docs_connector = CloudSourceConnector(FeishuDocsClient(feishu_settings.app_id,feishu_settings.app_secret,
+        api_base_url=feishu_settings.api_base_url,max_bytes=runtime_settings.kb_max_import_bytes),knowledge_parser) if feishu_settings else None
     knowledge_service = KnowledgeCommandService(
         store=knowledge_store,
-        parser=DocumentParser(max_bytes=runtime_settings.kb_max_import_bytes),
+        parser=knowledge_parser,
+        docs_connector=docs_connector,
         indexer=knowledge_indexer,
         search=knowledge_search,
         policy=WorkspacePolicy.from_env(),

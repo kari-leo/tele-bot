@@ -64,6 +64,10 @@ class KnowledgeDocument:
     created_at: str
     updated_at: str
     source_url: str | None = None
+    source_read_at: str = ""
+    source_status: str = ""
+    source_revision: str | None = None
+    source_error: str = ""
 
 
 @dataclass(frozen=True)
@@ -114,6 +118,11 @@ class SearchHit:
     vector_rank: int | None = None
     keyword_score: float | None = None
     vector_score: float | None = None
+    indexed_at: str = ""
+    source_read_at: str = ""
+    source_status: str = ""
+    source_revision: str | None = None
+    source_error: str = ""
 
 
 @dataclass(frozen=True)

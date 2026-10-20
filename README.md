@@ -247,7 +247,10 @@ Ubuntu 隔离目录需要由运行 telebot 的用户拥有写权限。Codex 进�
 /kb use <空间ID或名称>
 /kb bind <允许导入的目录>
 /kb import <文件、目录或模糊目录描述>
-/kb import-doc <飞书 docx 链接>
+/kb import-doc <飞书 docx/wiki/sheets/base 链接> [--options JSON]
+/kb inspect-doc <链接>
+/kb sources
+/kb refresh <来源ID>
 /kb add-member <user_id> [member|admin]
 /kb delete <完整文档 ID>
 ```
@@ -276,7 +279,7 @@ KB_CREATOR_USER_IDS=u_123456,ou_abcdef
 存在多个匹配目录时不会猜测，必须补充更精确的目录名或路径。单次最多导入 200 个
 文件，隐藏目录、Git 元数据、依赖目录和非白名单文件会跳过。
 
-支持 Markdown、TXT、PDF 和 DOCX；压缩包、可执行文件和未知二进制会拒绝。图片只
+支持 Markdown、TXT、PDF、DOCX、XLSX 和 CSV；压缩包、可执行文件和未知二进制会拒绝。图片只
 归档事件元数据并明确提示“一期不支持 OCR”，不会传给 Embedding API。文件必须在
 管理员绑定且同时通过 `WorkspacePolicy` 的目录内，默认单空间最多 10,000 个分块。
 
@@ -300,7 +303,7 @@ KB_MAX_CHUNKS_PER_SPACE=10000
 记录，仅用于本地预算门，实际费用以百炼所在区域、业务空间和账单为准。
 
 飞书应用至少需要消息读取/发送、消息资源下载以及云文档只读权限。遵循最小权限，
-云文档不会自动同步，仅管理员显式导入 `/docx/` 链接时读取一次。备份或恢复时同时
+云文档不会自动同步，仅管理员显式导入或手动刷新时读取。备份或恢复时同时
 处理会话 SQLite 与 `KB_SQLITE_PATH`；数据库启用 WAL，复制前应先停止服务或使用
 SQLite 在线备份。
 
@@ -331,13 +334,15 @@ SQLite 在线备份。
 
 分块优先保留 Markdown ATX/Setext 标题、DOCX Heading/outline 标题与自然段边界；
 PDF 保留页码并识别显式标题、编号和中文章节。视觉标题无法识别时按页和自然段回退，
-无结构文本按自然段、句子、字符顺序回退。表格按原行保存，代码内的 `#` 不当作标题；
-超过长度的表格、代码或段落按句子/行或字符拆分，保留可追溯范围。
+无结构文本按自然段、句子、字符顺序回退。Markdown 普通管道表和 DOCX 普通表格与
+XLSX/CSV 共用结构规范化器；代码内的 `#` 或管道表不当作文档标题或表格。
+普通正文和代码超长时按句子/行或字符拆分，保留可追溯范围。
 `source_locator` 中的字符范围是规范化提取文本的半开区间，不是 PDF 字节坐标；
 DOCX 另有块号、PDF 另有页码。每块同时保留章节路径、文档版本、序号和原文哈希。
 上下文前缀不进入展示原文；向量复用键包含端点、模型、维度和完整向量输入。
 不同位置的相同正文各保留引用，共用兼容向量；重导历史内容会重新激活相应内容版本。
-数据库自动迁移至 v4，保留旧分块；重新导入后才构建结构元数据和明确模型身份的复用键。
+数据库自动迁移至 v5，保留旧分块；新增云来源登记、范围配置、revision、成功读取时间和状态序号。
+旧资料重新导入后才构建结构元数据和明确模型身份的复用键。
 
 Skill 常驻提示只包含 `global.md` 规则和名称/用途目录。模型通过 `load_skill(name)` 加载
 相关领域正文；多个匹配可分别加载。正文仅在当前请求的系统提示中生效，历史正文在模型
@@ -360,6 +365,122 @@ python run_tests.py knowledge
 人工别名扩写有所提升，样本仍不足以支持默认开启。固定向量报告只验证排名算法。
 无相关资料仍可能返回近邻；RRF 分数不代表答案可信度，回答必须核对引用原文。
 检索召回和生成答案忠实度需分开评估。
+
+### 本地表格与附件（阶段 A）
+
+先安装 `requirements.txt`（新增锁定依赖 `openpyxl==3.1.5`）。`/kb import` 支持
+绑定目录中的 XLSX/CSV 扫描和显式文件导入；飞书文件附件由同一解析器处理。
+本地文件和附件先读取并展示目标空间、表名、工作表/区域、表头源行、字段、记录数和
+缺失公式缓存，再由管理员确认索引。确认绑定预览快照和目标空间；本地文件在预览后
+变化或会话切换空间时需重新预览。新附件下载发生在预览阶段，Embedding 只在确认后调用。
+预览过长或解析超限会要求缩小范围，不会静默省略字段或导入半份文件。
+
+XLSX 按工作表顺序读取，使用空白行/列分隔的数据区域；仅按真实合并范围传播值。
+默认每个区域首行为表头，不推测业务含义；多层表头或无表头用显式配置：
+
+```text
+/kb import D:/资料/项目.xlsx --table-options {"sheets":["项目进度"],"cell_range":"A1:F200","header_rows":2}
+/kb import D:/资料/清单.csv --table-options {"header_rows":0,"delimiter":";","encoding":"gb18030"}
+```
+
+`sheets`、`cell_range` 仅用于 XLSX，范围不能切断合并单元格。
+显式 `cell_range` 视作一个区域，保留其中完全空白的行列，不再按空白分隔。
+CSV 支持分隔符探测、
+引号内换行和 UTF-8/BOM、GB18030、带 BOM 的 UTF-16，可显式指定编码。
+CSV 来源位置使用逻辑记录序号，与物理文本行号不同。空白/重复表头保留源列号，
+不覆盖列。DOCX 优先采用连续的 `tblHeader` 行，否则使用首行；Markdown 使用标准
+表头分隔行。没有明确结构的复杂表头需先整理或通过 `header_rows` 明确选择。
+当前对一个导入文件使用同一表头行数；不同区域表头层数不同的文件请拆分或选定区域。
+
+表格片段按完整行分组，重复表名和字段路径；超长记录按字段/单元格分段并保留记录
+与字段上下文，避免静默截断。源定位包含 sheet/表块、区域、行列/逻辑记录与最终规范化
+文本字符范围。单元格内换行在检索文本中显示为 `↵`，中间结构保留原值。
+数字零、空值、公式缺失缓存分别表示；公式仅保留表达式及源文件缓存，不执行宏或重算。
+公式缓存缺失时，预览和导入结果列出具体表名/源行列范围，并标记部分成功。
+日期以 ISO 值保留，百分比/货币等附带原始数字格式，不声称完全复现 Excel 显示结果。
+
+配置可写入 `tele_bot/config/llm/local.env` 或环境变量，后者优先：
+
+| 配置 | 默认值 | 含义 |
+|---|---|---|
+| `KB_TABLE_MAX_UNPACKED_BYTES` | `104857600` | Office 解压后总字节上限 |
+| `KB_TABLE_MAX_SHEETS` | `32` | 工作表数量 |
+| `KB_TABLE_MAX_ROWS` | `50000` | 源行号/CSV 逻辑记录数上限 |
+| `KB_TABLE_MAX_COLUMNS` | `256` | 源列号上限 |
+| `KB_TABLE_MAX_CELLS` | `500000` | 单元格/展开区域预算 |
+| `KB_TABLE_MAX_CELL_CHARS` | `100000` | 单元格字符数 |
+| `KB_TABLE_MAX_OUTPUT_CHARS` | `10000000` | 单文件及批次预览规范化输出字符数 |
+
+继续受 `KB_MAX_IMPORT_BYTES` 和空间分块总数限制。XLSX 在加载前检查压缩包、XML、
+区域和合并大小；超限需缩小/拆分源文件。修改导入配置或来源位置会更新引用，未变化的
+兼容 Embedding 输入继续复用。重导相同配置与内容不会重复请求 Embedding。
+Agent、`/kb search`、只读 MCP 都返回定位、版本和索引时间；返回片段不等于整表，
+完整性未验证时不能据此回答全表计数、金额求和或全量筛选。
+
+`.xls`、`.xlsm`、OCR、复杂 PDF 表格重建和 DOCX 嵌套表格不在当前结构化支持范围。
+PDF 继续保留文本与页码，导入预览会提示表格结构能力边界。
+
+### 飞书云来源、范围选择与刷新（阶段 B）
+
+新版 docx 使用文档块和完整分页恢复标题、正文、普通表格、合并关系与块定位；
+分页读取使用 latest（`document_revision_id=-1`），并校验读取前后 revision，不需要历史版本的编辑权限。
+Wiki 先读取节点的实际资源身份，再分派到 docx、Sheets 或 Base。旧版 `/docs/`、
+Wiki/文件夹递归导入、自动同步仍不支持。Docs 客户端独立于消息适配器，只向
+`https://open.feishu.cn` 或 `https://open.larksuite.com` 请求；来源地域必须匹配配置。
+认证缓存、有限限流/超时重试、单响应字节、分页数/记录数与输出预算均在服务端执行。
+单次来源及其嵌入读取共用最多 512 次请求、100 MiB 累计响应预算；分页单接口最多
+100 页/50,000 项，Sheets 每批 200 行，继续受本地表格各项大小限制。
+
+```text
+/kb import-doc https://team.feishu.cn/docx/DOCUMENT_TOKEN
+/kb import-doc https://team.feishu.cn/wiki/NODE_TOKEN
+/kb inspect-doc https://team.feishu.cn/sheets/SPREADSHEET_TOKEN
+/kb import-doc https://team.feishu.cn/sheets/SPREADSHEET_TOKEN --options {"sheet_id":"SHEET_ID","range":"A1:F200","header_rows":2}
+/kb inspect-doc https://team.feishu.cn/base/APP_TOKEN
+/kb import-doc https://team.feishu.cn/base/APP_TOKEN --options {"table_id":"TABLE_ID","field_ids":["FIELD_ID_1","FIELD_ID_2"]}
+/kb sources
+/kb refresh cloud:FULL_SOURCE_ID
+```
+
+`inspect-doc` 供管理员查看元数据/字段与嵌入引用，不调用 Embedding。Sheets 必须明确
+单个工作表和有界 A1 区域，按批次读取显示值，保留源行列和合并关系，校验 revision；
+不会读取其他 sheet 的值，不自行计算复杂单元格。Base 必须明确单个数据表和非空字段 ID
+列表，先读字段定义再完整分页搜索记录；可附加显式 API `filter` 对象和 `view_id`。
+view 仅作选择条件，不视为权限隔离；隐藏列/视图过滤语义仍需租户样本联调。
+
+Base 文本化保留数字零、日期时区、数字/货币格式、全部选项、已授权人员展示名或身份、
+标题及 URL、公式/查找返回值、record_id 与字段 ID。附件仅名称/类型/引用，关联记录
+仅已返回展示值及身份，不下载正文或递归展开。未知字段/无法解释结果在预览、导入结果
+和检索状态中标记缺失，不直接序列化内部对象。Base 搜索 API 无跨页事务快照保证；
+本地只在完整分页成功后发布，不能将它解释为源端事务一致性承诺。
+
+内嵌 Sheets/Base 默认只列出引用，并将父文档标为部分成功。管理员可先 `inspect-doc`
+查看 block_id，再在父文档配置中明确指定实际资源和范围：
+
+```text
+/kb import-doc https://team.feishu.cn/docx/DOCUMENT_TOKEN --options {"embeds":{"BLOCK_ID":{"url":"https://team.feishu.cn/sheets/SPREADSHEET_TOKEN","selection":{"sheet_id":"SHEET_ID","range":"A1:F200"}}}}
+```
+
+连接器用显式身份核对 API 返回的引用 token，不猜测拆分不明 token。内嵌正文作为独立
+来源索引，引用实际表格 URL 和行列/record_id；父文档保存入口和引用清单。
+无权限、未知引用、超限或未选择范围均明确显示，父正文不会伪装成整份内容完整成功。
+
+确认绑定目标空间、选定配置和已读快照；预览不会调用 Embedding。相同资源及同一范围的
+Wiki/直链使用相同来源身份；不同范围独立登记。`refresh` 复用已确认配置并重新预览，
+不会自动增加工作表、字段或内嵌资源。范围变化需重新 `import-doc`。导入成为空间成员
+可读的副本，不继承源文件/Base 的行列 ACL。
+
+云索引采用事务内发布：全部向量/分块就绪后才更新当前版本、来源状态和成功读取时间。
+超时、分页失败、预算耗尽或 Embedding 失败保留旧版本及其成功读取时间；明确观察到撤权
+或资源删除后，服务端检索过滤该源，普通失败不会重新启用它。新的成功读取须再次确认。
+来源状态序号同时防止旧预览或并发索引覆盖后续撤权/删除。该机制只在显式读取时检查
+远端状态，没有后台 ACL 轮询。检索结果携带 `source_read_at/source_status/source_revision/source_error`，
+远端 revision 独立保存，原 `source_version` 继续表示索引配置指纹。
+
+新增锁定依赖 `tzdata==2026.5` 为无系统 IANA 时区数据的环境提供日期解释支持。
+API 契约以[飞书官方文档](https://open.feishu.cn/document/server-docs/docs/bitable-v1/bitable-structure)
+与[官方 SDK 结构](https://github.com/larksuite/oapi-sdk-python/tree/v2_main/lark_oapi/api/docx/v1/model)为依据。
+离线专项验证及租户只读联调清单见 [云端验收记录](CLOUD_KNOWLEDGE_VALIDATION.md)。
 
 ## 工具与 Skill 召回评测
 
@@ -438,8 +559,26 @@ Excel/CSV 文件。仅有中间文件、旧表格或文字日报不能认定表�
 ## 测试
 
 统一入口为 `run_tests.py`。不传模块名时运行全部测试；可指定
-`schedule`、`codex`、`feishu`、`knowledge`、`tools` 或 `core`。
+`core`、`schedule`、`codex`、`feishu`、`recall`、`knowledge` 或 `tools`。
 其他参数会直接传给 pytest，例如 `-k model`。`--list` 列出每个模块包含的文件。
+
+测试按模块放在同名目录，入口自动发现目录内的测试，无需维护文件清单：
+
+| 目录 | 覆盖范围 |
+|---|---|
+| `tests/core/` | 消息、路由、执行器、上下文、状态与模型客户端 |
+| `tests/schedule/` | 调度命令/MCP、任务执行与产物交付 |
+| `tests/codex/` | Codex 命令与运行器 |
+| `tests/feishu/` | 飞书适配器 |
+| `tests/recall/` | 技能加载、能力召回与评测指标 |
+| `tests/knowledge/` | 文档解析、检索、存储、命令、云连接器和 Agent/MCP 接口 |
+| `tests/tools/` | 文件操作、工作区策略、搜索、Git 与发布流程 |
+
+知识库测试对应 `test_ingestion.py`、`test_retrieval.py`、`test_store.py`、
+`test_commands.py`、`test_cloud.py`、`test_interfaces.py` 六个功能文件。
+新增用例优先扩展所属功能文件和测试类，不按开发阶段或单个格式另建一套测试。
+通用夹具放在 `support.py`，模拟云 API 放在 `cloud_fakes.py`；测试文件之间不相互导入。
+相同规则的多组输入使用参数化或 `subTest`，避免复制夹具和断言流程。
 
 ```powershell
 $py = 'D:\Anaconda3\envs\telebot\python.exe'

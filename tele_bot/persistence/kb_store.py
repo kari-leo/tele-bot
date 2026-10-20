@@ -68,8 +68,8 @@ class KnowledgeStore:
     def _migrate(self) -> None:
         with self._lock:
             version = self._conn.execute("PRAGMA user_version").fetchone()[0]
-            if version > 4:
-                raise RuntimeError(f"knowledge DB schema {version} is newer than supported schema 4")
+            if version > 5:
+                raise RuntimeError(f"knowledge DB schema {version} is newer than supported schema 5")
             if version == 0:
                 self._conn.executescript(
                 """
@@ -196,6 +196,22 @@ class KnowledgeStore:
                     COMMIT;
                     """
                 )
+            self._conn.executescript("""
+                CREATE TABLE IF NOT EXISTS cloud_sources (
+                    project_space_id TEXT NOT NULL REFERENCES project_spaces(id) ON DELETE CASCADE,
+                    source_ref TEXT NOT NULL,
+                    document_id TEXT REFERENCES knowledge_documents(id),
+                    resource_json TEXT NOT NULL, selection_json TEXT NOT NULL,
+                    entry_url TEXT NOT NULL, actual_url TEXT NOT NULL,
+                    remote_revision TEXT, last_read_at TEXT, last_success_at TEXT,
+                    status TEXT NOT NULL, error TEXT, manifest_json TEXT NOT NULL DEFAULT '[]',
+                    generation INTEGER NOT NULL DEFAULT 1,
+                    PRIMARY KEY(project_space_id,source_ref)
+                );
+                PRAGMA user_version=5;
+            """)
+            if "generation" not in {r[1] for r in self._conn.execute("PRAGMA table_info(cloud_sources)")}:
+                self._conn.execute("ALTER TABLE cloud_sources ADD COLUMN generation INTEGER NOT NULL DEFAULT 1")
             self._conn.commit()
 
     def create_space(self, chat_id: str, name: str, creator_user_id: str) -> ProjectSpace:
@@ -342,6 +358,9 @@ class KnowledgeStore:
             )
             if cursor.rowcount != 1:
                 raise KeyError(document_id)
+            conn.execute("""UPDATE cloud_sources SET status='deleted',error='知识库文档已删除',
+                         generation=generation+1 WHERE document_id=? AND project_space_id=?""",
+                         (document_id,space.id))
 
     def get_space(self, chat_id: str, user_id: str) -> ProjectSpace:
         return self.require_member(chat_id, user_id)
@@ -358,6 +377,7 @@ class KnowledgeStore:
         source_version: str | None = None,
         source_url: str | None = None,
         require_admin: bool = True,
+        defer_publish: bool = False,
     ) -> tuple[KnowledgeDocument, DocumentVersion, bool]:
         space = self.require_member(chat_id, actor_user_id, admin=require_admin)
         now = _now()
@@ -394,6 +414,8 @@ class KnowledgeStore:
                         return self._document(row), self._version(existing_version), False
                     # Reactivation and retry reuse the content version, but must
                     # rebuild under the requested index profile before searching.
+                    if defer_publish:
+                        return self._document(row), self._version(existing_version), True
                     conn.execute(
                         """UPDATE knowledge_documents SET current_version_id=?,title=?,source_url=?,status=?,updated_at=?
                            WHERE id=?""",
@@ -408,7 +430,8 @@ class KnowledgeStore:
                     "SELECT COALESCE(MAX(version),0)+1 FROM document_versions WHERE document_id=?",
                     (document_id,),
                 ).fetchone()[0]
-                conn.execute(
+                if not defer_publish:
+                    conn.execute(
                     """UPDATE knowledge_documents SET title=?,source_url=?,status=?,updated_at=?
                        WHERE id=?""",
                     (title, source_url, DocumentStatus.PENDING.value, now, document_id),
@@ -420,7 +443,8 @@ class KnowledgeStore:
                    VALUES(?,?,?,?,?,?)""",
                 (version_id, document_id, version_number, content_sha256, source_version, now),
             )
-            conn.execute(
+            if not defer_publish:
+                conn.execute(
                 "UPDATE knowledge_documents SET current_version_id=? WHERE id=?",
                 (version_id, document_id),
             )
@@ -441,6 +465,7 @@ class KnowledgeStore:
         document_version_id: str,
         chunks: Sequence[tuple[str, str, bytes | None, int | None]],
         chunk_metadata: Sequence[dict] | None = None,
+        publish: dict | None = None,
     ) -> list[KnowledgeChunk]:
         space = self.require_member(chat_id, actor_user_id, admin=True)
         if chunk_metadata is not None and len(chunk_metadata) != len(chunks):
@@ -485,6 +510,18 @@ class KnowledgeStore:
                      metadata.get("embedding_prefix", ""), metadata.get("embedding_key", "")),
                 )
                 created.append(self._chunk(conn.execute("SELECT * FROM knowledge_chunks WHERE id=?", (chunk_id,)).fetchone()))
+            if publish is not None:
+                if publish.get("cloud_source") is not None:
+                    state=dict(publish["cloud_source"])
+                    state["document_id"]=document_id
+                    self._save_cloud_source(conn,space.id,**state)
+                # All chunks are validated/written in this transaction before the
+                # serving version pointer changes. Network/budget failures leave it intact.
+                conn.execute("UPDATE document_versions SET source_version=? WHERE id=?",
+                             (publish["source_version"],document_version_id))
+                conn.execute("""UPDATE knowledge_documents SET current_version_id=?,title=?,source_url=?,
+                             status=?,updated_at=? WHERE id=?""",
+                             (document_version_id,publish["title"],publish["source_url"],DocumentStatus.INDEXED.value,_now(),document_id))
             conn.execute(
                 "UPDATE knowledge_documents SET status=?,updated_at=? WHERE id=? AND current_version_id=? AND status<>?",
                 (DocumentStatus.INDEXED.value, _now(), document_id, document_version_id, DocumentStatus.DELETED.value),
@@ -497,7 +534,8 @@ class KnowledgeStore:
             rows = self._conn.execute(
                 """SELECT c.* FROM knowledge_chunks c JOIN knowledge_documents d ON d.id=c.document_id
                    WHERE c.project_space_id=? AND d.current_version_id=c.document_version_id
-                   AND d.status=? ORDER BY d.updated_at DESC,c.ordinal""",
+                   AND d.status=? AND NOT EXISTS (SELECT 1 FROM cloud_sources s WHERE s.project_space_id=d.project_space_id
+                   AND s.source_ref=d.source_ref AND s.status IN ('revoked','not_found')) ORDER BY d.updated_at DESC,c.ordinal""",
                 (space.id, DocumentStatus.INDEXED.value),
             ).fetchall()
         return [self._chunk(row) for row in rows]
@@ -515,10 +553,14 @@ class KnowledgeStore:
         with self._lock:
             rows = self._conn.execute(
                 """SELECT c.*,d.source,d.source_ref,d.source_url,d.title,d.status,d.created_by,
-                          d.created_at AS document_created_at,d.updated_at
+                          d.created_at AS document_created_at,d.updated_at,
+                          COALESCE(s.last_success_at,'') AS source_read_at,COALESCE(s.status,'') AS source_status,
+                          s.remote_revision AS source_revision,COALESCE(s.error,'') AS source_error
                    FROM knowledge_chunks c JOIN knowledge_documents d ON d.id=c.document_id
+                   LEFT JOIN cloud_sources s ON s.project_space_id=d.project_space_id AND s.source_ref=d.source_ref
                    WHERE c.project_space_id=? AND d.current_version_id=c.document_version_id
-                   AND d.status=? ORDER BY d.source_ref,c.ordinal,c.id""",
+                   AND d.status=? AND NOT EXISTS (SELECT 1 FROM cloud_sources s WHERE s.project_space_id=d.project_space_id
+                   AND s.source_ref=d.source_ref AND s.status IN ('revoked','not_found')) ORDER BY d.source_ref,c.ordinal,c.id""",
                 (space.id, DocumentStatus.INDEXED.value),
             ).fetchall()
         material = []
@@ -527,6 +569,7 @@ class KnowledgeStore:
                 row["document_id"], row["project_space_id"], DocumentSource(row["source"]),
                 row["source_ref"], row["title"], DocumentStatus(row["status"]), row["created_by"],
                 row["document_created_at"], row["updated_at"], row["source_url"],
+                row["source_read_at"],row["source_status"],row["source_revision"],row["source_error"],
             )
             material.append((self._chunk(row), document))
         return material
@@ -547,6 +590,53 @@ class KnowledgeStore:
                 (space.id, *hashes),
             ).fetchall()
         return {row["content_sha256"]: row["embedding"] for row in rows}
+
+    def list_cloud_sources(self,chat_id,user_id):
+        space=self.require_member(chat_id,user_id,admin=True)
+        with self._lock:
+            return [dict(row) for row in self._conn.execute(
+                "SELECT * FROM cloud_sources WHERE project_space_id=? ORDER BY source_ref",(space.id,)).fetchall()]
+
+    def save_cloud_source(self,chat_id,user_id,**state):
+        space=self.require_member(chat_id,user_id,admin=True)
+        with self._transaction() as conn:
+            self._save_cloud_source(conn,space.id,**state)
+
+    @staticmethod
+    def _save_cloud_source(conn,space_id,*,source_ref,resource_json,selection_json,entry_url,
+                          actual_url,revision,read_at,status,document_id=None,error=None,manifest_json="[]",expected_generation=None):
+            row=conn.execute("SELECT generation FROM cloud_sources WHERE project_space_id=? AND source_ref=?",
+                             (space_id,source_ref)).fetchone()
+            if expected_generation is not None and (row[0] if row else 0)!=expected_generation:
+                raise PermissionError("来源在预览后已有新状态，请重新预览")
+            conn.execute("""INSERT INTO cloud_sources(project_space_id,source_ref,document_id,resource_json,
+                         selection_json,entry_url,actual_url,remote_revision,last_read_at,last_success_at,status,error,manifest_json)
+                         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(project_space_id,source_ref) DO UPDATE SET
+                         document_id=COALESCE(excluded.document_id,cloud_sources.document_id),
+                         resource_json=excluded.resource_json,selection_json=excluded.selection_json,entry_url=excluded.entry_url,
+                         actual_url=excluded.actual_url,remote_revision=CASE WHEN excluded.last_success_at IS NOT NULL
+                         THEN excluded.remote_revision ELSE cloud_sources.remote_revision END,last_read_at=excluded.last_read_at,
+                         last_success_at=COALESCE(excluded.last_success_at,cloud_sources.last_success_at),
+                         status=CASE WHEN cloud_sources.status IN ('revoked','not_found','deleted') AND excluded.last_success_at IS NULL
+                         THEN cloud_sources.status ELSE excluded.status END,error=excluded.error,
+                         manifest_json=excluded.manifest_json,generation=cloud_sources.generation+1""",
+                         (space_id,source_ref,document_id,resource_json,selection_json,entry_url,actual_url,revision,read_at,
+                          read_at if status in {"indexed","partial","unchanged"} else None,status,error,manifest_json))
+
+    def cloud_failure(self,chat_id,user_id,source_ref,kind,error):
+        space=self.require_member(chat_id,user_id,admin=True)
+        with self._transaction() as conn:
+            conn.execute("""UPDATE cloud_sources SET status=CASE WHEN status IN ('revoked','not_found')
+                         AND ? NOT IN ('revoked','not_found') THEN status ELSE ? END,
+                         error=?,last_read_at=?,generation=generation+1 WHERE project_space_id=? AND source_ref=?""",
+                         (kind,kind,error,_now(),space.id,source_ref))
+
+    def cloud_source_enabled(self,chat_id,user_id,source_ref):
+        space=self.require_member(chat_id,user_id,admin=True)
+        with self._lock:
+            row=self._conn.execute("SELECT status FROM cloud_sources WHERE project_space_id=? AND source_ref=?",
+                                   (space.id,source_ref)).fetchone()
+        return row is None or row[0] not in {"revoked","not_found"}
 
     def find_embeddings_by_key(self, chat_id: str, actor_user_id: str, keys: Sequence[str]) -> dict[str, bytes]:
         """Reuse only vectors with an identical model/dimensions/prefix/text identity."""

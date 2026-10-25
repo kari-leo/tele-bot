@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
@@ -20,6 +20,7 @@ class AttachmentDescriptor:
     name: str | None = None
     mime_type: str | None = None
     size_bytes: int | None = None
+    source_message_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -53,6 +54,9 @@ class IncomingMessage:
     attachments: tuple[AttachmentDescriptor, ...] = ()
     quote_target_message_id: str | None = None
     card_action: CardAction | None = None
+    # Resolved by the message service; attachment descriptors remain metadata-only.
+    image_data_urls: tuple[str, ...] = field(default=(), repr=False)
+    attachment_context: str = field(default="", repr=False)
 
 
 @dataclass(frozen=True)

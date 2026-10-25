@@ -2,6 +2,29 @@
 
 一个以飞书为唯一消息入口的本地 Agent 服务。服务接收飞书事件，交给 LangGraph ReAct Agent 处理，再通过飞书回复文本或发送本地文件。
 
+回复统一通过富文本 `post` 消息的 `md` 标签发送，保留标题、加粗、列表、链接、代码块和表格格式；
+普通发送、引用回复、定时推送及流式状态原地更新共用同一格式。部分样式需要使用最新版飞书客户端。
+交互确认仍使用带按钮的卡片。消息格式参见[飞书官方文档](https://open.feishu.cn/document/server-docs/im-v1/message-content-description/create_json)。
+
+### 附件与需求分开发送
+
+单独发送 Excel、文档或图片时，机器人先暂存附件，等待你补充需求，不自动分析或进入知识库。
+推荐先发一个或多个附件，再发“解析这些岗位并加入校招多维表”等需求，模型会一次读取附件和文字。
+同一用户在同一会话中连续发送的普通消息等待 3 秒后合并，连续输入最多等待 10 秒；
+文字先发、附件紧接着发送也可合并。命令和确认按钮即时入队，不与普通消息合并。
+同一用户的会话内执行按顺序进行，避免多个模型轮次同时改动同一会话。
+
+待处理附件在 24 小时内随下一条需求读取；原消息和附件标识保存在检查点同目录的
+`attachments.sqlite`，服务重启后可继续使用。更早的文件、已处理文件或升级前的文件，
+通过飞书“回复/引用”原文件消息重新读取；原消息必须属于当前会话且机器人仍有读取权限。
+直接分析不要求创建知识库。文档支持 TXT、Markdown、PDF、DOCX、CSV、XLSX；图片支持
+现有多模态格式，也可作为文件发送。单个文档最多 30 MiB，单次文档正文最多 120,000 字符；
+超出正文预算时明确标记内容截断，不能当作已处理全表。
+
+只有明确说“加入知识库”，或在上传/引用附件后发送 `/kb import-attachment`，才生成入库确认卡片。
+卡片默认只显示文件、范围、简要统计和必要的共享说明；`/kb details` 可查看完整待确认范围。
+取消时只回复操作结果，避免重复整段预览。
+
 ## 功能结构
 
 ```text
@@ -26,21 +49,30 @@ ReAct 每次请求最多执行 15 轮模型调用，达到上限会明确返回�
 完整消息和工具结果继续保存在 `data/conversations.sqlite` 的 LangGraph 检查点中。
 数据库使用 WAL，最近的记录也可能位于同目录的 `conversations.sqlite-wal`。
 定时任务的业务执行记录位于 `data/scheduled.sqlite`；启动与异常日志输出到服务控制台。
+模型调用失败时，控制台记录模型、异常类型、HTTP 状态、错误码与 request ID。
+百炼返回 `Arrearage` 时需检查阿里云账户账单和余额；`insufficient_quota` 表示调用额度已耗尽。
+这两类错误会直接提示恢复账户或额度后重新发送请求，并保留本轮工具执行结果。
 
 每次模型调用前，`tele_bot/workflows/context_manager.py` 单独构建受限上下文：
 
-- 输入预算按 token 保守估算，超过 24,000 时压缩，目标 16,000，硬上限 32,000；系统提示和工具定义计入预算。
-- 摘要最多约 1,200 tokens，保留最近 6 个完整消息组；并行工具请求及对应结果一起保留或一起压缩。当前用户请求始终保留，必要时继续缩小窗口。
+- 按当前模型最大输入 991K（按 991,000 tokens 保守计算）设计：估算输入超过 600,000 时压缩，目标约 400,000，硬上限 900,000；预留约 91,000 tokens 余量。系统提示、工具定义和校准系数均计入预算。
+- 摘要最多约 4,000 tokens；压缩时按 token 预算尽量保留完整近期历史，以最近 24 个消息组为搜索起点，不固定裁到 24 组。并行工具请求及对应结果一起保留或一起压缩。当前用户请求始终保留，必要时继续缩小窗口。
 - 摘要记录目标、约束、已完成操作、失败与下一步；旧文件正文压缩为读取凭据，路径、行数和续读游标另存。
 - `context_summary`、`summary_until_message_id`、`context_refs` 和 token 校准系数随检查点保存。摘要节点先保存，再调用主模型，因此 API 超时后不用重新压缩全部历史。
-- 第一次遇到旧长会话自动迁移模型视图，原始记录保留。摘要按不超过约 8,000 tokens 的小批次生成，只处理游标之后新增的旧消息。
-- 摘要请求超时最多 30 秒且不重试；失败时保留已有摘要、使用有界凭据降级，仍执行输入上限。当前请求或固定提示本身超限时明确报错。
+- 第一次遇到旧长会话自动迁移模型视图，原始记录保留。摘要按不超过约 64,000 tokens 的批次生成，只处理游标之后新增的旧消息。已经压缩的旧正文不会自动还原到模型上下文。
+- 摘要请求超时最多 60 秒（不超过主模型配置）且不重试；失败时保留已有摘要、使用有界凭据降级，仍执行输入上限。当前请求或固定提示本身超限时明确报错。
 - 压缩历史时，飞书状态消息显示开始整理、正在生成第几批摘要和整理完成；摘要失败时显示使用精简历史继续处理，随后恢复正常思考轮次提示。
 
 中文文本使用保守估算，并根据服务端返回的实际输入 token 用量向上校准。
-普通会话主模型最多输出 4,096 tokens，摘要最多输出 1,200 tokens；主模型超时采用
-`ALIBAILIAN_TIMEOUT_SECONDS`。这些预算在 `ContextPolicy` 中集中配置，无需向量库或新数据库。
+普通会话主模型总输出上限保持 4,096 tokens；摘要调用总输出额度为 5,024 tokens，
+其中为思考和格式预留 1,024 tokens，最终摘要按保守估算裁至 4,000 tokens。
+主模型超时采用 `ALIBAILIAN_TIMEOUT_SECONDS`。输入与摘要预算在 `ContextPolicy` 中集中配置，无需向量库或新数据库。
 定时任务也使用同一上下文管理器，其业务记录仍单独保存。
+
+Qwen3.5/3.6/3.7/3.8 的 Chat 调用显式限制思考预算：主模型 1,024 tokens、摘要模型
+256 tokens，给总输出额度中的正文保留空间，避免思考耗尽额度后返回空内容。
+每次 ReAct 调用都注入最新的 Asia/Shanghai 时间，今天、明天等日期以此解析。
+空回复会记录模型、结束原因、输出及思考 token 数，便于区分额度耗尽与其他异常。
 
 `schedule_manage` 自动取得该次调用的模型上下文，包括历史摘要、最近的用户消息、任务列表
 和本轮此前的工具结果。调度解析器使用最多约 8,000 tokens 的参考记录，保留摘要与最近记录，
@@ -95,6 +127,33 @@ ReAct 每次请求最多执行 15 轮模型调用，达到上限会明确返回�
 最多尝试一次继续处理，仍不足则返回实际数量和未完成部分。已明确失败的工具结果直接如实报告。
 
 ## 配置
+
+### 联网搜索与网页读取
+
+普通对话和定时任务使用百炼 Responses API 的内置工具：`web_search` 搜索公开信息，
+`web_extractor(url)` 读取指定页面并返回正文信息及来源。用户提供链接要求摘要时优先调用
+`web_extractor`。旧 `opencli_search` 已移除，搜索不再依赖 OpenCLI / DuckDuckGo。
+OpenCLI 仍用于 `ask_adviser` 和 `knowledge_restore`，与联网工具无关。
+
+这两个入口通过函数工具适配现有 ReAct 图，在内部调用百炼原生工具。搜索请求启用
+`{"type":"web_search"}`；网页读取同时启用 `web_search` 与 `web_extractor`，并设置
+`enable_thinking=true`。主对话模型及其他工具保持现有调用流程。
+
+复用 `ALIBAILIAN_API_KEY` 和 `ALIBAILIAN_BASE_URL`，可独立配置：
+
+```dotenv
+ALIBAILIAN_WEB_MODEL=qwen3.7-plus
+ALIBAILIAN_WEB_TIMEOUT_SECONDS=120
+```
+
+网页模型须支持百炼 Responses API 的搜索和网页抓取工具。设置修改后重启服务生效。
+工具保留实际搜索来源和调用次数；接口失败、未实际执行所需工具或没有有效内容时返回错误，
+不能声称已读到页面。登录、验证页面和站点访问限制仍须根据真实结果说明。
+长内容最多返回 12,000 字符并标记 `truncated`，不保证完整长文。
+既有定时任务中的旧搜索授权在执行时映射为 `web_search`，不会自动增加网页读取授权。
+
+官方说明：[联网搜索](https://docs.bailian.console.aliyun.com/zh/model-studio/web-search)、
+[网页抓取](https://help.aliyun.com/zh/model-studio/web-extractor)。
 
 至少配置以下文件：
 
@@ -178,6 +237,9 @@ GET /health
 - SQLite 会话状态持久化
 - 受控 Codex CLI（显式 `/codex` 命令或已确认的定时任务触发）
 - 经确认的文件覆盖和隔离删除
+
+Windows 下 `dir /s /b /ad "目录/*名称*"` 支持递归查找目录并输出完整路径；
+不支持的列表选项会明确报错，路径不存在或读取失败时返回非零退出码。
 
 文件发送受允许目录、文件名长度和 30 MB 大小限制保护；工具不会向用户返回文件 key、会话 ID 或底层 API 响应。
 
@@ -279,8 +341,12 @@ KB_CREATOR_USER_IDS=u_123456,ou_abcdef
 存在多个匹配目录时不会猜测，必须补充更精确的目录名或路径。单次最多导入 200 个
 文件，隐藏目录、Git 元数据、依赖目录和非白名单文件会跳过。
 
-支持 Markdown、TXT、PDF、DOCX、XLSX 和 CSV；压缩包、可执行文件和未知二进制会拒绝。图片只
-归档事件元数据并明确提示“一期不支持 OCR”，不会传给 Embedding API。文件必须在
+支持 Markdown、TXT、PDF、DOCX、XLSX 和 CSV；压缩包、可执行文件和未知二进制会拒绝。
+飞书图片消息及富文本中的图片会下载为多模态内容，交给当前聊天模型直接分析；支持发图后继续追问。
+支持 PNG、JPEG、WebP、GIF、BMP 和 TIFF，单张最多 20 MiB，单条最多 8 张、合计最多 30 MiB。
+图片不自动导入知识库，也不传给 Embedding API；下载失败会直接报告，不会仅凭占位文字分析。
+原图保留在会话检查点中以支持追问；上下文估算按视觉 token 计费方式预留预算，摘要不包含 Base64。
+知识库文件必须在
 管理员绑定且同时通过 `WorkspacePolicy` 的目录内，默认单空间最多 10,000 个分块。
 
 知识库向量由百炼 OpenAI 兼容 `/embeddings` 接口生成，默认模型
@@ -422,6 +488,13 @@ PDF 继续保留文本与页码，导入预览会提示表格结构能力边界�
 
 ### 飞书云来源、范围选择与刷新（阶段 B）
 
+截至 2026-10-20，**统一表格与云文档接入需求已完成**：阶段 A 本地表格/附件和阶段 B
+云来源、范围预览、导入检索及手动刷新均已实现。知识库专项回归 102 项测试、18 个子测试
+通过；按项目完成口径，剩余真实租户专项联调和生成答案评测作为后续验证，不阻塞本次完成。
+真实环境仍需验证 docx 合并块/嵌入引用、Sheets 显示值/合并区域、Base 视图/隐藏列/filter
+和高级权限，以及答案事实支持与引用正确性；现有真实 Embedding 报告只评估检索。
+这里提供的是知识库导入与检索能力，尚不包含远端表格记录增删改。
+
 新版 docx 使用文档块和完整分页恢复标题、正文、普通表格、合并关系与块定位；
 分页读取使用 latest（`document_revision_id=-1`），并校验读取前后 revision，不需要历史版本的编辑权限。
 Wiki 先读取节点的实际资源身份，再分派到 docx、Sheets 或 Base。旧版 `/docs/`、
@@ -480,7 +553,131 @@ Wiki/直链使用相同来源身份；不同范围独立登记。`refresh` 复�
 新增锁定依赖 `tzdata==2026.5` 为无系统 IANA 时区数据的环境提供日期解释支持。
 API 契约以[飞书官方文档](https://open.feishu.cn/document/server-docs/docs/bitable-v1/bitable-structure)
 与[官方 SDK 结构](https://github.com/larksuite/oapi-sdk-python/tree/v2_main/lark_oapi/api/docx/v1/model)为依据。
-离线专项验证及租户只读联调清单见 [云端验收记录](CLOUD_KNOWLEDGE_VALIDATION.md)。
+可复现离线验证：`python run_tests.py knowledge`；云端样本使用模拟 HTTP 与 Embedding。
+真实租户后续验证应覆盖上述结构、范围与权限组合，以及刷新后的修改/删除/撤权、
+普通 Agent/命令/MCP 的来源引用和生成答案忠实度；这些验证尚未宣称通过。
+
+## 多维表格实时记录操作
+
+新增五个工具：`bitable_inspect`、`bitable_query`、`bitable_create_records`、
+`bitable_update_records`、`bitable_delete_records`。它们直接操作授权 Base 的记录，
+与知识库快照检索独立；仅此模块使用锁定的 `lark-oapi==1.7.2`，保留现有消息与知识库
+httpx 链路。五个工具默认常态注册，无需启用开关；SDK 仍在首次工具调用时加载和初始化。
+目标或凭据配置缺失时，工具返回配置提示，不影响普通聊天和知识库。
+
+安装 `requirements.txt` 后，在 `tele_bot/config/feishu/local.env` 配置：
+
+```env
+# 两项同时留空则复用 FEISHU_APP_ID/FEISHU_APP_SECRET；也可配置独立表格应用。
+FEISHU_BITABLE_APP_ID=
+FEISHU_BITABLE_APP_SECRET=
+FEISHU_BITABLE_TARGETS_FILE=tele_bot/config/feishu/bitable_targets.json
+FEISHU_BITABLE_SQLITE_PATH=data/bitable.sqlite
+FEISHU_BITABLE_TIMEOUT_SECONDS=30
+FEISHU_BITABLE_QUERY_PAGE_SIZE=50
+FEISHU_BITABLE_MAX_QUERY_RECORDS=500
+FEISHU_BITABLE_MAX_WRITE_RECORDS=100
+FEISHU_BITABLE_CONFIRM_TTL_SECONDS=600
+```
+
+无需维护逐表名称、链接或权限 JSON。向机器人发送 Base 直链，例如
+“看看 https://ccnae2vjwuda.feishu.cn/base/ZmTbbJudzajY18soG28c87LKnmc 中有哪些数据表”。
+`bitable_inspect` 自动读取飞书名称、URL、数据表及应用文档权限，保存已发现资源的
+自动缓存；多张表时先选择具体数据表再读字段或操作记录。之后可使用实际名称、唯一别名
+或带 `?table=tbl...` 的 Base 链接定位。缓存持久化到现有 SQLite，按应用 ID 与 API 域隔离，
+名称可自动更新；权限每次清单查询重新向飞书读取，不将缓存当作权限依据。
+说“登记/记住这张多维表格”也直接触发自动发现。若链接中的 `table` 参数不匹配飞书
+返回的真实数据表，Base 仍会被记住，工具列出真实数据表供选择；不会误报需要管理员后台登记，
+也不会把后续记录操作自动转到另一张表。
+
+多维表格模块不设用户、会话或记录操作权限管理，所有飞书调用者默认可调用增删改查；
+能否成功由 Friday 的飞书 API scope、文档权限及高级权限决定。全部记录操作不包含表结构管理。
+可选旧 `bitable_targets.json` 仍支持作为发现入口与唯一别名配置，但无需创建；
+旧 `users`、`chats`、`operations` 已忽略，旧展示名称不作为清单的真实名称来源。
+`local.env` 的 `FEISHU_ALLOWED_USER_IDS` 是整个飞书机器人入口的用户白名单（逗号分隔，
+留空不限制入口），属于机器人全局配置，本次没有修改；多维表格模块不再另设权限管理。
+
+发送“现在你管着哪些多维表格？”或 `/bitable list`，会列出当前已知资源，
+例如“1. 飞书返回的 Base 名称 / 内容选题管理（可阅读、可编辑）”。
+`/bitable list 2` 翻到第二页，每页五项；工具使用 `bitable_inspect(target="", page=1)`，
+按 `next_page` 续读。清单名称、URL、权限来自飞书 API，`permission_source=feishu_api`。
+权限仅在接口返回明确布尔结果时展示“可阅读、可编辑 / 只读 / 无阅读编辑权限”；
+缺少权限查询 scope、限流或失败显示“权限未核实”，不能据可读或本地默认开放推断可写。
+这些是应用文档级权限，不能替代高级权限的行列与记录操作校验。
+名称唯一时可直接问“内容管理里有哪些选题？把 A 的状态修改为已完成”。一个 Base
+发现了多张表或名称重复时，需选清单中的唯一别名。
+
+`coverage=known_resources_only` 表示清单仅覆盖从链接或旧配置已发现的资源，不能声称
+这是 Friday 全部有权限的 Base。当前官方 SDK/API 没有找到“按 App ID 反查全部可访问 Base”
+的全量接口；文件夹清单接口只按指定目录枚举，不能当作全部授权资源列表。
+要自动发现新增表，可后续接入共享文件夹或知识空间作为发现入口，目录外单独授权的表
+仍可能遗漏。当前实现为 Base 直链自动发现，不包含文件夹/知识空间递归扫描或用户 OAuth 搜索。
+
+应用需开通并发布 `base:table:read`、`base:field:read`、`base:record:retrieve`、
+`base:record:create`、`base:record:update`、`base:record:delete` 等对应权限，并获得
+目标文档权限；高级权限需单独核对。`99991672` 表示接口权限不足，需要检查应用 scope。
+读取真实名称可使用 `base:app:read` 等元数据 scope；核验文档权限可使用
+`docs:permission.member:auth`（完整编码），接口也接受 `bitable:app` 等替代 scope；
+后续文件夹发现需 `space:document:retrieve` 或该接口支持的其他 scope。
+2026-10-21 用户补开并发布相关权限后最终只读复测通过：Friday 已能读取测试 Base 名称
+**API_test**，文档权限返回 `view=true`、`edit=true`，清单展示“可阅读、可编辑”，无 scope 错误。
+可从[Friday 权限申请页](https://open.feishu.cn/app/cli_aaf9f13e4b78dd11/auth?q=docs%3Apermission.member%3Aauth&op_from=openapi&token_type=tenant)
+定位完整权限编码并开通发布；`bitable:app` 与 `base:*` 不是同一权限编码。
+本地权限管理移除不会替应用增加飞书端权限。
+如果能读结构但写入返回 HTTP 403 / `91403`，需由 Base 所有者/管理员在右上角
+「…」→「…更多」→「添加文档应用」中给应用可管理权限，开启高级权限时同时检查目标表。
+应用身份与提问者身份不同；工具仍绑定原始消息身份以防重复写入、隔离查询上下文并确认原操作，未认证 `/api/messages`
+不开放该能力。它不要求先建立知识库空间，也不继承知识库成员的写权限。
+
+可直接发送“查看项目表字段”“查询项目表进行中的记录”“新增项目 A，预算 1000”
+或“把 A 项目的状态改为已完成”。Agent 先读取结构和记录，重名时消歧。单条新增/修改
+按目标策略执行；批量写入和物理删除返回完整、有界的确认卡片，需原用户确认。
+配置 `confirm_all=true` 可使该目标所有写入都确认。卡片过长时要求缩小范围。
+“截止时间定在今天”“把状态标记为已完成”等自然写入表达可直接生成变更，批量修改只需看过预览后确认一次。
+预览仅显示记录名和本次涉及字段，日期按 Asia/Shanghai 显示为可读日期或时间，不展示整行原始 JSON。
+更新确认只核对本次要改的字段；其他字段变化不再使确认失败，要改的字段或表结构变化仍会中止。
+
+```text
+/bitable whoami
+/bitable list [页码]
+/bitable confirm <确认令牌>
+/bitable cancel <确认令牌>
+/bitable status <操作ID>
+```
+
+同一用户、会话只有一个待确认表格操作时可直接回复“确认”“确认修改”或“取消”，由服务端执行冻结计划，
+不再交给模型重新调用写入工具。多个待确认项必须点击对应卡片或带明确令牌选择。工具不能自行确认。
+卡片回调兼容飞书当前 operator 用户字段，立即返回已收到提示；执行后原卡片更新为结果并移除按钮，
+更新卡片失败时在会话发送结果。成功反馈说明修改条数、记录名、字段前后值及回读核验结果。
+飞书开发者后台的“事件与回调”中，卡片回传交互 `card.action.trigger` 也须配置到同一
+`/feishu/webhook` 地址；只订阅消息接收事件不会向服务投递卡片点击。
+新增持久化幂等键；
+同一消息重复调用复用原结果，同一内容来自新消息仍可作为新请求。状态 `unknown`
+表示远端结果未确定，停止盲目重试，使用操作 ID 和实时记录核对。`submitted=true`
+只表示已取得提交成功响应，还需看 `verification`；`awaiting_confirmation` 不是写入成功。
+同表通过 SQLite 租约协调本模块的多个进程，不能将读前/写后检查视作远端原子事务。
+
+查询默认 50 条、单页最多 100 条，续页累计默认最多 500 条；游标绑定身份与查询选择。
+`has_more`、`limit_reached` 或 `truncated` 表示覆盖不完整。超长单字段可用 record_id、
+单字段 fields 和 start_char 补读 JSON 片段，核对相同 value_hash 后拼接，不能据片段宣称整表统计。
+文本、数字、复选框、已有选项、日期、超链接和电话号码可写；清空使用 `clear_fields`，
+缺省字段保持不变。人员/关联/附件写入、结构管理、自动同步、OAuth 和定时写入暂不提供。
+
+备份操作账本应使用 SQLite 在线备份，或停服务后连同 WAL 一起处理；不要删除账本来重试未知写入。
+SDK 初始化/权限故障仅使该能力报错，消息与知识库仍可使用。运行 `python run_tests.py bitable`
+做离线验证，`python run_tests.py all` 做全量回归；测试默认不调用真实飞书。
+用户授权测试 Base 的独立联调命令是 `python -m tests.bitable.live_smoke`（只读发现）和
+`python -m tests.bitable.live_smoke --write`（新增、查询、修改、清空并删除本次测试记录），
+结果保存到 `.runtime/bitable-live-report.json`，不会自动开放生产目标。
+2026-10-21 验证：全量离线回归 327 项测试、54 个子测试通过；真实授权 Base 的数据表、
+字段读取及记录新增、查询、修改、清空、删除均通过，测试记录已清理。应用 Friday 的
+原有记录 CRUD scopes 和测试 Base 文档权限已补齐；工具默认可调用，本地不限制用户和记录操作。
+登记清单与名称定位已增加离线验证，覆盖不同用户/会话默认可用、旧权限字段忽略、同名消歧、
+清单翻页及真实 ReAct 图的清单→结构→实时查询→修改链路（模拟模型与飞书接口）。
+链接自动发现与真实权限展示的多维表格专项 42 项测试、23 个子测试通过；之后新增的
+登记请求 ReAct 图回归已包含在全量 327 项中，覆盖不匹配 table 参数的真实故障模式。Ruff 检查通过。
+本轮真实只读联调在没有目标 JSON 的情况下自动发现并缓存测试 Base 的 6 张数据表，
+未修改飞书记录；后续补开权限后 Base 名称已核实为 API_test，文档级阅读、编辑权限均核验通过。
 
 ## 工具与 Skill 召回评测
 
@@ -534,7 +731,7 @@ API 契约以[飞书官方文档](https://open.feishu.cn/document/server-docs/do
 或直接回复“五点四十五”，会由 Agent 调用同一 MCP 工具，沿用原任务内容重新解析，
 并再次显示待确认摘要。
 
-当前自动执行工具白名单为 `opencli_search`、`filesystem_list_dir`、
+当前自动执行工具白名单为 `web_search`、`web_extractor`、`filesystem_list_dir`、
 `filesystem_read_file`、`write_report`、`codex_apply`。文件工具必须明确指定 `scope.directories`，
 执行端只装载获准工具，并再次限制文件访问目录。`write_report` 仅在授权的第一个
 目录新建 Markdown，不修改已有文件。`codex_apply` 需要单独授权一个工作区，

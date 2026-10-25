@@ -7,6 +7,7 @@ langchain-core>=0.3.78,<1.0.0
 openai==1.109.1
 uvicorn==0.49.0
 httpx==0.28.1
+lark-oapi==1.7.2          # Independent, lazily loaded Base tool client
 pycryptodome>=3.20,<4.0  # Feishu encrypted webhook events
 pypdf>=5,<7              # Knowledge-base PDF text extraction (no OCR)
 openpyxl==3.1.5          # Bounded XLSX structure + cached formula values; no recalculation

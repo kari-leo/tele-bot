@@ -10,7 +10,7 @@ class AliBailianChatClientTests(unittest.TestCase):
     def test_generate_reply_uses_responses_api_and_writes_report(self) -> None:
         class FakeFunctionCall:
             type = "function_call"
-            name = "opencli_search"
+            name = "web_search"
             call_id = "call_1"
             arguments = '{"query":"OpenAI Responses API"}'
 
@@ -48,10 +48,10 @@ class AliBailianChatClientTests(unittest.TestCase):
             )
 
             with patch("tele_bot.llm.alibailian.OpenAI", return_value=fake_client):
-                with patch("tele_bot.llm.alibailian.OpenCLISearchTool.execute") as execute_mock:
+                with patch("tele_bot.llm.alibailian.BailianWebSearchTool.execute") as execute_mock:
                     execute_mock.return_value = {
                         "query": "OpenAI Responses API",
-                        "engine": "duckduckgo",
+                        "engine": "bailian",
                         "result_count": 1,
                         "results": [
                             {
@@ -79,7 +79,9 @@ class AliBailianChatClientTests(unittest.TestCase):
             self.assertEqual(len(report_files), 1)
             self.assertIn("# 摘要", report_files[0].read_text(encoding="utf-8"))
             self.assertEqual(fake_client.responses.calls[0]["model"], "qwen-plus")
-            self.assertEqual(fake_client.responses.calls[0]["tools"][0]["name"], "opencli_search")
+            self.assertEqual(fake_client.responses.calls[0]["tools"][0]["name"], "web_search")
+            self.assertEqual({item["name"] for item in fake_client.responses.calls[0]["tools"]},
+                             {"web_search", "web_extractor"})
             self.assertEqual(fake_client.responses.calls[1]["previous_response_id"], "resp_1")
             self.assertTrue(reply.used_tool)
 

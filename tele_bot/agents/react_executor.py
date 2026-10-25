@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import logging
 from dataclasses import dataclass
 from uuid import uuid4
 
@@ -35,6 +36,13 @@ from tele_bot.tools.lc_adapters import (
     CURRENT_CHAT_ID, CURRENT_SCHEDULE_ALLOWED, CURRENT_SCHEDULE_MESSAGE,
 )
 from tele_bot.tools.knowledge_search import CURRENT_KNOWLEDGE_MESSAGE
+from tele_bot.bitable.models import CURRENT_BITABLE_MESSAGE
+
+LOG = logging.getLogger(__name__)
+MODEL_ERROR_REPLIES = {
+    "Arrearage": "阿里云百炼因账户欠费或余额状态拒绝模型调用。请检查账户账单与余额，恢复服务后重新发送请求",
+    "insufficient_quota": "阿里云百炼的模型调用额度已用尽。请检查资源包、配额及计费设置，恢复额度后重新发送请求",
+}
 
 
 @dataclass(frozen=True)
@@ -57,6 +65,7 @@ class ReactAgentExecutor:
         model_name: str,
         state_store: InMemoryConversationStateStore | None = None,
         knowledge_store=None,
+        bitable_service=None,
     ) -> None:
         """
         graph: a compiled LangGraph CompiledStateGraph (from build_react_graph()).
@@ -67,6 +76,7 @@ class ReactAgentExecutor:
         self.model_name = model_name
         self.state_store = state_store or InMemoryConversationStateStore()
         self.knowledge_store = knowledge_store
+        self.bitable_service = bitable_service
 
     def handle(self, message: IncomingMessage) -> AgentExecutionResult:
         self.state_store.set_mode(message.chat_id, AgentMode.CHAT)
@@ -90,6 +100,10 @@ class ReactAgentExecutor:
             # rebinding a conversation or switching users (including the raw API).
             identity = json.dumps([message.chat_id, message.user_id, scope])
             thread_id = "scoped-" + hashlib.sha256(identity.encode()).hexdigest()
+        if self.bitable_service is not None:
+            scoped = [thread_id, message.chat_id, message.user_id,
+                      self.bitable_service.scope_for(CURRENT_BITABLE_MESSAGE.get())]
+            thread_id = "bitable-" + hashlib.sha256(json.dumps(scoped).encode()).hexdigest()
         config = {
             "configurable": {
                 "thread_id": thread_id,
@@ -105,7 +119,15 @@ class ReactAgentExecutor:
         tool_result_summary: str | None = None
         chat_id_token = CURRENT_CHAT_ID.set(message.chat_id)
         schedule_message_token = CURRENT_SCHEDULE_MESSAGE.set(message)
-        request = HumanMessage(content=message.text, id=str(uuid4()))
+        content = message.text
+        if message.attachment_context:
+            content += "\n\n" + message.attachment_context
+        if message.image_data_urls:
+            content = [{"type": "text", "text": content}, *(
+                {"type": "image_url", "image_url": {"url": url}}
+                for url in message.image_data_urls
+            )]
+        request = HumanMessage(content=content, id=str(uuid4()))
         messages = []
         try:
             result = self.graph.invoke(
@@ -123,11 +145,19 @@ class ReactAgentExecutor:
                 tool_result_summary = f"tools called: {tool_calls_seen}"
             reply_text = filter_outbound_reply(final) or incomplete_reply(messages)
         except Exception as exc:
+            body = getattr(exc, "body", None)
+            error = body.get("error", body) if isinstance(body, dict) else {}
+            code = error.get("code") if isinstance(error, dict) else None
+            # Do not log message bodies, API credentials, or raw upstream payloads.
+            LOG.error("Agent execution failed: model=%s error_type=%s status=%s code=%s request_id=%s",
+                      self.model_name, type(exc).__name__, getattr(exc, "status_code", None),
+                      code, getattr(exc, "request_id", None))
             try:
                 messages = current_turn(self.graph.get_state(config).values.get("messages", []), request.id)
             except Exception:
                 pass
-            reply_text = incomplete_reply(messages, reason=f"处理失败：{exc}")
+            reason = MODEL_ERROR_REPLIES.get(code) if isinstance(code, str) else None
+            reply_text = incomplete_reply(messages, reason=reason or f"处理失败：{exc}")
             tool_calls_seen = self._count_tool_calls(messages)
             used_tool = tool_calls_seen > 0
             if used_tool:

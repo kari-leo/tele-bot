@@ -76,6 +76,9 @@ class ShellSandboxTool:
 
     def _extract_cwd_and_args(self, argv: list[str]) -> tuple[Path, list[str]]:
         default_cwd = self._resolve_allowed_path(str(self.root))
+        if is_windows_runtime() and argv[0].lower() in ("ls", "dir"):
+            # Listing paths and switches must reach the Windows translator intact.
+            return default_cwd, argv
         if len(argv) < 2:
             return default_cwd, argv
 
@@ -104,7 +107,7 @@ class ShellSandboxTool:
         args = argv[1:]
 
         if command in ("ls", "dir"):
-            return self._powershell("Get-ChildItem -Force -LiteralPath $args[0]", cwd)
+            return self._windows_listing_argv(args, cwd)
 
         if command in ("cat", "type"):
             path = self._last_path_arg(args, cwd)
@@ -147,11 +150,50 @@ class ShellSandboxTool:
 
         raise ValueError(f"command is not supported on Windows: {command}")
 
+    def _windows_listing_argv(self, args: list[str], cwd: Path) -> list[str]:
+        recursive = bare = directories = False
+        paths = []
+        for arg in args:
+            option = arg.lower()
+            if option in ("/s", "-r", "-recursive", "--recursive"):
+                recursive = True
+            elif option in ("/b", "-name"):
+                bare = True
+            elif option in ("/ad", "/a:d", "-directory"):
+                directories = True
+            elif option in ("/a", "-a", "-force", "-l"):
+                pass  # Listings already include hidden files and default details.
+            elif arg.startswith(("/", "-")):
+                raise ValueError(f"unsupported listing option: {arg}")
+            else:
+                paths.append(arg)
+        if len(paths) > 1:
+            raise ValueError("listing supports one path at a time")
+        raw = paths[0] if paths else str(cwd)
+        candidate = Path(raw)
+        if any(char in str(candidate.parent) for char in "*?["):
+            raise ValueError("wildcards are supported only in the final path component")
+        script = "Get-ChildItem -Force -LiteralPath $args[0]"
+        if any(char in candidate.name for char in "*?["):
+            path = self._resolve_allowed_path(str(candidate.parent), cwd)
+            parameters = [path, candidate.name]
+            script += " -Filter $args[1]"
+        else:
+            parameters = [self._resolve_allowed_path(raw, cwd)]
+        if recursive:
+            script += " -Recurse"
+        if directories:
+            script += " -Directory"
+        if bare:
+            script += " | Select-Object -ExpandProperty FullName"
+        return self._powershell(script, *parameters)
+
     @staticmethod
     def _powershell(script: str, *args: object) -> list[str]:
         for index, arg in enumerate(args):
             script = script.replace(f"$args[{index}]", ShellSandboxTool._ps_literal(str(arg)))
-        script = "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); " + script
+        script = ("$ErrorActionPreference = 'Stop'; "
+                  "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); " + script)
         return [
             "powershell",
             "-NoProfile",

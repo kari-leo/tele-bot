@@ -11,7 +11,9 @@ from typing import Any
 
 from openai import OpenAI
 
-from tele_bot.tools import OpenCLISearchTool
+from tele_bot.tools import BailianWebSearchTool
+from tele_bot.tools.bailian_web import build_web_tools
+from tele_bot.config.llm.settings import AliBailianSettings
 
 
 @dataclass(frozen=True)
@@ -133,8 +135,14 @@ class AliBailianChatClient:
         search_required: bool,
         conversation_turns: list[Any] | None,
     ) -> dict[str, Any]:
-        search_tool = OpenCLISearchTool(timeout_seconds=self.timeout_seconds)
-        tools = [search_tool.schema] if allow_tools else []
+        from langchain_core.utils.function_calling import convert_to_openai_tool
+
+        settings = AliBailianSettings.from_env()
+        search_tool = BailianWebSearchTool(api_key=self.api_key, base_url=self.base_url,
+                                           model=settings.web_model,
+                                           timeout_seconds=settings.web_timeout_seconds)
+        tools = [{"type": "function", **convert_to_openai_tool(item)["function"]}
+                 for item in build_web_tools(search_tool)] if allow_tools else []
         tool_summaries: list[str] = []
         used_tool = False
         response = client.responses.create(
@@ -169,7 +177,7 @@ class AliBailianChatClient:
             )
 
         if search_required and not used_tool:
-            raise RuntimeError("当前请求需要联网搜索，但模型未调用 opencli_search")
+            raise RuntimeError("当前请求需要联网搜索，但模型未调用 web_search")
 
         output_text = self._extract_output_text(response)
         if not output_text:
@@ -186,7 +194,7 @@ class AliBailianChatClient:
         self,
         *,
         response: Any,
-        search_tool: OpenCLISearchTool,
+        search_tool: BailianWebSearchTool,
         allow_tools: bool,
     ) -> tuple[list[dict[str, str]], list[str]]:
         outputs: list[dict[str, str]] = []
@@ -200,11 +208,13 @@ class AliBailianChatClient:
                 raise RuntimeError("Model attempted tool call without Router approval")
 
             name = self._get_value(item, "name")
-            if name != search_tool.name:
+            if name not in {search_tool.name, "web_extractor"}:
                 raise RuntimeError(f"Unsupported tool call: {name}")
 
             arguments = self._parse_tool_arguments(self._get_value(item, "arguments", "{}"))
-            tool_result = search_tool.execute(str(arguments.get("query", "")))
+            tool_result = (search_tool.read_page(str(arguments.get("url", "")))
+                           if name == "web_extractor"
+                           else search_tool.execute(str(arguments.get("query", ""))))
             summaries.append(self._summarize_tool_result(tool_result))
             outputs.append(
                 {

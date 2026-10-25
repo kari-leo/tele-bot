@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parent
 TESTS = ROOT / "tests"
 GROUPS = {
     name: TESTS / name
-    for name in ("core", "schedule", "codex", "feishu", "recall", "knowledge", "tools")
+    for name in ("core", "schedule", "codex", "feishu", "recall", "knowledge", "tools", "bitable")
 }
 
 

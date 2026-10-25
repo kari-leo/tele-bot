@@ -3,8 +3,10 @@
 import json
 import unittest
 
+import httpx
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import tool
+from langchain_openai import ChatOpenAI
 
 from tele_bot.agents.react_executor import ReactAgentExecutor
 from tele_bot.models import IncomingMessage
@@ -14,6 +16,34 @@ from tele_bot.workflows.react_graph import PROGRESS_CONTEXTVAR, build_react_grap
 class ReactAgentExecutorTests(unittest.TestCase):
     def message(self, text="将对应三个本地文档作为 telebot 子文档推出去"):
         return IncomingMessage(channel="feishu", user_id="user", chat_id="chat", text=text)
+
+    def test_bailian_account_errors_are_actionable_and_logged_without_raw_payload(self):
+        for code, expected in (("Arrearage", "欠费"), ("insufficient_quota", "额度")):
+            requests = []
+
+            def endpoint(request):
+                requests.append(request)
+                return httpx.Response(400, headers={"x-request-id": "fixture-request"}, json={
+                    "error": {"message": "private-upstream-detail", "type": code, "code": code}})
+
+            with self.subTest(code=code), httpx.Client(transport=httpx.MockTransport(endpoint)) as client:
+                model = ChatOpenAI(api_key="fixture-secret", model="qwen3.8-max", http_client=client,
+                                   max_retries=0)
+                executor = ReactAgentExecutor(graph=build_react_graph(model, []), model_name="qwen3.8-max")
+                with self.assertLogs("tele_bot.agents.react_executor", level="ERROR") as logs:
+                    result = executor.handle(self.message("将这个岗位添加进校招岗位信息管理表格"))
+                self.assertIn(expected, result.reply_text)
+                self.assertIn("阿里云百炼", result.reply_text)
+                self.assertIn("尚未确认完成", result.reply_text)
+                self.assertNotIn("private-upstream-detail", result.reply_text)
+                self.assertFalse(result.used_tool)
+                self.assertEqual(len(requests), 1)
+                diagnostic = "\n".join(logs.output)
+                self.assertIn(code, diagnostic)
+                self.assertIn("fixture-request", diagnostic)
+                self.assertNotIn("fixture-secret", diagnostic)
+                self.assertNotIn("private-upstream-detail", diagnostic)
+                self.assertNotIn("校招岗位", diagnostic)
 
     def test_nonempty_but_incomplete_publication_cannot_claim_three_documents_completed(self):
         @tool

@@ -10,7 +10,7 @@ from langgraph.graph import END, START, StateGraph
 from tele_bot.llm import OpenCLIGateway
 from tele_bot.router.models import RouterDecision, WorkflowName
 from tele_bot.router.prompts import prompt_for_workflow
-from tele_bot.tools import FileSystemTool, KnowledgeTool, OpenCLISearchTool, ShellSandboxTool
+from tele_bot.tools import FileSystemTool, KnowledgeTool, BailianWebSearchTool, ShellSandboxTool
 
 
 class WorkflowState(TypedDict, total=False):
@@ -46,13 +46,13 @@ class WorkflowRunner:
         self,
         *,
         llm_client,
-        search_tool: OpenCLISearchTool | None = None,
+        search_tool: BailianWebSearchTool | None = None,
         knowledge_tool: KnowledgeTool | None = None,
         filesystem_tool: FileSystemTool | None = None,
         shell_tool: ShellSandboxTool | None = None,
     ) -> None:
         self.llm_client = llm_client
-        self.search_tool = search_tool or OpenCLISearchTool()
+        self.search_tool = search_tool or BailianWebSearchTool.from_settings()
         self.knowledge_tool = knowledge_tool or KnowledgeTool(gateway=OpenCLIGateway())
         self.filesystem_tool = filesystem_tool or FileSystemTool()
         self.shell_tool = shell_tool or ShellSandboxTool()

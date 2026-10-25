@@ -11,6 +11,15 @@ from tele_bot.models import (
     CardAction,
     InteractiveCard,
     MessageType,
+    OutgoingMessage,
+)
+
+
+MARKDOWN_REPLY = (
+    "## 执行结果\n\n**完成**，查看 [报告](https://example.com/report)。\n\n"
+    "- 第一项\n- [x] 已验证\n\n> 引用内容\n\n"
+    "```python\nprint('中文 <ok>')\n```\n\n"
+    "| 项目 | 状态 |\n| --- | --- |\n| 检查 | 通过 |"
 )
 
 
@@ -36,6 +45,62 @@ class FakeFeishuAdapter:
 
 
 class FeishuWebhookAdapterTests(unittest.TestCase):
+    def assert_markdown_payload(self, payload, text=MARKDOWN_REPLY) -> None:
+        self.assertEqual(payload["msg_type"], "post")
+        self.assertEqual(
+            json.loads(payload["content"]),
+            {"zh_cn": {"content": [[{"tag": "md", "text": text}]]}},
+        )
+
+    @patch("tele_bot.channels.feishu.httpx.post")
+    def test_send_reply_renders_markdown_as_rich_text(self, post) -> None:
+        adapter = FeishuWebhookAdapter(app_id="app", app_secret="secret")
+        adapter._access_token = "token"
+        adapter._token_expires_at = 9999999999
+        post.return_value.json.return_value = {"code": 0}
+
+        result = adapter.send_text(OutgoingMessage("feishu", "oc_1", MARKDOWN_REPLY))
+
+        self.assertEqual(result["code"], 0)
+        self.assertEqual(post.call_args.kwargs["json"]["receive_id"], "oc_1")
+        self.assert_markdown_payload(post.call_args.kwargs["json"])
+
+    @patch("tele_bot.channels.feishu.httpx.post")
+    def test_quoted_reply_preserves_markdown_and_quote_target(self, post) -> None:
+        adapter = FeishuWebhookAdapter(app_id="app", app_secret="secret")
+        adapter._access_token = "token"
+        adapter._token_expires_at = 9999999999
+        post.return_value.json.return_value = {"code": 0}
+
+        result = adapter.send_text(OutgoingMessage(
+            "feishu", "oc_1", MARKDOWN_REPLY, reply_to_message_id="om_original",
+        ))
+
+        self.assertEqual(result["code"], 0)
+        self.assertTrue(post.call_args.args[0].endswith("/om_original/reply"))
+        self.assert_markdown_payload(post.call_args.kwargs["json"])
+
+    @patch("tele_bot.channels.feishu.httpx.put")
+    @patch("tele_bot.channels.feishu.httpx.post")
+    def test_streaming_reply_keeps_rich_text_from_placeholder_to_final(self, post, put) -> None:
+        adapter = FeishuWebhookAdapter(app_id="app", app_secret="secret")
+        adapter._access_token = "token"
+        adapter._token_expires_at = 9999999999
+        post.return_value.json.return_value = {"code": 0, "data": {"message_id": "om_1"}}
+        put.return_value.json.return_value = {"code": 0}
+        reporter = FeishuProgressReporter(adapter=adapter, chat_id="oc_1")
+
+        self.assertEqual(reporter.start(), "om_1")
+        self.assertTrue(reporter.update("正在检查"))
+        self.assertTrue(reporter.finish(MARKDOWN_REPLY))
+
+        self.assertEqual(post.call_count, 1)
+        self.assertEqual(put.call_count, 2)
+        self.assert_markdown_payload(post.call_args.kwargs["json"], reporter.placeholder_text)
+        self.assert_markdown_payload(put.call_args_list[0].kwargs["json"], "正在检查")
+        self.assert_markdown_payload(put.call_args_list[1].kwargs["json"])
+        self.assertTrue(put.call_args.args[0].endswith("/om_1"))
+
     def test_url_verification_returns_challenge(self) -> None:
         adapter = FeishuWebhookAdapter(app_id="app", app_secret="secret")
 
@@ -95,7 +160,7 @@ class FeishuWebhookAdapterTests(unittest.TestCase):
         base["event"]["message"]["content"] = json.dumps({"image_key": "img_1"})
         incoming = adapter.parse_incoming(base)
         self.assertEqual(incoming.message_type, MessageType.IMAGE)
-        self.assertIn("不支持 OCR", incoming.text)
+        self.assertEqual(incoming.text, "[图片]")
 
     def test_parse_card_action_callback(self) -> None:
         adapter = FeishuWebhookAdapter(app_id="app", app_secret="secret")
@@ -111,6 +176,19 @@ class FeishuWebhookAdapterTests(unittest.TestCase):
         )
         self.assertEqual(incoming.message_type, MessageType.INTERACTIVE)
         self.assertEqual(incoming.card_action.value, "token")
+
+    @patch("tele_bot.channels.feishu.httpx.patch")
+    def test_edit_card_updates_original_message_with_buttons_removed(self, patch_request):
+        adapter = FeishuWebhookAdapter("app", "secret")
+        adapter._access_token = "token"
+        adapter._token_expires_at = 9999999999
+        patch_request.return_value.json.return_value = {"code": 0}
+        result = adapter.edit_card("om_card", InteractiveCard("操作结果", "已修改 2 条记录", "success"))
+        self.assertEqual(result["code"], 0)
+        self.assertTrue(patch_request.call_args.args[0].endswith("/messages/om_card"))
+        card = json.loads(patch_request.call_args.kwargs["json"]["content"])
+        self.assertEqual(card["header"]["template"], "green")
+        self.assertEqual(len(card["elements"]), 1)
 
     def test_parse_message_without_chat_id_is_ignored(self) -> None:
         adapter = FeishuWebhookAdapter(app_id="app", app_secret="secret")
@@ -165,7 +243,7 @@ class FeishuWebhookAdapterTests(unittest.TestCase):
 
         self.assertEqual(result["code"], 0)
         self.assertEqual(patch_request.call_args.args[0], "https://open.feishu.cn/open-apis/im/v1/messages/om_1")
-        self.assertEqual(patch_request.call_args.kwargs["json"]["msg_type"], "text")
+        self.assert_markdown_payload(patch_request.call_args.kwargs["json"], "正在调用工具")
 
     @patch("tele_bot.channels.feishu.httpx.delete")
     def test_delete_message_uses_feishu_message_endpoint(self, delete_request) -> None:

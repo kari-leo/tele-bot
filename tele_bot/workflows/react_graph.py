@@ -21,8 +21,11 @@ order inside `_emit`:
 from __future__ import annotations
 
 from contextvars import ContextVar
+from datetime import datetime
 import json
+import logging
 from typing import Annotated, Callable, Optional
+from zoneinfo import ZoneInfo
 
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
@@ -36,6 +39,7 @@ from tele_bot.agents.task_results import incomplete_reply, message_text, publica
 
 MAX_ITERATIONS = 15
 MAX_EMPTY_RETRIES = 1
+LOG = logging.getLogger(__name__)
 RECOVERY_INSTRUCTION = (
     "请以当前用户请求为准，继续尚未完成的必要步骤，并返回非空回复。"
     "逐一核对当前请求要求的全部文档；历史成功记录不证明文件现在仍然存在。"
@@ -122,7 +126,13 @@ def build_react_graph(llm_with_tools, tools: list, checkpointer=None,
         recovering = state.get("empty_recovery_pending", False) and not new_request
         instruction = (INCOMPLETE_RESPONSE_INSTRUCTION if message_text(state["messages"][-1].content)
                        else EMPTY_RESPONSE_INSTRUCTION)
-        prompt = system_prompt + ("\n\n" + instruction if recovering else "")
+        now = datetime.now(ZoneInfo("Asia/Shanghai"))
+        clock_prompt = (
+            f"当前时间：{now.isoformat(timespec='seconds')}，时区 Asia/Shanghai。"
+            "今天、明天等相对日期以此为准；无需调用 Shell 获取日期，"
+            "不要用文件修改时间推断当前日期。"
+        )
+        prompt = system_prompt + "\n\n" + clock_prompt + ("\n\n" + instruction if recovering else "")
         messages = state["messages"]
         if skill_loader is not None:
             messages, prompt = skill_loader.prepare_request(messages, prompt)
@@ -145,6 +155,11 @@ def build_react_graph(llm_with_tools, tools: list, checkpointer=None,
         response = llm_with_tools.invoke(state["llm_messages"], config=config)
         usage = getattr(response, "usage_metadata", None) or {}
         metadata = getattr(response, "response_metadata", None) or {}
+        if not getattr(response, "tool_calls", None) and not message_text(response.content):
+            # Record diagnostics, never private model reasoning or message bodies.
+            LOG.warning("empty model response: model=%s finish_reason=%s output_tokens=%s reasoning_tokens=%s",
+                        metadata.get("model_name"), metadata.get("finish_reason"), usage.get("output_tokens"),
+                        (usage.get("output_token_details") or {}).get("reasoning"))
         observed = usage.get("input_tokens") or metadata.get("token_usage", {}).get("prompt_tokens")
         scale = state.get("token_scale", 1.0)
         if observed:

@@ -33,7 +33,7 @@ from tele_bot.tools.domain_hotspot import DomainHotspotTool, to_json as _hotspot
 from tele_bot.tools.file_system import FileSystemTool
 from tele_bot.tools.git_push import GitPushError, GitPushTool
 from tele_bot.tools.knowledge_tool import KnowledgeTool
-from tele_bot.tools.opencli_search import OpenCLISearchTool
+from tele_bot.tools.bailian_web import BailianWebSearchTool, build_web_tools
 from tele_bot.tools.shell_sandbox import ShellSandboxTool
 from tele_bot.tools.write_report import WriteReportTool
 from tele_bot.channels.feishu import FeishuWebhookAdapter
@@ -221,6 +221,8 @@ def build_spike_tools(
         Only whitelisted read-only commands are allowed: ls/dir, cat/type,
         head, tail, grep, find, wc, du, df.
         Forbidden tokens include rm, sudo, pipes, redirects, etc.
+        On Windows, dir supports /s (recursive), /b (full paths), /ad
+        (directories only), and one quoted path with a final-component wildcard.
 
         Args:
             command: the shell command to execute, e.g. "ls" or "ls data".
@@ -267,7 +269,7 @@ def build_core_tools(
     *,
     filesystem_tool: FileSystemTool | None = None,
     shell_tool: ShellSandboxTool | None = None,
-    search_tool: OpenCLISearchTool | None = None,
+    search_tool: BailianWebSearchTool | None = None,
     knowledge_tool: KnowledgeTool | None = None,
     write_report_tool: WriteReportTool | None = None,
     blog_publish_tool: BlogPublishTool | None = None,
@@ -281,13 +283,14 @@ def build_core_tools(
     schedule_service: ScheduleService | None = None,
     knowledge_search=None,
     skill_loader=None,
+    bitable_service=None,
 ) -> list:
     """
     Return the FULL Phase 0-Core tool set covering all 7 legacy workflows
     plus optional adviser, blog_publish, domain_hotspot.
 
     Adds to build_spike_tools:
-      - opencli_search           — W4 search
+      - web_search / web_extractor — Bailian search and URL reading
       - knowledge_restore        — W5 restore-cheap
       - write_report             — W2 / W4 save-to-md
 
@@ -307,7 +310,6 @@ def build_core_tools(
         include_adviser=include_adviser,
     )
 
-    search = search_tool or OpenCLISearchTool()
     knowledge = knowledge_tool or KnowledgeTool(gateway=OpenCLIGateway())
     writer = write_report_tool or WriteReportTool()
     git_push = GitPushTool(repo_root=_REPO_ROOT)
@@ -325,20 +327,6 @@ def build_core_tools(
         if context_chat_id:
             return context_chat_id
         raise ValueError("chat_id is missing from the current message context")
-
-    @tool
-    def opencli_search(query: str) -> str:
-        """Search the web via OpenCLI's DuckDuckGo bridge.
-
-        Use this for time-sensitive lookups (latest versions, recent news,
-        documentation links). Returns the top 5 results.
-
-        Args:
-            query: search terms; pass user's intent verbatim or paraphrased.
-
-        Returns JSON {query, engine, result_count, results: [{rank, title, url, snippet}]}.
-        """
-        return _truncate_json(search.execute(query))
 
     @tool
     def knowledge_restore(source: str, output_path: str | None = None) -> str:
@@ -375,7 +363,7 @@ def build_core_tools(
         """Save a finished markdown report to the project's reports/ directory.
 
         Use this AFTER you have produced the full markdown content yourself
-        (or via opencli_search + your own summarisation). Do NOT use it for
+        (or via web_search / web_extractor + your own summarisation). Do NOT use it for
         scratch notes — only when the user wants a persistent document.
 
         Args:
@@ -425,7 +413,12 @@ def build_core_tools(
         )
         return request_result
 
-    tools = base + [opencli_search, knowledge_restore, write_report]
+    tools = base + build_web_tools(search_tool) + [knowledge_restore, write_report]
+
+    from tele_bot.bitable.bootstrap import build_bitable_service
+    from tele_bot.tools.bitable import build_bitable_tools
+    base_service = bitable_service if bitable_service is not None else build_bitable_service()
+    tools.extend(build_bitable_tools(base_service))
 
     if knowledge_search is not None:
         from tele_bot.tools.knowledge_search import build_knowledge_search_tool

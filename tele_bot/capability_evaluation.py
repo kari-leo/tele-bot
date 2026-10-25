@@ -144,10 +144,14 @@ def simulated_result(name, args=None):
                            "lines": [{"line": start, "text": "# 设备指南"}, {"line": start + 1, "text": "升级前备份配置。"}]}, ensure_ascii=False)
     if name == "filesystem_list_dir":
         return json.dumps({"path": args.get("path", "D:/evaluation/project"), "entries": [{"path": "README.md", "type": "file"}]})
-    if name == "opencli_search":
+    if name == "web_search":
         return json.dumps({"query": args.get("query", ""), "result_count": 1,
                            "results": [{"rank": 1, "title": "模拟官方文档检索结果", "url": "https://docs.python.org/3/",
                                         "snippet": "模拟内容：该结果为查询提供了对应的文档和说明，不需要再次检索同一问题。"}]}, ensure_ascii=False)
+    if name == "web_extractor":
+        return json.dumps({"url": args.get("url", ""), "engine": "bailian",
+                           "content": "模拟网页正文：该页面介绍了所查询的产品与用法。",
+                           "tool_calls": {"web_extractor": 1, "web_search": 0}}, ensure_ascii=False)
     if name == "domain_hotspot":
         return json.dumps({"domain": args.get("domain", "ai"), "items": [
             {"title": f"模拟热点 {number}", "link": f"https://example.invalid/news/{number}", "summary": "模拟新闻摘要"}

@@ -19,6 +19,49 @@ class Summarizer:
 
 
 class ContextManagerTests(unittest.TestCase):
+    def test_long_history_below_600k_does_not_trigger_premature_compression(self):
+        summarizer = Summarizer()
+        manager = ContextManager(summarizer=summarizer)
+        history = [HumanMessage(content="测" * 80_000, id="current")]
+        view = manager.prepare(history, system_prompt="system")
+        self.assertGreater(view["context_stats"]["input_tokens"], 100_000)
+        self.assertFalse(summarizer.calls)
+        self.assertIsNone(view["summary_until_message_id"])
+        self.assertEqual(view["llm_messages"][-1].content, history[-1].content)
+
+    def test_large_history_keeps_full_groups_near_400k_after_compression(self):
+        summarizer = Summarizer()
+        manager = ContextManager(summarizer=summarizer)
+        history = [message for i in range(50) for message in (
+            HumanMessage(content="旧问题" * 1500, id=f"u{i}"),
+            AIMessage(content="旧回答" * 1500, id=f"a{i}"))]
+        history.append(HumanMessage(content="当前目标", id="current"))
+        original_ids = [m.id for m in history]
+        view = manager.prepare(history, system_prompt="system")
+        self.assertGreater(view["context_stats"]["before_tokens"], 600_000)
+        self.assertGreater(view["context_stats"]["input_tokens"], 350_000)
+        self.assertLessEqual(view["context_stats"]["input_tokens"], 400_000)
+        self.assertGreater(len(view["llm_messages"]), 24)
+        self.assertEqual(view["llm_messages"][-1].id, "current")
+        self.assertEqual([m.id for m in history], original_ids)
+        self.assertTrue(summarizer.calls)
+        for call in summarizer.calls:
+            self.assertLessEqual(manager.count(call), 64_000)
+        calls = len(summarizer.calls)
+        again = manager.prepare(history, summary=view["context_summary"],
+                                cursor=view["summary_until_message_id"])
+        self.assertEqual(len(summarizer.calls), calls)
+        self.assertEqual(again["summary_until_message_id"], view["summary_until_message_id"])
+
+    def test_oversized_current_request_still_respects_900k_hard_limit(self):
+        manager = ContextManager()
+        with self.assertRaisesRegex(ValueError, "超过上下文预算"):
+            manager.prepare([HumanMessage(content="测" * 600_001, id="current")])
+
+    def test_policy_cannot_exceed_model_input_capacity(self):
+        with self.assertRaisesRegex(ValueError, "model input limit"):
+            ContextPolicy(model_input_tokens=899_999)
+
     def policy(self):
         return ContextPolicy(hard_tokens=2400, trigger_tokens=1800,
                              target_tokens=1200, summary_tokens=180,

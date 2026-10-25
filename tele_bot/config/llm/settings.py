@@ -50,9 +50,12 @@ class AliBailianSettings:
     embedding_batch_size: int = 10
     embedding_daily_token_budget: int = 1_000_000
     embedding_daily_cost_budget_cny: float = 1.0
+    web_model: str = "qwen3.7-plus"
+    web_timeout_seconds: int = 120
 
     def __post_init__(self) -> None:
         positive_values = {
+            "ALIBAILIAN_WEB_TIMEOUT_SECONDS": self.web_timeout_seconds,
             "ALIBAILIAN_TIMEOUT_SECONDS": self.timeout_seconds,
             "ALIBAILIAN_EMBEDDING_DIMENSIONS": self.embedding_dimensions,
             "ALIBAILIAN_EMBEDDING_TIMEOUT_SECONDS": self.embedding_timeout_seconds,
@@ -101,6 +104,8 @@ class AliBailianSettings:
             model=resolve("ALIBAILIAN_MODEL", "qwen-plus") or "qwen-plus",
             reasoning_model=resolve("ALIBAILIAN_REASONING_MODEL", "qwen3-max") or "qwen3-max",
             timeout_seconds=_parse_int(resolve("ALIBAILIAN_TIMEOUT_SECONDS"), 60),
+            web_model=resolve("ALIBAILIAN_WEB_MODEL", "qwen3.7-plus") or "qwen3.7-plus",
+            web_timeout_seconds=_parse_int(resolve("ALIBAILIAN_WEB_TIMEOUT_SECONDS"), 120),
             embedding_api_key=resolve("ALIBAILIAN_EMBEDDING_API_KEY"),
             embedding_base_url=resolve(
                 "ALIBAILIAN_EMBEDDING_BASE_URL",

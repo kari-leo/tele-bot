@@ -101,7 +101,7 @@ class ScheduledTests(unittest.TestCase):
     def test_preauthorization_requires_distinct_confirmation(self):
         future = now_utc() + timedelta(hours=1)
         task = spec(
-            future, "auto", scope={"tools": ["opencli_search"], "directories": []}
+            future, "auto", scope={"tools": ["web_search"], "directories": []}
         )
         response = self.service.handle(
             self.msg("alice", "/schedule create " + json.dumps(task))
@@ -240,7 +240,7 @@ class ScheduledTests(unittest.TestCase):
     def test_worker_announces_execution_start(self):
         future = now_utc() + timedelta(hours=1)
         task = spec(
-            future, "auto", scope={"tools": ["opencli_search"], "directories": []}
+            future, "auto", scope={"tools": ["web_search"], "directories": []}
         )
         task_id = self.store.create_many("alice", "feishu", "chat", [task])[0]
         self.store.trigger(task_id, iso(future), future)
@@ -302,7 +302,7 @@ class ScheduledTests(unittest.TestCase):
     def test_once_confirmation_expiry_and_history(self):
         future = now_utc() + timedelta(hours=1)
         task = spec(
-            future, "confirm", scope={"tools": ["opencli_search"], "directories": []}
+            future, "confirm", scope={"tools": ["web_search"], "directories": []}
         )
         task_id = self.store.create_many("alice", "feishu", "chat", [task])[0]
         worker = ScheduleWorker(self.store, lambda outgoing: {"code": 0})
@@ -346,7 +346,7 @@ class ScheduledTests(unittest.TestCase):
                 spec(
                     future,
                     "auto",
-                    scope={"tools": ["opencli_search"], "directories": []},
+                    scope={"tools": ["web_search"], "directories": []},
                 )
             ],
         )[0]
@@ -363,7 +363,7 @@ class ScheduledTests(unittest.TestCase):
             past,
             "auto",
             rule={"kind": "daily", "interval": 1},
-            scope={"tools": ["opencli_search"], "directories": []},
+            scope={"tools": ["web_search"], "directories": []},
         )
         task["missed_policy"] = "run_once"
         task_id = self.store.create_many("alice", "feishu", "chat", [task])[0]
@@ -387,7 +387,7 @@ class ScheduledTests(unittest.TestCase):
                 spec(
                     future,
                     "auto",
-                    scope={"tools": ["opencli_search"], "directories": []},
+                    scope={"tools": ["web_search"], "directories": []},
                 )
             ],
         )[0]
@@ -409,7 +409,7 @@ class ScheduledTests(unittest.TestCase):
                     future,
                     "confirm",
                     rule={"kind": "daily", "interval": 1},
-                    scope={"tools": ["opencli_search"], "directories": []},
+                    scope={"tools": ["web_search"], "directories": []},
                 )
             ],
         )[0]
@@ -478,7 +478,7 @@ class ScheduledTests(unittest.TestCase):
                 spec(
                     future,
                     "confirm",
-                    scope={"tools": ["opencli_search"], "directories": []},
+                    scope={"tools": ["web_search"], "directories": []},
                 )
             ],
         )[0]

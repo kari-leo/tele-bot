@@ -219,7 +219,7 @@ class TableImportTests(KnowledgeServiceCase):
         preview = self.service.handle(
             self.message(
                 "admin",
-                "",
+                "/kb import-attachment",
                 message_type=MessageType.FILE,
                 message_id="message-id",
                 attachments=(attachment,),

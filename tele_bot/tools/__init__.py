@@ -4,7 +4,7 @@ from tele_bot.tools.file_mutations import FileMutationService, PendingMutation
 from tele_bot.tools.file_system import FileSystemTool
 from tele_bot.tools.git_push import GitPushTool
 from tele_bot.tools.knowledge_tool import KnowledgeTool
-from tele_bot.tools.opencli_search import OpenCLISearchTool
+from tele_bot.tools.bailian_web import BailianWebSearchTool
 from tele_bot.tools.shell_sandbox import ShellSandboxTool
 from tele_bot.tools.write_report import WriteReportTool
 from tele_bot.tools.workspace_policy import WorkspacePolicy
@@ -17,7 +17,7 @@ __all__ = [
     "FileSystemTool",
     "GitPushTool",
     "KnowledgeTool",
-    "OpenCLISearchTool",
+    "BailianWebSearchTool",
     "ShellSandboxTool",
     "WriteReportTool",
     "PendingMutation",

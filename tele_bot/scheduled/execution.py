@@ -13,7 +13,7 @@ from langchain_core.tools import tool
 from tele_bot.config.llm.settings import AliBailianSettings
 from tele_bot.llm.react_client import build_chat_openai, build_context_manager
 from tele_bot.tools.file_system import FileSystemTool
-from tele_bot.tools.opencli_search import OpenCLISearchTool
+from tele_bot.tools.bailian_web import build_web_tools, normalize_web_tool_names
 from tele_bot.tools.write_report import WriteReportTool
 from tele_bot.tools.codex_runner import CodexRunner, codex_failure_message
 from tele_bot.scheduled.codex_artifacts import (
@@ -59,7 +59,7 @@ def _requested_skill(content: str, workspace: Path) -> tuple[str, str] | None:
 
 def execute(payload: dict) -> dict:
     scope = payload["scope"]
-    allowed = set(scope["tools"])
+    allowed = set(normalize_web_tool_names(scope["tools"]))
     roots = tuple(Path(path).expanduser().resolve() for path in scope["directories"])
     for root in roots:
         if not root.is_dir():
@@ -121,15 +121,8 @@ def execute(payload: dict) -> dict:
         return {"status": status, "result": summary, "paths": paths}
     tools = []
     paths: list[str] = []
-    if "opencli_search" in allowed:
-        search = OpenCLISearchTool()
-
-        @tool
-        def opencli_search(query: str) -> str:
-            """Search the web for current public information."""
-            return json.dumps(search.execute(query), ensure_ascii=False)
-
-        tools.append(opencli_search)
+    if allowed & {"web_search", "web_extractor"}:
+        tools.extend(item for item in build_web_tools() if item.name in allowed)
     if allowed & {"filesystem_list_dir", "filesystem_read_file"}:
         fs = FileSystemTool(root=roots[0], allowed_roots=roots)
         if "filesystem_list_dir" in allowed:

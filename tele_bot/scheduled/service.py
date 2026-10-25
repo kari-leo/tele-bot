@@ -15,8 +15,9 @@ from tele_bot.scheduled.proposals import is_complete_proposal
 from tele_bot.tools.workspace_policy import WorkspacePolicy
 from tele_bot.tools.workspace_resolver import WorkspaceResolver
 from tele_bot.tools.codex_runner import CodexRunner
+from tele_bot.tools.bailian_web import normalize_web_tool_names
 
-TOOLS = {"opencli_search", "filesystem_list_dir", "filesystem_read_file", "write_report", "codex_apply"}
+TOOLS = {"web_search", "web_extractor", "filesystem_list_dir", "filesystem_read_file", "write_report", "codex_apply"}
 MODES = {"remind": "仅提醒", "auto": "预授权自动执行", "confirm": "每次执行前确认"}
 MISSED = {"skip": "跳过", "run_once": "补执行一次", "ask": "重新申请授权"}
 
@@ -40,7 +41,8 @@ class ScheduleParser:
             "‘四点半点’视为‘四点半’。日期和时间不明确、缺少周期任务的执行时刻、'七点完成'之类截止时间与开始时间不清时，"
             "operation=clarify 并提出具体问题，不要猜。未明确授权时 mode=remind；"
             "只有用户明确表示未来自动执行才可用 auto。任务范围和工具只提取用户明确给出的内容，"
-            "不要凭空扩权。可用工具：opencli_search、filesystem_list_dir、filesystem_read_file、write_report、codex_apply。"
+            "不要凭空扩权。可用工具：web_search、web_extractor、filesystem_list_dir、filesystem_read_file、write_report、codex_apply。"
+            "web_search 用于联网搜索；web_extractor 用于读取指定 URL 的页面正文。"
             "用户明确要求未来用 Codex 执行时，工具设为 codex_apply，目录写入 scope.directories；"
             "Codex 可以在该目录调用指定 skill，skill 名称保留在 content 中。"
             "如果用户更正了先前的触发时间，以最后一次更正为准，并保留原任务内容。"
@@ -320,7 +322,7 @@ class ScheduleService:
         scope = raw.get("scope") or {}
         if not isinstance(scope, dict):
             raise ValueError("权限范围格式无效。")
-        requested_tools = set(scope.get("tools") or [])
+        requested_tools = set(normalize_web_tool_names(scope.get("tools") or []))
         if mode != "remind" and "codex_apply" not in requested_tools and re.search(
             r"(?:修改|删除|重构|修复|提交|发布|完成).{0,30}(?:代码|文件|项目|仓库|README)|执行命令|运行脚本|推送代码",
             content, re.I,
@@ -330,7 +332,7 @@ class ScheduleService:
             raise ValueError("权限范围包含未支持的字段。")
         if scope.get("mcp_tools") or (scope.get("skills") and "codex_apply" not in requested_tools):
             raise ValueError("定时执行暂不支持调用 Skills 或 MCP Tools。")
-        tools = list(dict.fromkeys(scope.get("tools") or []))
+        tools = normalize_web_tool_names(scope.get("tools") or [])
         if set(tools) - TOOLS:
             raise ValueError("工具超出定时执行白名单。")
         if "codex_apply" in tools and (len(tools) != 1 or mode == "remind" or not re.search("codex", content, re.I)):

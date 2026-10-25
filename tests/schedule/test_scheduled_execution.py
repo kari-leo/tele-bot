@@ -130,6 +130,36 @@ class ExecutionScopeTests(unittest.TestCase):
             self.assertIn("Codex CLI 登录会话无法使用模型 gpt-6.1-sol", failure["result"])
             self.assertNotIn("Reconnecting", failure["result"])
 
+    def test_web_tools_follow_authorized_scope_and_replace_legacy_search(self):
+        from unittest.mock import Mock
+        from tele_bot.tools.bailian_web import build_web_tools
+
+        web = Mock()
+        web.execute.return_value = {"content": "searched", "engine": "bailian"}
+        web.read_page.return_value = {"content": "read", "engine": "bailian"}
+        for allowed, expected in [(["web_search"], "web_search"),
+                                  (["web_extractor"], "web_extractor"),
+                                  (["opencli_search"], "web_search")]:
+            with self.subTest(allowed=allowed):
+                def fake_graph(llm, tools, **kwargs):
+                    self.assertEqual([item.name for item in tools], [expected])
+                    args = {"query": "news"} if expected == "web_search" else {"url": "https://example.com"}
+                    receipt = tools[0].invoke(args)
+                    return SimpleNamespace(invoke=lambda *args, **kwargs: {"messages": [
+                        ToolMessage(content=receipt, name=expected, tool_call_id="call1"),
+                        AIMessage(content="执行结论：成功")]})
+
+                payload = {"run_id": "r1", "task_id": "t1", "owner_id": "alice",
+                           "chat_id": "chat", "content": "查询信息", "planned_at": "2026-10-21T01:00:00+00:00",
+                           "scope": {"tools": allowed, "directories": []}}
+                with patch.object(execution.AliBailianSettings, "from_env", return_value=SimpleNamespace(
+                    api_key="test", base_url="https://example.com", model="fake", timeout_seconds=10)), \
+                     patch.object(execution, "build_web_tools", side_effect=lambda: build_web_tools(web)), \
+                     patch.object(execution, "build_chat_openai", return_value=FakeLLM()), \
+                     patch.object(execution, "build_context_manager", return_value=None), \
+                     patch.object(execution, "build_react_graph", side_effect=fake_graph):
+                    self.assertEqual(execution.execute(payload)["status"], "success")
+
     def test_tool_selection_and_filesystem_scope(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

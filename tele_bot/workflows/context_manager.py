@@ -12,21 +12,46 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 
 LOG = logging.getLogger(__name__)
 
+# Conservative Qwen visual-token ceiling including image framing. Base64 bytes
+# are transport encoding, not language tokens (Model Studio vision API).
+IMAGE_TOKENS = 16_384 + 2
+
+
+def content_tokens(content) -> int:
+    if not isinstance(content, list):
+        return text_tokens(str(content))
+    return sum(IMAGE_TOKENS if isinstance(block, dict) and block.get("type") == "image_url"
+               else text_tokens(str(block)) for block in content)
+
+
+def compact_content(content) -> str:
+    if not isinstance(content, list):
+        return str(content)
+    return "\n".join("[图片附件；原图保存在原始会话记录中]"
+                     if isinstance(block, dict) and block.get("type") == "image_url"
+                     else str(block.get("text", "")) if isinstance(block, dict) else str(block)
+                     for block in content)
+
 
 @dataclass(frozen=True)
 class ContextPolicy:
-    hard_tokens: int = 32_000
-    trigger_tokens: int = 24_000
-    target_tokens: int = 16_000
-    summary_tokens: int = 1200
-    summary_input_tokens: int = 8000
-    keep_recent: int = 6
+    # Tuned for the deployed model's 991K input limit (decimal tokens).
+    # System prompts, tool schemas and calibrated estimation count toward these.
+    model_input_tokens: int = 991_000
+    hard_tokens: int = 900_000
+    trigger_tokens: int = 600_000
+    target_tokens: int = 400_000
+    summary_tokens: int = 4000
+    summary_input_tokens: int = 64_000
+    keep_recent: int = 24
 
     def __post_init__(self):
         if not 0 < self.summary_tokens < self.target_tokens < self.trigger_tokens < self.hard_tokens:
             raise ValueError("context budgets must satisfy summary < target < trigger < hard")
         if self.summary_input_tokens <= self.summary_tokens + 256 or self.keep_recent < 1:
             raise ValueError("invalid summary input budget or recent window")
+        if not self.summary_input_tokens <= self.hard_tokens <= self.model_input_tokens:
+            raise ValueError("summary and context input budgets must fit the model input limit")
 
 
 def text_tokens(text: str) -> int:
@@ -75,7 +100,7 @@ class ContextManager:
                    tool_tokens=text_tokens(json.dumps(schemas, ensure_ascii=False)) + 16 * len(tools))
 
     def count(self, messages) -> int:
-        return sum(8 + text_tokens(str(m.content))
+        return sum(8 + content_tokens(m.content)
                    + text_tokens(json.dumps(getattr(m, "tool_calls", None) or [], ensure_ascii=False))
                    for m in messages)
 
@@ -130,7 +155,7 @@ class ContextManager:
                     return json.dumps(value, ensure_ascii=False, default=str)
             except (ValueError, TypeError):
                 pass
-        text = str(message.content)
+        text = compact_content(message.content)
         if isinstance(message, AIMessage) and message.tool_calls:
             calls = [{**call, "args": {key: clip_text(val, 250) if isinstance(val, str) else val
                                        for key, val in call["args"].items()}}
@@ -263,11 +288,24 @@ class ContextManager:
         degraded = False
         compacted = False
         if before > policy.trigger_tokens:
-            cut = max(0, len(groups) - policy.keep_recent)
             # Reserve room for a newly generated summary before choosing the tail.
             reserve = "摘" * math.ceil(policy.summary_tokens / 1.5)
-            while cut < len(groups) and size(view(groups[cut:], reserve)) > policy.target_tokens:
-                cut += 1
+            # Keep the largest complete tail that fits, rather than always
+            # discarding all but keep_recent groups even with a large budget.
+            # The preferred recent window is the starting pivot; token safety
+            # takes precedence if those groups alone are too large.
+            pivot = max(0, len(groups) - policy.keep_recent)
+            if size(view(groups[pivot:], reserve)) <= policy.target_tokens:
+                low, high = 0, pivot
+            else:
+                low, high = pivot, len(groups)
+            while low < high:
+                mid = (low + high) // 2
+                if size(view(groups[mid:], reserve)) <= policy.target_tokens:
+                    high = mid
+                else:
+                    low = mid + 1
+            cut = low
             if cut:
                 compacted = True
                 self._notify(on_progress, "会话内容较多，正在压缩历史上下文...")

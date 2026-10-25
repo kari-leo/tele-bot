@@ -1,8 +1,11 @@
 """Exercise iteration limits using the real graph and deterministic tools."""
 
 import unittest
+from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import tool
@@ -34,6 +37,28 @@ def read_page() -> str:
 
 
 class ReactGraphTests(unittest.TestCase):
+    def test_current_local_time_is_refreshed_between_requests(self):
+        class Model:
+            def __init__(self):
+                self.prompts = []
+
+            def invoke(self, messages, config=None):
+                self.prompts.append(messages[0].content)
+                return AIMessage(content="done")
+
+        model = Model()
+        graph = build_react_graph(model, [], system_prompt="基础规则")
+        config = {"configurable": {"thread_id": "clock"}}
+        for day in (21, 22):
+            with patch("tele_bot.workflows.react_graph.datetime") as clock:
+                clock.now.return_value = datetime(2026, 10, day, 2, 30, tzinfo=ZoneInfo("Asia/Shanghai"))
+                graph.invoke({"messages": [HumanMessage(content="todo里今天有哪些事要做")],
+                              "iterations": 0}, config)
+        for day, prompt in zip((21, 22), model.prompts):
+            self.assertIn(f"2026-10-{day}T02:30", prompt)
+            self.assertIn("Asia/Shanghai", prompt)
+            self.assertIn("基础规则", prompt)
+
     def test_history_summary_reports_progress_before_waiting_for_model(self):
         events = []
 

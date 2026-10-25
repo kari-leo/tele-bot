@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 import hashlib
 import json
+import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from secrets import token_urlsafe
@@ -77,10 +78,14 @@ class KnowledgeCommandService:
                     return None
                 return self._complete(message, pending, normalized.lower() in {"取消", "cancel"})
             if message.message_type is MessageType.IMAGE:
-                return self._out(message, "图片已收到，但一期不支持 OCR，不会进入知识库。")
-            if message.message_type is MessageType.FILE:
-                return self._prepare_attachment(message)
+                # Visual questions belong to the multimodal chat model, not ingestion.
+                return None
             if not normalized.lower().startswith("/kb"):
+                # Uploading a file grants no intent to put it into a shared KB.
+                if (message.attachments
+                        and re.search(r"(?:导入|加入|存入|收录|保存到|添加到|加到).{0,12}知识库|知识库.{0,8}(?:导入|收录|存入)", normalized)
+                        and not re.search(r"不要|不用|无需|不想|别|不需要|不加入|不导入|先不|暂不", normalized)):
+                    return self._prepare_attachment(message)
                 return None
             return self._command(message, normalized[3:].strip())
         except (ValueError, PermissionError, RuntimeError, KeyError, OSError) as exc:
@@ -93,6 +98,22 @@ class KnowledgeCommandService:
             return self._out(message, self._help())
         if verb == "whoami":
             return self._out(message, f"当前飞书用户标识：{message.user_id}")
+        if verb == "import-attachment":
+            return self._prepare_attachment(message)
+        if verb == "details":
+            pending = self._single_pending(message.chat_id, message.user_id)
+            if pending is None:
+                return self._out(message, "当前没有唯一待确认的知识库操作。")
+            parsed = []
+            if pending.operation == "import_attachment":
+                parsed = [pending.arguments[1]]
+            elif pending.operation == "import_files":
+                parsed = [snapshot.parsed for snapshot in pending.arguments]
+            elif pending.operation == "import_cloud":
+                root = pending.arguments[0]
+                parsed = [snapshot.parsed for snapshot in (root, *root.children)]
+            details = "\n\n".join(self._describe_document(item, detailed=True) for item in parsed)
+            return self._out(message, pending.summary + ("\n\n" + details if details else ""))
         if verb == "create":
             if message.user_id not in self.creator_user_ids and "*" not in self.creator_user_ids:
                 raise PermissionError(
@@ -104,7 +125,7 @@ class KnowledgeCommandService:
         if verb == "spaces":
             spaces = self.store.list_accessible_spaces(message.user_id)
             text = "\n".join(
-                f"- {space.id} {space.name}" for space in spaces
+                f"- {space.name}（{space.id[:8]}）" for space in spaces
             ) or "你当前没有可访问的项目空间。"
             return self._out(message, text)
         if verb in {"use", "bind-space"}:
@@ -123,20 +144,20 @@ class KnowledgeCommandService:
                 message,
                 "bind_space",
                 (space.id,),
-                f"将当前会话绑定到项目空间：{space.name}（{space.id}）",
+                f"将当前会话绑定到项目空间：{space.name}",
             )
         if verb == "search":
             hits = self.search.search(message.chat_id, message.user_id, argument)
             if not hits:
                 return self._out(message, "当前项目空间没有相关资料。")
-            lines = ["知识库命中（检索片段，不代表整表完整结果，不能直接用于全表计数/求和）："]
+            lines = ["相关资料（仅命中片段，不能用于整表统计）："]
             for hit in hits:
                 excerpt = hit.text.replace("\n", " ")[:240]
                 section = " / ".join(hit.section_path) or "无标题章节"
-                lines.append(f"- {hit.rank}. {hit.title}（{section}，片段 {hit.ordinal + 1}，{hit.score:.3f}）：{excerpt}\n"
-                             f"  来源：{hit.source_url or hit.source_ref} {hit.source_locator}；版本：{hit.document_version_id}；索引时间：{hit.indexed_at}")
-                if hit.source_status:
-                    lines.append(f"  最近成功读取：{hit.source_read_at}；源状态：{hit.source_status}；源 revision：{hit.source_revision}；缺失/失败：{hit.source_error or '无'}")
+                lines.append(f"{hit.rank}. {hit.title} · {section}\n{excerpt}\n"
+                             f"来源：{hit.source_url or hit.source_ref} {hit.source_locator}")
+                if hit.source_error:
+                    lines.append(f"注意：源资料不完整或刷新失败，{hit.source_error[:180]}")
             return self._out(message, "\n".join(lines))
         if verb in {"list", "docs"}:
             documents = self.store.list_documents(message.chat_id, message.user_id)
@@ -171,9 +192,8 @@ class KnowledgeCommandService:
                 descriptions.append(self._describe_document(parsed))
             file_list = "\n".join(descriptions)
             summary = (
-                f"项目空间：{space.name}（{space.id}）\n从目录批量导入 {len(selection.files)} 个文档：\n"
+                f"知识库：{space.name}\n从目录批量导入 {len(selection.files)} 个文档：\n"
                 f"{selection.directory}\n{file_list}"
-                f"\n读取配置：{json.dumps(configuration and json.loads(configuration) or {}, ensure_ascii=False)}"
                 "\n确认后将把以上内容作为当前知识库的副本，供空间成员读取。"
             )
             return self._preview(
@@ -203,9 +223,9 @@ class KnowledgeCommandService:
         if verb == "sources":
             sources=self.store.list_cloud_sources(message.chat_id,message.user_id)
             return self._out(message,"\n".join(
-                f"- {s['source_ref']} [{s['status']}] {s['actual_url']}\n"
-                f"  范围：{s['selection_json']}；最近成功读取：{s['last_success_at'] or '无'}；"
-                f"revision：{s['remote_revision']}；原因：{s['error'] or '无'}" for s in sources) or "当前空间没有已确认的云来源。")
+                f"- {s['source_ref'][:18]} · {s['status']}\n{s['actual_url']}"
+                + (f"\n注意：{s['error'][:180]}" if s['error'] else "")
+                for s in sources) or "当前空间没有已确认的云来源。")
         if verb == "refresh":
             sources=self.store.list_cloud_sources(message.chat_id,message.user_id)
             matches=[s for s in sources if s["source_ref"]==argument or s["source_ref"].startswith(argument)] if argument else []
@@ -237,17 +257,18 @@ class KnowledgeCommandService:
 
     def _prepare_attachment(self, message: IncomingMessage) -> OutgoingMessage:
         space = self.store.require_member(message.chat_id, message.user_id, admin=True)
-        if not message.message_id or len(message.attachments) != 1:
+        if (len(message.attachments) != 1
+                or not (message.attachments[0].source_message_id or message.message_id)):
             raise ValueError("飞书附件缺少可下载标识")
         attachment = message.attachments[0]
         if self.feishu_adapter is None:
             raise RuntimeError("飞书附件下载未配置")
-        raw = self.feishu_adapter.download_attachment(message.message_id, attachment,
+        raw = self.feishu_adapter.download_attachment(attachment.source_message_id or message.message_id, attachment,
                                                        max_bytes=self.parser.max_bytes)
         parsed = self.parser.parse_bytes(attachment.name or "upload.bin", raw, attachment.mime_type)
         return self._preview(
             message, "import_attachment", (attachment.key, parsed),
-            f"项目空间：{space.name}（{space.id}）\n导入飞书附件：{attachment.name or attachment.key}\n"
+            f"知识库：{space.name}\n导入附件：{attachment.name or '未命名文件'}\n"
             + self._describe_document(parsed) + "\n导入内容成为当前空间成员可读取的副本。"
         )
 
@@ -278,11 +299,10 @@ class KnowledgeCommandService:
         for ref in json.loads(snapshot.references_json):
             if ref.get("failure_kind"):
                 self.store.cloud_failure(message.chat_id,message.user_id,ref["source_ref"],ref["failure_kind"],ref["reason"])
-        descriptions=[self._describe_document(s.parsed)+f"\n实际来源：{self.docs_connector.actual_url(s.resource,json.loads(s.selection_json))}"
-                      +f"\n快照读取时间：{s.read_at}；远端 revision：{s.revision or 'API 未提供'}"
+        descriptions=[self._describe_document(s.parsed)+f"\n来源：{self.docs_connector.actual_url(s.resource,json.loads(s.selection_json))}"
                       for s in (snapshot,*snapshot.children)]
-        summary=(f"项目空间：{space.name}（{space.id}）\n云来源：{url}\n读取范围：{snapshot.selection_json}\n"
-                 +"\n".join(descriptions)+f"\n嵌入引用：{snapshot.references_json}\n"
+        summary=(f"知识库：{space.name}\n"
+                 +"\n".join(descriptions)+"\n"
                  "导入内容成为空间成员可读的副本，不继承源文档/视图的行列 ACL；未选择的引用不会自动读取。")
         return self._preview(message,"import_cloud",(snapshot,canonical(generations)),summary)
 
@@ -308,20 +328,29 @@ class KnowledgeCommandService:
             raise ValueError(f"无效 --table-options JSON：{exc}") from exc
 
     @staticmethod
-    def _describe_document(parsed: ParsedDocument) -> str:
-        lines = [f"- {parsed.name}：正文/规范化文本 {len(parsed.text)} 字符，表格 {len(parsed.tables)} 个"]
-        for table in parsed.tables:
-            lines.append(f"  - {table.title}；{table.locator()}；数据记录 {len(table.rows)}；表头源行 {table.header_rows}；"
-                         + "字段：" + "；".join(c.name for c in table.columns))
-        lines.extend(f"  缺失内容：{item}" for item in parsed.missing_content)
-        lines.extend(f"  提示：{warning}" for warning in parsed.warnings)
+    def _describe_document(parsed: ParsedDocument, *, detailed: bool = False) -> str:
+        lines = [f"- {parsed.name}：{len(parsed.text)} 字符，{len(parsed.tables)} 个表格"]
+        tables = parsed.tables if detailed else parsed.tables[:3]
+        for table in tables:
+            columns = table.columns if detailed else table.columns[:8]
+            lines.append(f"  {table.title}：数据记录 {len(table.rows)}，{len(table.columns)} 列；"
+                         + "字段：" + "、".join(c.name if detailed else c.name[:40] for c in columns)
+                         + ("…" if len(columns) < len(table.columns) else ""))
+            if detailed:
+                lines.append(f"  {table.locator()}；表头源行 {table.header_rows}")
+        if len(tables) < len(parsed.tables):
+            lines.append(f"  另有 {len(parsed.tables) - len(tables)} 个表格，发送 /kb details 查看。")
+        missing = parsed.missing_content if detailed else parsed.missing_content[:3]
+        warnings = parsed.warnings if detailed else parsed.warnings[:3]
+        lines.extend(f"  缺失内容：{item if detailed else item[:200]}" for item in missing)
+        lines.extend(f"  提示：{warning if detailed else warning[:200]}" for warning in warnings)
+        if not detailed and len(parsed.missing_content) > 3:
+            lines.append(f"  共 {len(parsed.missing_content)} 项缺失，导入结果为部分成功。")
         return "\n".join(lines)
 
     def _preview(
         self, message: IncomingMessage, operation: str, arguments: tuple[object, ...], summary: str
     ) -> OutgoingMessage:
-        if len(summary.encode("utf-8")) > 24000:
-            raise ValueError("预览范围/字段清单过长，请减少文件、工作表或列后重试；未生成确认操作")
         token = token_urlsafe(18)
         pending = PendingKnowledgeOperation(
             token, message.chat_id, message.user_id, operation, arguments, summary,
@@ -333,8 +362,14 @@ class KnowledgeCommandService:
         with self._lock:
             self._purge_expired()
             self._pending[token] = pending
+        visible = summary
+        if len(visible) > 1000:
+            visible = visible[:900] + "\n… 发送 /kb details 查看完整范围。"
+        if operation.startswith("import_"):
+            visible = "确认后加入知识库，空间成员可读取；云来源不继承原行列权限。\n\n" + visible
         card = InteractiveCard(
-            title="知识库操作确认", body=summary, status="pending",
+            title="加入知识库？" if operation.startswith("import_") else "知识库操作确认",
+            body=visible, status="pending",
             actions=(
                 CardAction("kb_confirm", "确认", token),
                 CardAction("kb_cancel", "取消", token),
@@ -342,7 +377,7 @@ class KnowledgeCommandService:
         )
         return OutgoingMessage(
             message.channel, message.chat_id,
-            f"{summary}\n确认请回复“确认”，取消请回复“取消”。", False,
+            f"{visible}\n确认请回复“确认”，取消请回复“取消”。", False,
             reply_to_message_id=message.message_id, card=card,
         )
 
@@ -508,7 +543,7 @@ class KnowledgeCommandService:
             del self._pending[token]
 
     def _cancel(self, message, pending):
-        return self._out(message, f"已取消：{pending.summary}")
+        return self._out(message, "已取消知识库操作。")
 
     @staticmethod
     def _out(message: IncomingMessage, text: str) -> OutgoingMessage:
@@ -523,6 +558,7 @@ class KnowledgeCommandService:
             "/kb whoami；/kb create [名称]；/kb spaces；/kb use <空间ID或名称>；"
             "/kb bind <目录>；/kb import <文件、目录或模糊目录描述>；"
             "表格可附加 --table-options JSON（header_rows、sheets、cell_range、delimiter、encoding）；"
+            "/kb import-attachment（将上传或引用的附件加入知识库）；/kb details（待确认操作详情）；"
             "/kb import-doc <docx/wiki/sheets/base 链接> [--options JSON]；/kb inspect-doc <链接>；"
             "/kb sources；/kb refresh <来源ID>；/kb search <问题>；/kb list；"
             "/kb add-member <user_id> [member|admin]；/kb delete <文档ID>；/kb budget"

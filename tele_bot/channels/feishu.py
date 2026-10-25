@@ -120,6 +120,9 @@ class FeishuWebhookAdapter:
         event_type = header.get("event_type")
         if event_type == "card.action.trigger":
             return self._parse_card_action(payload.get("event", {}))
+        if event_type is None and isinstance(payload.get("action"), dict) and payload.get("open_message_id"):
+            return self._parse_card_action({"operator": {"user_id": payload.get("user_id"), "open_id": payload.get("open_id")},
+                                            "context": payload, "action": payload["action"]})
         if event_type != "im.message.receive_v1":
             _LOG.debug("Ignoring Feishu event type: %s", event_type)
             return None
@@ -129,7 +132,7 @@ class FeishuWebhookAdapter:
         sender = event.get("sender", {})
 
         raw_message_type = str(message.get("message_type", ""))
-        if raw_message_type not in {"text", "file", "image"}:
+        if raw_message_type not in {"text", "file", "image", "post"}:
             _LOG.debug("Ignoring unsupported Feishu message: %s", raw_message_type)
             return None
 
@@ -139,9 +142,13 @@ class FeishuWebhookAdapter:
             _LOG.warning("Ignoring Feishu message with invalid JSON content")
             return None
 
-        message_type = MessageType(raw_message_type)
+        if not isinstance(content, dict):
+            return None
+        message_type = MessageType.TEXT if raw_message_type == "post" else MessageType(raw_message_type)
         attachments: tuple[AttachmentDescriptor, ...] = ()
-        if message_type is MessageType.TEXT:
+        if raw_message_type == "post":
+            text, attachments = self._parse_post(content)
+        elif message_type is MessageType.TEXT:
             text = str(content.get("text", "")).strip()
         else:
             key_name = "file_key" if message_type is MessageType.FILE else "image_key"
@@ -163,12 +170,13 @@ class FeishuWebhookAdapter:
                     name=str(attachment_name) if attachment_name else None,
                     mime_type=str(mime_type) if mime_type else None,
                     size_bytes=size_bytes,
+                    source_message_id=str(message["message_id"]) if message.get("message_id") else None,
                 ),
             )
             text = (
                 f"[文件] {attachment_name or attachment_key}"
                 if message_type is MessageType.FILE
-                else "[图片] 暂不支持 OCR"
+                else "[图片]"
             )
 
         if message_type is MessageType.TEXT and message.get("chat_type") == "group":
@@ -203,8 +211,41 @@ class FeishuWebhookAdapter:
             ),
         )
 
+    @staticmethod
+    def _parse_post(content: dict[str, Any]) -> tuple[str, tuple[AttachmentDescriptor, ...]]:
+        # Received posts use the direct shape; also accept localized post bodies.
+        if "content" not in content:
+            content = next((content[key] for key in ("zh_cn", "en_us")
+                            if isinstance(content.get(key), dict)), {})
+        lines = [str(content.get("title") or "")]
+        images: dict[str, AttachmentDescriptor] = {}
+        for row in content.get("content", []):
+            if not isinstance(row, list):
+                continue
+            text = []
+            for item in row:
+                if not isinstance(item, dict):
+                    continue
+                tag = item.get("tag")
+                if tag in {"text", "md", "a", "code_block"}:
+                    text.append(str(item.get("text") or item.get("href") or ""))
+                elif tag == "img" and item.get("image_key"):
+                    key = str(item["image_key"]).strip()
+                    if key:
+                        images[key] = AttachmentDescriptor(kind=MessageType.IMAGE, key=key)
+            lines.append("".join(text))
+        text = "\n".join(line for line in lines if line.strip()).strip()
+        return text or ("[图片]" if images else ""), tuple(images.values())
+
     def _parse_card_action(self, event: dict[str, Any]) -> IncomingMessage | None:
-        operator = event.get("operator", {}).get("operator_id", {})
+        operator = event.get("operator") or {}
+        if not isinstance(operator, dict):
+            return None
+        # Current card.action.trigger has IDs directly under operator. Accept
+        # the older nested shape too; use the same ID preference as text events.
+        operator = operator.get("operator_id") or operator
+        if not isinstance(operator, dict):
+            return None
         context = event.get("context", {})
         action = event.get("action", {})
         value = action.get("value", {})
@@ -253,6 +294,22 @@ class FeishuWebhookAdapter:
             return True
         return message.user_id in self.allowed_user_ids
 
+    @staticmethod
+    def _build_text_payload(text: str) -> dict[str, str]:
+        """Use post(md) for replies and progress so in-place edits keep formatting.
+
+        Feishu text messages display Markdown markers literally. A single md
+        node preserves complete blocks (including code and tables) for the
+        client's CommonMark/GFM renderer.
+        """
+        return {
+            "msg_type": "post",
+            "content": json.dumps(
+                {"zh_cn": {"content": [[{"tag": "md", "text": text}]]}},
+                ensure_ascii=False,
+            ),
+        }
+
     def send_text(self, message: OutgoingMessage) -> dict[str, Any]:
         if message.card is not None:
             return self.send_card(message.chat_id, message.card)
@@ -267,8 +324,7 @@ class FeishuWebhookAdapter:
         }
         payload = {
             "receive_id": message.chat_id,
-            "msg_type": "text",
-            "content": json.dumps({"text": message.text}, ensure_ascii=False),
+            **self._build_text_payload(message.text),
         }
 
         try:
@@ -291,7 +347,7 @@ class FeishuWebhookAdapter:
             raise ValueError("message_id is required for a reply")
         return self._post_message_api(
             f"/open-apis/im/v1/messages/{normalized_id}/reply",
-            {"msg_type": "text", "content": json.dumps({"text": text}, ensure_ascii=False)},
+            self._build_text_payload(text),
             "message reply",
         )
 
@@ -360,6 +416,25 @@ class FeishuWebhookAdapter:
             "elements": elements,
         }
 
+    @staticmethod
+    def card_callback_ack(payload: dict[str, Any], *, duplicate: bool = False) -> dict[str, Any]:
+        if payload.get("header", {}).get("event_type") == "card.action.trigger":
+            return {"toast": {"type": "info", "content": "请求已收到，请勿重复点击。" if duplicate else
+                               "已收到，正在处理；完成后将更新卡片或回复结果。"}}
+        return {}
+
+    def edit_card(self, message_id: str, card: InteractiveCard) -> dict[str, Any]:
+        """Refresh the original confirmation card and remove completed actions."""
+        payload = {"content": json.dumps(self.build_card(card), ensure_ascii=False)}
+        response = httpx.patch(f"{self.api_base_url}/open-apis/im/v1/messages/{message_id}",
+                               headers={"Authorization": f"Bearer {self._get_access_token()}"},
+                               json=payload, timeout=10)
+        self._raise_for_http_error(response, "card edit")
+        result = response.json()
+        if result.get("code") != 0:
+            raise RuntimeError(self._format_api_error("card edit", result))
+        return result
+
     def download_attachment(
         self,
         message_id: str,
@@ -372,7 +447,8 @@ class FeishuWebhookAdapter:
             raise ValueError("only file and image attachments can be downloaded")
         normalized_id = str(message_id).strip()
         normalized_key = attachment.key.strip()
-        if not normalized_id or not normalized_key or "/" in normalized_key or "\\" in normalized_key:
+        if (not normalized_id or not normalized_key
+                or any(char in normalized_id + normalized_key for char in "/\\?#")):
             raise ValueError("invalid Feishu attachment identifier")
         access_token = self._get_access_token()
         response = httpx.get(
@@ -385,6 +461,33 @@ class FeishuWebhookAdapter:
         if len(response.content) > max_bytes:
             raise ValueError(f"Feishu attachment exceeds {max_bytes} bytes")
         return response.content
+
+    def get_quoted_message(self, message: IncomingMessage) -> IncomingMessage:
+        """Resolve an explicit quote, verifying its chat before using its resources."""
+        target = message.quote_target_message_id or ""
+        if not target or any(char in target for char in "/\\?#"):
+            raise ValueError("无效的引用消息标识")
+        response = httpx.get(
+            f"{self.api_base_url}/open-apis/im/v1/messages/{target}",
+            headers={"Authorization": f"Bearer {self._get_access_token()}"}, timeout=30,
+        )
+        self._raise_for_http_error(response, "quoted message lookup")
+        result = response.json()
+        if result.get("code") != 0:
+            raise RuntimeError("无法读取引用消息，请检查机器人消息读取权限或重新发送文件。")
+        items = result.get("data", {}).get("items", [])
+        item = next((item for item in items if item.get("message_id") == target), None)
+        if item is None or item.get("deleted") or item.get("chat_id") != message.chat_id:
+            raise ValueError("引用消息不存在、已撤回或不属于当前会话。")
+        incoming = self.parse_incoming({
+            "header": {"event_type": "im.message.receive_v1"},
+            "event": {"sender": {"sender_id": {"user_id": message.user_id}},
+                      "message": {**item, "message_type": item.get("msg_type"),
+                                  "content": item.get("body", {}).get("content", "{}")}},
+        })
+        if incoming is None:
+            raise ValueError("引用消息类型暂不支持读取，请引用原始文件或图片消息。")
+        return incoming
 
     def _post_message_api(
         self,
@@ -412,17 +515,14 @@ class FeishuWebhookAdapter:
         return result
 
     def edit_message(self, message_id: str, text: str) -> dict[str, Any]:
-        """Update an existing text message in place."""
+        """Update an existing reply/progress message as Markdown rich text."""
         access_token = self._get_access_token()
         url = f"{self.api_base_url}/open-apis/im/v1/messages/{message_id}"
         headers = {
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json; charset=utf-8",
         }
-        payload = {
-            "msg_type": "text",
-            "content": json.dumps({"text": text}, ensure_ascii=False),
-        }
+        payload = self._build_text_payload(text)
         response = httpx.put(url, headers=headers, json=payload, timeout=10)
         self._raise_for_http_error(response, "message edit")
         result = response.json()

@@ -14,6 +14,40 @@ from tele_bot.tools.shell_sandbox import ShellSandboxTool
 
 
 class RuntimePathTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "nt", "Windows dir compatibility")
+    def test_shell_dir_honors_recursive_bare_directory_filter(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            search = root / "搜索目录"
+            wanted = search / "子目录" / "产品经理"
+            wanted.mkdir(parents=True)
+            (search / "产品经理.txt").write_text("file", encoding="utf-8")
+            (root / "不应列出的文件.txt").write_text("cwd", encoding="utf-8")
+            tool = ShellSandboxTool(root=root, allowed_roots=(root,))
+
+            result = tool.execute_shell(f'dir /s /b /ad "{search / "*产品经理*"}"')
+
+            self.assertEqual(result["returncode"], 0, result["stderr"])
+            self.assertEqual(result["stdout"].strip(), str(wanted))
+
+    @unittest.skipUnless(os.name == "nt", "Windows dir compatibility")
+    def test_shell_listing_files_and_invalid_options_are_not_silently_ignored(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            wanted = root / "产品 案例.md"
+            wanted.write_text("content", encoding="utf-8")
+            tool = ShellSandboxTool(root=root, allowed_roots=(root,))
+            result = tool.execute_shell(f'dir /b "{wanted}"')
+            self.assertEqual(result["returncode"], 0, result["stderr"])
+            self.assertEqual(result["stdout"].strip(), str(wanted))
+            with self.assertRaisesRegex(ValueError, "unsupported listing option"):
+                tool.execute_shell("dir /unknown")
+            missing = tool.execute_shell('dir "missing-directory"')
+            self.assertNotEqual(missing["returncode"], 0)
+            self.assertTrue(missing["stderr"])
+            with self.assertRaisesRegex(ValueError, "outside allowed roots"):
+                tool.execute_shell(f'dir /s /b "{root.parent / "*"}"')
+
     def test_configure_runtime_root_uses_script_directory(self) -> None:
         with TemporaryDirectory() as temp_dir:
             script = Path(temp_dir) / "launcher.py"

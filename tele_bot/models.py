@@ -57,6 +57,9 @@ class IncomingMessage:
     # Resolved by the message service; attachment descriptors remain metadata-only.
     image_data_urls: tuple[str, ...] = field(default=(), repr=False)
     attachment_context: str = field(default="", repr=False)
+    # Supplied by the channel adapter, never inferred from message text.
+    chat_type: str | None = None
+    sender_ids: tuple[str, ...] = field(default=(), repr=False)
 
 
 @dataclass(frozen=True)

@@ -182,11 +182,11 @@ class KnowledgeConfigurationTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "KB_MAX_CHUNKS_PER_SPACE"):
                 RuntimeSettings.from_env()
 
-    def test_feishu_settings_loads_kb_creators_from_feishu_config(self) -> None:
+    def test_feishu_settings_loads_admins_from_feishu_config(self) -> None:
         file_values = {
             "FEISHU_APP_ID": "cli_test",
             "FEISHU_APP_SECRET": "secret",
-            "KB_CREATOR_USER_IDS": " user_1,ou_2,, user_1 ",
+            "FEISHU_ADMIN_USER_IDS": " user_1,ou_2,, user_1 ",
         }
         with (
             patch.dict(os.environ, {}, clear=True),
@@ -194,4 +194,4 @@ class KnowledgeConfigurationTests(unittest.TestCase):
         ):
             settings = FeishuSettings.from_env()
 
-        self.assertEqual(settings.kb_creator_user_ids, ("user_1", "ou_2", "user_1"))
+        self.assertEqual(settings.admin_user_ids, ("user_1", "ou_2"))

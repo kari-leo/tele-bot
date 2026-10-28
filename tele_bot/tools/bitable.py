@@ -87,7 +87,10 @@ def build_bitable_tools(service):
         fields contains ONLY requested changes. clear_fields explicitly clears values;
         omitting a field leaves it unchanged. Do not pass None in fields. Bulk updates
         return a frozen preview; never expand or reselect records during confirmation.
-        Requires explicit current user write intent; unknown/conflict must be reported.
+        Requires a real user write request. When the user supplies a missing value
+        after a write request, submit the scoped patch without asking them to
+        repeat the full instruction. The server validates the pending request and
+        returns a frozen confirmation preview. unknown/conflict must be reported.
         Date fields accept YYYY-MM-DD or timezone-aware ISO datetime strings;
         prefer these over calculating millisecond timestamps yourself.
         awaiting_confirmation means the server displays a frozen preview/card.

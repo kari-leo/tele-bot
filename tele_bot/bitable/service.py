@@ -4,7 +4,6 @@ from __future__ import annotations
 from datetime import datetime
 import json
 import math
-import re
 import time
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
@@ -12,19 +11,16 @@ from zoneinfo import ZoneInfo
 from tele_bot.bitable.models import (BitableError, canonical, digest,
                                      RecordFilter, RecordSort, NewRecord, RecordPatch, preview_body, preview_plan)
 from tele_bot.bitable.policy import BitablePolicy, identifier
+from tele_bot.bitable.intents import ConversationIntents, write_actions
 
 WRITABLE = {1, 2, 3, 4, 5, 7, 13, 15}
-WRITE_INTENT = {
-    "create": re.compile(r"新增|增加|添加|增添|创建|写入|录入|\b(create|add|insert)\b", re.I),
-    "update": re.compile(r"修改|更改|更新|改成|改为|改到|改一下|改下|设为|设成|设置|定在|定为|调到|调整|标记|标为|标成|挪到|延期到|延后到|提前到|清空|\b(update|change|set|clear)\b", re.I),
-    "delete": re.compile(r"删除|移除|\b(delete|remove)\b", re.I),
-}
 
 
 class BitableService:
     def __init__(self, settings, client, policy, store, *, configuration_error=None):
         self.settings, self.client, self.policy, self.store = settings, client, policy, store
         self.configuration_error = configuration_error
+        self.intents = ConversationIntents(self)
 
     @property
     def version(self):
@@ -138,6 +134,7 @@ class BitableService:
         target = self._target(target, message, "read")
         with self.store.lease(self._key(target)), self.client.scope():
             fields = self.client.fields(target)
+        self.intents.observe(message, target, [f["field_name"] for f in fields if f["type"] in WRITABLE])
         return {"status": "succeeded", "target": target.alias, "table_id": target.table_id,
                 "fields": [{"field_id": f["field_id"], "field_name": f["field_name"], "type": f["type"],
                             "writable": f["type"] in WRITABLE,
@@ -229,6 +226,8 @@ class BitableService:
             projected.append({"record_id": rid, "fields": {f: record.get("fields", {}).get(f) for f in selected}})
         state.update(seen=sorted(seen), count=state["count"] + len(records), remote=remote,
                      pages=state["pages"] + ([remote] if remote else []))
+        self.intents.observe(message, target, [f for f in selected if definitions[f]["type"] in WRITABLE],
+                             [r["record_id"] for r in projected])
         capped = bool(more and state["count"] >= self.settings.max_query_records)
         next_cursor = self.store.cursor(state) if more and not capped else None
         result = {"status": "succeeded", "target": target.alias, "table_id": target.table_id,
@@ -300,10 +299,6 @@ class BitableService:
         target = self._target(target, message, action)
         if not message.message_id:
             raise BitableError("unauthorized", "写入需要真实消息 ID，不能从未认证入口执行")
-        if (action not in WRITE_INTENT or not WRITE_INTENT[action].search(message.text)
-                or re.search(r"不要|禁止|不许|别(?:再|去|给|帮)?(?:新增|增加|添加|增添|创建|录入|删除|修改|更新|写入)|\b(do not|don't|never)\b", message.text, re.I)
-                or re.match(r"\s*(?:请问)?(?:如何|怎么|为什么|假如|如果)", message.text)):
-            raise BitableError("write_intent", "未识别到本次写入要求，请说明要新增、修改或删除的内容")
         if not records or len(records) > self.settings.max_write_records:
             raise BitableError("limit", "写入记录数为空或超限，请缩小范围")
         normalized = []
@@ -331,6 +326,7 @@ class BitableService:
                 previous = self.store.get(prior[0])
                 if previous["policy"] != self.version:
                     raise BitableError("conflict", "同一消息的原操作已登记，但授权版本已变化；不会重复执行")
+                self.intents.close()
                 return self.receipt(previous)
             with self.store.connect() as db:
                 sibling = db.execute("SELECT id FROM operations WHERE request_scope=? "
@@ -338,6 +334,9 @@ class BitableService:
                                      (request_scope,)).fetchone()
             if sibling:
                 raise BitableError("conflict", "同一消息该目标已有操作，请勿变换内容重试或拆分批量请求；查询原操作状态")
+            inherited = action not in write_actions(message.text)
+            if inherited and not self.intents.allows_preview(action, target, message, normalized):
+                raise BitableError("write_intent", "没有有效的本次写入要求或待补充请求；请说明要新增、修改或删除的内容")
             fields = self.client.fields(target)
             before = self.client.records(target, ids) if ids else {}
             encoded = normalized if action == "delete" else [
@@ -348,12 +347,17 @@ class BitableService:
                     "schema": self.client.field_fingerprint(fields)}
             if len(canonical(plan).encode("utf-8")) > self.settings.max_response_bytes:
                 raise BitableError("limit", "变更快照过大，请减少记录/字段；未生成写入")
-            needs_confirmation = target.confirm_all or action == "delete" or len(records) > 1
+            needs_confirmation = inherited or target.confirm_all or action == "delete" or len(records) > 1
             if needs_confirmation and len(preview_body(plan, action)) > 3800:
                 raise BitableError("limit", "变更范围超过确认卡片预算，请减少记录/字段；未生成写入")
+            turn = self.intents.current(message)
+            if inherited and turn is None:
+                raise BitableError("write_intent", "待补充请求已过期，请重新提出写入要求")
+            intent = (turn.key, turn.grant["id"]) if turn else None
             row = self.store.prepare(dedup=dedup, request_scope=request_scope, message=message,
                                      policy=self.version, target=target.key,
-                                     action=action, plan=plan, ttl=self.settings.confirm_ttl)
+                                     action=action, plan=plan, ttl=self.settings.confirm_ttl, intent=intent)
+            self.intents.close()
             if needs_confirmation:
                 self.store.finish(row["id"], "awaiting_confirmation", {"preview": plan})
                 return self.receipt(self.store.get(row["id"]))

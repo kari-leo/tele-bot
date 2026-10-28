@@ -158,6 +158,12 @@ class ConfirmationFlowTests(ServiceCase):
             adapter.send_text.assert_not_called()
             client.post("/feishu/webhook", json=payload)
             self.assertEqual(len(self.client.writes), 1)
+            # Token is optional, but once configured it must still be checked.
+            adapter.verification_token = "verify"
+            self.assertEqual(client.post("/feishu/webhook", json=payload).status_code, 403)
+            payload["header"]["token"] = "verify"
+            self.assertEqual(client.post("/feishu/webhook", json=payload).status_code, 200)
+            self.assertEqual(len(self.client.writes), 1)
         finally:
             runtime["feishu_message_batcher"].wait_idle(5)
             initial_attachment_store.close()

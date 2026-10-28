@@ -33,13 +33,17 @@ def _now() -> str:
 class KnowledgeStore:
     """Owns KB schema and enforces chat + user authorization before every read."""
 
-    def __init__(self, path: str | Path, *, max_chunks_per_space: int = 10_000) -> None:
+    def __init__(self, path: str | Path, *, max_chunks_per_space: int = 10_000,
+                 admin_user_ids: tuple[str, ...] | None = None) -> None:
         if max_chunks_per_space <= 0:
             raise ValueError("max_chunks_per_space must be greater than zero")
         path_text = str(path)
         if path_text != ":memory:":
             Path(path_text).parent.mkdir(parents=True, exist_ok=True)
         self.max_chunks_per_space = max_chunks_per_space
+        # None keeps compatibility with existing embedded callers. The app and
+        # MCP server always supply the sole administrator configuration.
+        self.admin_user_ids = frozenset(admin_user_ids) if admin_user_ids is not None else None
         self._lock = RLock()
         self._conn = sqlite3.connect(path_text, check_same_thread=False, timeout=5)
         self._conn.row_factory = sqlite3.Row
@@ -216,6 +220,7 @@ class KnowledgeStore:
 
     def create_space(self, chat_id: str, name: str, creator_user_id: str) -> ProjectSpace:
         chat_id, name, creator_user_id = chat_id.strip(), name.strip(), creator_user_id.strip()
+        self._require_admin(creator_user_id)
         if not chat_id or not name or not creator_user_id:
             raise ValueError("chat_id, name and creator_user_id are required")
         space_id, created_at = uuid4().hex, _now()
@@ -240,18 +245,30 @@ class KnowledgeStore:
             )
         return ProjectSpace(space_id, chat_id, name, creator_user_id, created_at)
 
+    def _require_admin(self, user_id: str) -> None:
+        if self.admin_user_ids is not None and user_id not in self.admin_user_ids:
+            raise PermissionError("当前仅允许 FEISHU_ADMIN_USER_IDS 中的管理员访问知识库")
+
     def require_member(self, chat_id: str, user_id: str, *, admin: bool = False) -> ProjectSpace:
+        self._require_admin(user_id)
         with self._lock:
-            row = self._conn.execute(
-                """SELECT s.*, m.role FROM project_space_bindings b
-                   JOIN project_spaces s ON s.id=b.project_space_id
-                   JOIN project_members m ON m.project_space_id=s.id
-                   WHERE b.chat_id=? AND m.user_id=?""",
-                (chat_id, user_id),
-            ).fetchone()
+            if self.admin_user_ids is not None:
+                row = self._conn.execute(
+                    """SELECT s.* FROM project_space_bindings b
+                       JOIN project_spaces s ON s.id=b.project_space_id WHERE b.chat_id=?""",
+                    (chat_id,),
+                ).fetchone()
+            else:
+                row = self._conn.execute(
+                    """SELECT s.*, m.role FROM project_space_bindings b
+                       JOIN project_spaces s ON s.id=b.project_space_id
+                       JOIN project_members m ON m.project_space_id=s.id
+                       WHERE b.chat_id=? AND m.user_id=?""",
+                    (chat_id, user_id),
+                ).fetchone()
         if row is None:
             raise PermissionError("当前会话未绑定可访问的项目空间，或当前用户不是该空间成员")
-        if admin and row["role"] != MemberRole.ADMIN.value:
+        if self.admin_user_ids is None and admin and row["role"] != MemberRole.ADMIN.value:
             raise PermissionError("此操作需要项目空间管理员权限")
         return self._space(row)
 
@@ -259,41 +276,57 @@ class KnowledgeStore:
         self, project_space_id: str, user_id: str, *, admin: bool = False
     ) -> ProjectSpace:
         """Authorize a user directly against a project space, without a chat binding."""
+        self._require_admin(user_id)
         with self._lock:
-            row = self._conn.execute(
-                """SELECT s.*,m.role FROM project_spaces s
-                   JOIN project_members m ON m.project_space_id=s.id
-                   WHERE s.id=? AND m.user_id=?""",
-                (project_space_id, user_id),
-            ).fetchone()
+            if self.admin_user_ids is not None:
+                row = self._conn.execute("SELECT * FROM project_spaces WHERE id=?", (project_space_id,)).fetchone()
+            else:
+                row = self._conn.execute(
+                    """SELECT s.*,m.role FROM project_spaces s
+                       JOIN project_members m ON m.project_space_id=s.id
+                       WHERE s.id=? AND m.user_id=?""",
+                    (project_space_id, user_id),
+                ).fetchone()
         if row is None:
             raise PermissionError("当前用户不是该项目空间成员")
-        if admin and row["role"] != MemberRole.ADMIN.value:
+        if self.admin_user_ids is None and admin and row["role"] != MemberRole.ADMIN.value:
             raise PermissionError("此操作需要项目空间管理员权限")
         return self._space(row)
 
     def list_accessible_spaces(self, user_id: str) -> list[ProjectSpace]:
+        self._require_admin(user_id)
         with self._lock:
-            rows = self._conn.execute(
-                """SELECT s.* FROM project_spaces s
-                   JOIN project_members m ON m.project_space_id=s.id
-                   WHERE m.user_id=? ORDER BY s.created_at DESC""",
-                (user_id,),
-            ).fetchall()
+            if self.admin_user_ids is not None:
+                rows = self._conn.execute("SELECT * FROM project_spaces ORDER BY created_at DESC").fetchall()
+            else:
+                rows = self._conn.execute(
+                    """SELECT s.* FROM project_spaces s
+                       JOIN project_members m ON m.project_space_id=s.id
+                       WHERE m.user_id=? ORDER BY s.created_at DESC""",
+                    (user_id,),
+                ).fetchall()
         return [self._space(row) for row in rows]
 
     def bind_space(self, chat_id: str, user_id: str, identifier: str) -> ProjectSpace:
+        self._require_admin(user_id)
         normalized = identifier.strip()
         if not normalized:
             raise ValueError("项目空间 ID 或名称不能为空")
         with self._transaction() as conn:
-            rows = conn.execute(
-                """SELECT s.* FROM project_spaces s
-                   JOIN project_members m ON m.project_space_id=s.id
-                   WHERE m.user_id=? AND (s.id=? OR s.id LIKE ? OR s.name=?)
-                   ORDER BY CASE WHEN s.id=? THEN 0 ELSE 1 END""",
-                (user_id, normalized, f"{normalized}%", normalized, normalized),
-            ).fetchall()
+            if self.admin_user_ids is not None:
+                rows = conn.execute(
+                    """SELECT * FROM project_spaces WHERE id=? OR id LIKE ? OR name=?
+                       ORDER BY CASE WHEN id=? THEN 0 ELSE 1 END""",
+                    (normalized, f"{normalized}%", normalized, normalized),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """SELECT s.* FROM project_spaces s
+                       JOIN project_members m ON m.project_space_id=s.id
+                       WHERE m.user_id=? AND (s.id=? OR s.id LIKE ? OR s.name=?)
+                       ORDER BY CASE WHEN s.id=? THEN 0 ELSE 1 END""",
+                    (user_id, normalized, f"{normalized}%", normalized, normalized),
+                ).fetchall()
             unique = {row["id"]: row for row in rows}
             if not unique:
                 raise PermissionError("找不到该项目空间，或当前用户没有该空间的读取权限")

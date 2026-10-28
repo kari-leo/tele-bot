@@ -26,10 +26,11 @@ from tele_bot.agents.feishu_streaming import FeishuProgressReporter
 from tele_bot.channels.feishu import FeishuWebhookAdapter
 from tele_bot.models import CardAction, IncomingMessage, InteractiveCard, MessageType, OutgoingMessage
 from tele_bot.router.codex_service import CodexCommandService
+from tele_bot.router.codex_history_service import CodexHistoryService
 from tele_bot.router.knowledge_service import KnowledgeCommandService
 from tele_bot.tools.lc_adapters import CURRENT_SCHEDULE_ALLOWED
 from tele_bot.tools.knowledge_search import CURRENT_KNOWLEDGE_MESSAGE
-from tele_bot.bitable.models import CURRENT_BITABLE_MESSAGE, CURRENT_BITABLE_RECEIPTS
+from tele_bot.bitable.models import BitableError, CURRENT_BITABLE_MESSAGE, CURRENT_BITABLE_RECEIPTS
 from tele_bot.router.bitable_service import BitableCommandService, render_bitable_receipt
 from tele_bot.workflows.react_graph import PROGRESS_CONTEXTVAR
 from tele_bot.persistence.attachment_store import AttachmentStore
@@ -76,11 +77,15 @@ class MessageService:
         knowledge_service: KnowledgeCommandService | None = None,
         bitable_service=None,
         attachment_store: AttachmentStore | None = None,
+        codex_history_service: CodexHistoryService | None = None,
+        admin_user_ids: tuple[str, ...] | None = None,
     ) -> None:
         self.agent_core = agent_core
         self.feishu_adapter = feishu_adapter
         self.streaming_enabled = streaming_enabled
         self.codex_service = codex_service
+        self.codex_history_service = codex_history_service
+        self.admin_user_ids = admin_user_ids
         self.knowledge_service = knowledge_service
         self.bitable_service = bitable_service
         self.bitable_commands = BitableCommandService(bitable_service) if bitable_service is not None else None
@@ -88,7 +93,53 @@ class MessageService:
         self.attachment_parser = DocumentParser()
 
     def handle(self, message: IncomingMessage, *, allow_schedule: bool = True,
-               allow_knowledge: bool = True, allow_bitable: bool | None = None) -> OutgoingMessage:
+               allow_knowledge: bool = True, allow_bitable: bool | None = None,
+               allow_codex_history: bool = True, allow_admin: bool = True) -> OutgoingMessage:
+        if self.admin_user_ids is not None:
+            identifiers = (message.user_id, *message.sender_ids)
+            admin_id = next((value for value in self.admin_user_ids if value in identifiers), None)
+            if (not allow_admin or not admin_id or self.feishu_adapter is None
+                    or message.channel != self.feishu_adapter.name):
+                return OutgoingMessage(message.channel, message.chat_id,
+                                       "当前仅允许配置的管理员通过飞书入口使用 telebot。",
+                                       reply_to_message_id=message.message_id)
+            # Normalize channel user_id/open_id aliases to the configured ID so
+            # KB checks and card callbacks use the same stable administrator.
+            message = replace(message, user_id=admin_id)
+        if self.bitable_service is not None:
+            trusted = ((allow_knowledge if allow_bitable is None else allow_bitable)
+                       and self.feishu_adapter is not None and message.channel == self.feishu_adapter.name)
+            try:
+                with self.bitable_service.intents.turn(message, trusted=trusted):
+                    return self._handle(message, allow_schedule=allow_schedule, allow_knowledge=allow_knowledge,
+                                        allow_bitable=allow_bitable, allow_codex_history=allow_codex_history)
+            except BitableError as exc:
+                return render_bitable_receipt(message, exc.result())
+        return self._handle(message, allow_schedule=allow_schedule, allow_knowledge=allow_knowledge,
+                            allow_bitable=allow_bitable, allow_codex_history=allow_codex_history)
+
+    def _handle(self, message, *, allow_schedule, allow_knowledge, allow_bitable, allow_codex_history):
+        if self.codex_history_service is not None:
+            reporter = None
+
+            def history_progress(text):
+                nonlocal reporter
+                if reporter is None:
+                    reporter = self._codex_reporter(message)
+                    if reporter is not None:
+                        reporter.start()
+                if reporter is not None:
+                    reporter.update(text)
+
+            response = self.codex_history_service.handle(
+                message, trusted=(allow_codex_history and self.feishu_adapter is not None
+                                  and message.channel == self.feishu_adapter.name),
+                progress=history_progress,
+            )
+            if response is not None:
+                if reporter is not None:
+                    reporter.update("Codex 处理已结束，详见下方结果卡片。")
+                return response
         if self.feishu_adapter is not None and message.channel == self.feishu_adapter.name:
             try:
                 prepared = self._resolve_attachments(message)

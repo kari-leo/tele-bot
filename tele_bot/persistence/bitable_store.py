@@ -30,6 +30,14 @@ class BitableStore:
               namespace TEXT NOT NULL, app_token TEXT NOT NULL, table_id TEXT NOT NULL,
               base_name TEXT NOT NULL, table_name TEXT NOT NULL,
               PRIMARY KEY(namespace, app_token, table_id));
+            CREATE TABLE IF NOT EXISTS conversation_intents (
+              identity TEXT PRIMARY KEY, id TEXT NOT NULL, policy TEXT NOT NULL,
+              source_message TEXT NOT NULL, source_text TEXT NOT NULL,
+              actions TEXT NOT NULL, scopes TEXT NOT NULL, state TEXT NOT NULL,
+              expires REAL NOT NULL);
+            CREATE TABLE IF NOT EXISTS conversation_intent_messages (
+              identity TEXT NOT NULL, source_message TEXT NOT NULL,
+              PRIMARY KEY(identity, source_message));
             """)
             columns = {r[1] for r in db.execute("PRAGMA table_info(operations)")}
             for column in ("source_message", "request_scope"):
@@ -78,9 +86,15 @@ class BitableStore:
                            "base_name=excluded.base_name,table_name=excluded.table_name",
                            [(namespace, app_token, table_id, base_name, table_name) for table_id, table_name in tables.items()])
 
-    def prepare(self, *, dedup, request_scope, message, policy, target, action, plan, ttl):
+    def prepare(self, *, dedup, request_scope, message, policy, target, action, plan, ttl, intent=None):
         now = time.time()
         with self.connect() as db:
+            if intent is not None:
+                changed = db.execute("UPDATE conversation_intents SET state='closed' "
+                                     "WHERE identity=? AND id=? AND state='active' AND expires>?",
+                                     (*intent, now)).rowcount
+                if not changed:
+                    raise BitableError("write_intent", "待补充请求已失效，请重新提出写入要求")
             db.execute("INSERT OR IGNORE INTO operations (id,dedup,user_id,chat_id,policy,target,action,plan,status,"
                        "token,client_token,expires,result,updated,attempts,source_message,request_scope) "
                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",

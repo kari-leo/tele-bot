@@ -40,6 +40,8 @@ from tele_bot.tools.lc_adapters import build_core_tools
 from tele_bot.tools.blog_publish import BlogPublishTool
 from tele_bot.tools.codex_runner import CodexRunner
 from tele_bot.router.codex_service import CodexCommandService
+from tele_bot.router.codex_history_service import CodexHistoryService
+from tele_bot.tools.codex_history import CodexHistoryClient
 from tele_bot.router.knowledge_service import KnowledgeCommandService
 from tele_bot.tools.workspace_policy import WorkspacePolicy
 from tele_bot.workflows.react_graph import build_react_graph
@@ -141,7 +143,7 @@ feishu_adapter = (
         app_secret=feishu_settings.app_secret,
         verification_token=feishu_settings.verification_token,
         encrypt_key=feishu_settings.encrypt_key,
-        allowed_user_ids=feishu_settings.allowed_user_ids,
+        allowed_user_ids=list(feishu_settings.admin_user_ids),
         api_base_url=feishu_settings.api_base_url,
     )
     if feishu_settings is not None
@@ -168,6 +170,7 @@ try:
     knowledge_store = KnowledgeStore(
         runtime_settings.kb_sqlite_path,
         max_chunks_per_space=runtime_settings.kb_max_chunks_per_space,
+        admin_user_ids=feishu_settings.admin_user_ids if feishu_settings is not None else (),
     )
     embedding_client = AliBailianEmbeddingClient(llm_settings)
     indexing_settings = IndexingSettings.from_env()
@@ -190,7 +193,7 @@ try:
         policy=WorkspacePolicy.from_env(),
         feishu_adapter=feishu_adapter,
         creator_user_ids=(
-            feishu_settings.kb_creator_user_ids if feishu_settings is not None else ()
+            feishu_settings.admin_user_ids if feishu_settings is not None else ()
         ),
     )
 except (sqlite3.DatabaseError, OSError, ValueError) as exc:
@@ -200,6 +203,10 @@ bitable_service = build_bitable_service()
 
 try:
     codex_service = CodexCommandService(CodexRunner.from_env())
+    codex_history_service = CodexHistoryService(
+        CodexHistoryClient(codex_service.runner),
+        feishu_settings.admin_user_ids if feishu_settings is not None else (),
+    )
     executor = _build_executor(
         llm_settings, runtime_settings.sqlite_checkpoint_path,
         feishu_adapter=feishu_adapter, codex_service=codex_service,
@@ -225,6 +232,8 @@ message_service = MessageService(
     knowledge_service=knowledge_service,
     bitable_service=bitable_service,
     attachment_store=AttachmentStore(Path(runtime_settings.sqlite_checkpoint_path).with_name("attachments.sqlite")),
+    codex_history_service=codex_history_service,
+    admin_user_ids=feishu_settings.admin_user_ids if feishu_settings is not None else (),
  )
 
 app = FastAPI(title="tele_bot", version="0.1.0")
@@ -260,7 +269,8 @@ def handle_message(payload: dict) -> dict:
         chat_id=str(payload["chat_id"]),
         text=str(payload["text"]),
     )
-    response = message_service.handle(message, allow_schedule=False, allow_knowledge=False, allow_bitable=False)
+    response = message_service.handle(message, allow_schedule=False, allow_knowledge=False,
+                                      allow_bitable=False, allow_codex_history=False, allow_admin=False)
     return asdict(response)
 
 
@@ -342,10 +352,10 @@ def handle_feishu_webhook(
         return {"code": 0, "msg": "duplicate"}
 
     _LOG.info(
-        "Feishu webhook accepted: user=%s chat=%s text=%s",
+        "Feishu webhook accepted: user=%s chat=%s message_type=%s",
         incoming.user_id,
         incoming.chat_id,
-        incoming.text,
+        incoming.message_type.value,
     )
     # Persist resource identifiers before acknowledging the webhook. Nearby
     # uploads/instructions become one turn; card actions bypass the grace period.

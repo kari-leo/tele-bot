@@ -25,12 +25,11 @@ class FeishuSettings:
     app_secret: str
     verification_token: str
     encrypt_key: str
-    allowed_user_ids: list[str]
     api_base_url: str
     webhook_host: str
     webhook_port: int
     webhook_path: str
-    kb_creator_user_ids: tuple[str, ...] = ()
+    admin_user_ids: tuple[str, ...] = ()
 
     @classmethod
     def _load_env_file(cls, env_file: Path) -> dict[str, str]:
@@ -67,17 +66,18 @@ class FeishuSettings:
         if not webhook_path.startswith("/"):
             webhook_path = f"/{webhook_path}"
 
+        admin_user_ids = tuple(dict.fromkeys(_parse_user_ids(get_config("FEISHU_ADMIN_USER_IDS"))))
+        if "*" in admin_user_ids:
+            raise ValueError("FEISHU_ADMIN_USER_IDS must contain explicit user_id/open_id values, not '*'")
+
         return cls(
             app_id=app_id,
             app_secret=app_secret,
             verification_token=get_config("FEISHU_VERIFICATION_TOKEN"),
             encrypt_key=get_config("FEISHU_ENCRYPT_KEY"),
-            allowed_user_ids=_parse_user_ids(get_config("FEISHU_ALLOWED_USER_IDS")),
             api_base_url=get_config("FEISHU_API_BASE_URL", "https://open.feishu.cn"),
             webhook_host=get_config("FEISHU_WEBHOOK_HOST", "127.0.0.1"),
             webhook_port=_parse_int(get_config("FEISHU_WEBHOOK_PORT"), 3000),
             webhook_path=webhook_path,
-            kb_creator_user_ids=tuple(
-                _parse_user_ids(get_config("KB_CREATOR_USER_IDS"))
-            ),
+            admin_user_ids=admin_user_ids,
         )

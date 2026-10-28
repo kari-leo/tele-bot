@@ -6,6 +6,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from tele_bot.config.feishu import _parse_user_ids
+
 
 def _load_feishu_local_env() -> dict[str, str]:
     path = Path(__file__).parent / "feishu" / "local.env"
@@ -24,16 +26,20 @@ def _load_feishu_local_env() -> dict[str, str]:
 @dataclass(frozen=True)
 class KnowledgeMCPSettings:
     user_id: str
+    admin_user_ids: tuple[str, ...] = ()
 
     @classmethod
     def from_env(cls) -> "KnowledgeMCPSettings":
         file_values = _load_feishu_local_env()
+        admins = tuple(dict.fromkeys(_parse_user_ids(os.environ.get(
+            "FEISHU_ADMIN_USER_IDS", file_values.get("FEISHU_ADMIN_USER_IDS", "")))))
+        if not admins or "*" in admins:
+            raise ValueError("FEISHU_ADMIN_USER_IDS requires explicit administrator IDs")
         user_id = os.environ.get(
             "KB_MCP_USER_ID", file_values.get("KB_MCP_USER_ID", "")
-        ).strip()
-        if not user_id:
+        ).strip() or admins[0]
+        if user_id not in admins:
             raise ValueError(
-                "KB_MCP_USER_ID is required; configure the fixed MCP identity in "
-                "tele_bot/config/feishu/local.env"
+                "KB_MCP_USER_ID must be one of FEISHU_ADMIN_USER_IDS"
             )
-        return cls(user_id=user_id)
+        return cls(user_id=user_id, admin_user_ids=admins)

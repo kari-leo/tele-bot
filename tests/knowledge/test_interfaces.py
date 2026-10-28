@@ -88,7 +88,7 @@ class KnowledgeMCPTests(unittest.TestCase):
             patch.dict(os.environ, {}, clear=True),
             patch(
                 "tele_bot.config.mcp._load_feishu_local_env",
-                return_value={"KB_MCP_USER_ID": "ou_file"},
+                return_value={"KB_MCP_USER_ID": "ou_file", "FEISHU_ADMIN_USER_IDS": "ou_file"},
             ),
         ):
             self.assertEqual(KnowledgeMCPSettings.from_env().user_id, "ou_file")
@@ -97,7 +97,7 @@ class KnowledgeMCPTests(unittest.TestCase):
             patch.dict(os.environ, {}, clear=True),
             patch("tele_bot.config.mcp._load_feishu_local_env", return_value={}),
         ):
-            with self.assertRaisesRegex(ValueError, "KB_MCP_USER_ID"):
+            with self.assertRaisesRegex(ValueError, "FEISHU_ADMIN_USER_IDS"):
                 KnowledgeMCPSettings.from_env()
 
     def test_official_mcp_client_lists_and_calls_tools(self) -> None:

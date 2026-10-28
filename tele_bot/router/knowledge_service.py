@@ -118,7 +118,7 @@ class KnowledgeCommandService:
             if message.user_id not in self.creator_user_ids and "*" not in self.creator_user_ids:
                 raise PermissionError(
                     "当前用户没有创建项目空间的权限；请由管理员在 "
-                    "tele_bot/config/feishu/local.env 中配置 KB_CREATOR_USER_IDS"
+                    "tele_bot/config/feishu/local.env 中配置 FEISHU_ADMIN_USER_IDS"
                 )
             space = self.store.create_space(message.chat_id, argument or "项目知识库", message.user_id)
             return self._out(message, f"项目空间已创建：{space.name}。你是管理员。")
@@ -234,6 +234,8 @@ class KnowledgeCommandService:
             source=matches[0]
             return self._prepare_cloud(message,source["entry_url"],json.loads(source["selection_json"]),expected_ref=source["source_ref"])
         if verb == "add-member":
+            if self.store.admin_user_ids is not None:
+                raise PermissionError("当前仅支持管理员，请在 FEISHU_ADMIN_USER_IDS 中配置管理员 ID。")
             self.store.require_member(message.chat_id, message.user_id, admin=True)
             values = argument.split()
             if not values:
@@ -552,8 +554,7 @@ class KnowledgeCommandService:
             reply_to_message_id=message.message_id,
         )
 
-    @staticmethod
-    def _help() -> str:
+    def _help(self) -> str:
         return (
             "/kb whoami；/kb create [名称]；/kb spaces；/kb use <空间ID或名称>；"
             "/kb bind <目录>；/kb import <文件、目录或模糊目录描述>；"
@@ -561,5 +562,6 @@ class KnowledgeCommandService:
             "/kb import-attachment（将上传或引用的附件加入知识库）；/kb details（待确认操作详情）；"
             "/kb import-doc <docx/wiki/sheets/base 链接> [--options JSON]；/kb inspect-doc <链接>；"
             "/kb sources；/kb refresh <来源ID>；/kb search <问题>；/kb list；"
-            "/kb add-member <user_id> [member|admin]；/kb delete <文档ID>；/kb budget"
+            + ("/kb add-member <user_id> [member|admin]；" if self.store.admin_user_ids is None else "")
+            + "/kb delete <文档ID>；/kb budget"
         )

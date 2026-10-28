@@ -23,6 +23,7 @@ def build_service() -> KnowledgeMCPService:
     store = KnowledgeStore(
         runtime.kb_sqlite_path,
         max_chunks_per_space=runtime.kb_max_chunks_per_space,
+        admin_user_ids=identity.admin_user_ids,
     )
     embeddings = AliBailianEmbeddingClient(llm)
     return KnowledgeMCPService(

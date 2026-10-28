@@ -209,6 +209,8 @@ class FeishuWebhookAdapter:
                 if message.get("parent_id") or message.get("root_id")
                 else None
             ),
+            chat_type=message.get("chat_type"),
+            sender_ids=tuple(str(sender_id[key]) for key in ("user_id", "open_id") if sender_id.get(key)),
         )
 
     @staticmethod
@@ -266,6 +268,7 @@ class FeishuWebhookAdapter:
             message_id=str(context.get("open_message_id")) if context.get("open_message_id") else None,
             message_type=MessageType.INTERACTIVE,
             card_action=card_action,
+            sender_ids=tuple(str(operator[key]) for key in ("user_id", "open_id") if operator.get(key)),
         )
 
     def fetch_cloud_document(self, document_id: str) -> tuple[str, str | None]:
@@ -292,7 +295,7 @@ class FeishuWebhookAdapter:
     def is_allowed(self, message: IncomingMessage) -> bool:
         if not self.allowed_user_ids:
             return True
-        return message.user_id in self.allowed_user_ids
+        return bool(self.allowed_user_ids.intersection((message.user_id, *message.sender_ids)))
 
     @staticmethod
     def _build_text_payload(text: str) -> dict[str, str]:
@@ -375,8 +378,8 @@ class FeishuWebhookAdapter:
             raise ValueError("card title and body are required")
         if len(card.title) > 80 or len(card.body) > 4000:
             raise ValueError("card title or body exceeds the supported length")
-        if len(card.actions) > 3:
-            raise ValueError("a card supports at most 3 actions")
+        if len(card.actions) > 12:
+            raise ValueError("a card supports at most 12 actions")
         templates = {
             None: "blue",
             "pending": "orange",
@@ -389,7 +392,7 @@ class FeishuWebhookAdapter:
         elements: list[dict[str, Any]] = [
             {"tag": "div", "text": {"tag": "lark_md", "content": card.body}}
         ]
-        if card.actions:
+        for offset in range(0, len(card.actions), 3):
             elements.append(
                 {
                     "tag": "action",
@@ -403,7 +406,7 @@ class FeishuWebhookAdapter:
                                 "value": action.value,
                             },
                         }
-                        for index, action in enumerate(card.actions)
+                        for index, action in enumerate(card.actions[offset:offset + 3])
                     ],
                 }
             )

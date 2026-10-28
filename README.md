@@ -165,26 +165,31 @@ ALIBAILIAN_WEB_TIMEOUT_SECONDS=120
 ```env
 FEISHU_APP_ID=cli_xxx
 FEISHU_APP_SECRET=xxx
+# 可选；留空不校验，填写时需与飞书后台一致
+FEISHU_VERIFICATION_TOKEN=
 FEISHU_WEBHOOK_HOST=127.0.0.1
 FEISHU_WEBHOOK_PORT=3000
 FEISHU_WEBHOOK_PATH=/feishu/webhook
-# 允许创建知识库项目空间的飞书 user_id/open_id，多个值用英文逗号分隔
-KB_CREATOR_USER_IDS=u_123456,ou_abcdef
+# 当前仅支持管理员；一个本人的 user_id/open_id 即可，多个管理员用英文逗号分隔
+FEISHU_ADMIN_USER_IDS=ou_abcdef
 ```
 
 不要将包含密钥的 `local.env` 提交到 Git。
+`FEISHU_ADMIN_USER_IDS` 是唯一的业务权限配置，空值不授予任何人权限。
+管理员可使用所有已开放功能并管理全部知识库空间，无需逐个空间授权。
+`FEISHU_VERIFICATION_TOKEN` 是可选配置，留空时允许管理员使用全部已开放功能，
+填写后仍会校验 Token。通用 `/api/messages` 不能凭传入的用户 ID 获得管理员权限。
+原 `KB_CREATOR_USER_IDS`、`FEISHU_CODEX_OWNER_ID` 和
+`FEISHU_ALLOWED_USER_IDS` 不再作为权限来源，旧部署需将本人的 ID 移到管理员配置。
 
 ### 知识库 MCP
 
 知识库同时提供本地 stdio MCP Server。它与飞书入口共用同一个 `KB_SQLITE_PATH`，
-并按项目空间成员关系鉴权。在 `tele_bot/config/feishu/local.env` 固定 MCP 身份：
+默认使用 `FEISHU_ADMIN_USER_IDS` 中的第一个管理员，无需另设成员或身份配置。
+旧的 `KB_MCP_USER_ID` 配置可保留，但其值必须也是管理员。
 
-```env
-KB_MCP_USER_ID=ou_xxx
-```
-
-`FEISHU_VERIFICATION_TOKEN` 与 `FEISHU_ENCRYPT_KEY` 是原有的可选回调安全配置，
-定时任务不要求新增或启用它们。
+`FEISHU_VERIFICATION_TOKEN` 可选，用于飞书入口的请求来源验证；`FEISHU_ENCRYPT_KEY`
+仅在飞书后台启用了事件加密时填写。纯本地 stdio MCP 不接收飞书回调，无需这两个值。
 
 启动命令：
 
@@ -207,8 +212,8 @@ MCP Host 也可以直接以模块方式启动：
 ```
 
 提供 `kb_list_spaces`、`kb_search`、`kb_list_documents` 和 `kb_budget` 四个只读工具。
-MCP 工具不能传入用户 ID，身份只能由服务端的 `KB_MCP_USER_ID` 决定；导入、删除、
-成员管理和目录绑定仍必须走飞书确认流程。
+MCP 工具不能传入用户 ID，默认使用服务端配置中的第一个管理员；可选的
+`KB_MCP_USER_ID` 必须也是管理员。导入、删除和目录绑定仍必须走飞书确认流程。
 
 ## 启动
 
@@ -244,6 +249,41 @@ Windows 下 `dir /s /b /ad "目录/*名称*"` 支持递归查找目录并输出�
 文件发送受允许目录、文件名长度和 30 MB 大小限制保护；工具不会向用户返回文件 key、会话 ID 或底层 API 响应。
 
 ## Codex 和文件变更安全边界
+
+### 查看和继续本机 Codex 历史会话
+
+在 `tele_bot/config/feishu/local.env` 设置统一的 `FEISHU_ADMIN_USER_IDS`，值为管理员的
+飞书 `user_id` 或 `open_id`；空值禁用访问。历史读取及恢复执行不依赖
+`FEISHU_VERIFICATION_TOKEN`，仅接受飞书入口中的管理员本人私聊。
+群聊、其他用户和通用 `/api/messages` 入口不能读取或恢复会话。
+
+发送“查看 Codex 最近会话”或 `/codex history`，展示最近更新的 10 条记录，包含
+标题、工作目录、北京时间和查看按钮，支持下一页及刷新。可用
+`/codex history 关键词` 搜索标题，`/codex history --archived [关键词]` 查看已归档记录，
+`/codex history 3` 打开当前列表第 3 条。列表包含 CLI、桌面/编辑器和 `codex exec`
+来源，不包含内部子代理会话。
+
+详情按轮次由新到旧展示用户与助手文字，长内容通过“继续阅读”“更早对话”翻页；
+不显示推理或工具原始输出。点击“继续此会话”后，在 10 分钟内发送文字任务即可执行，
+回复“取消”退出；也可发送 `/codex resume 3 接下来要执行的任务`，或在详情后发送
+“继续这个会话：任务”。一次发送只执行一轮，后续普通消息恢复正常聊天。
+卡片按钮绑定到操作管理员及原私聊，30 分钟过期；重启后重新查询。
+
+历史通过本机 `codex app-server` 的 stdio 接口读取，与运行 telebot 的系统账户和
+`CODEX_HOME` 使用同一存储。无需主模型、不会为了列表或详情调用模型，因此主模型
+欠费时仍可查询。CLI 必须可启动并有权限初始化其状态库；已在本机 0.160.0 验证读取。
+服务按需启动本地子进程，操作结束后释放，不开放额外网络监听端口。
+
+恢复执行调用 `thread/resume` 和 `turn/start`，向原会话追加一轮，保留会话模型
+（旧记录无模型时采用 `TELE_BOT_CODEX_MODEL`）。执行前重新校验会话工作目录，
+仅允许 Codex 配置工作区内已存在的目录。每轮显式设置 workspace-write 沙箱、
+项目可写根目录、禁用沙箱外审批和 shell 网络访问，不继承历史会话的全盘权限。
+恢复任务可修改该工作区文件，请在任务中写清操作要求。单轮最多运行 20 分钟；
+超时尝试中断，状态未知时不自动重试，应先查看最新对话。
+telebot 不提供会话删除、归档或取消归档接口，也不记录历史正文或 App Server 原始错误。
+已归档会话只允许查看；要继续执行，需先在 Codex 中取消归档并刷新列表。
+独立 App Server 的运行状态仅反映自身可见状态，不能保证检测其他 Codex 进程中
+正在执行的同一会话，使用前请等待原窗口本轮工作结束。
 
 即时 Codex 请求可使用明确命令；定时 Codex 请求须创建任务并确认执行权限：
 
@@ -296,10 +336,9 @@ Ubuntu 隔离目录需要由运行 telebot 的用户拥有写权限。Codex 进�
 
 ## 项目知识库 MVP
 
-知识库项目空间与飞书 chat 相互独立；创建者自动成为空间管理员。任何读取都同时
-校验当前 chat 绑定的空间和提问者成员资格，不支持跨空间全局搜索。只有在飞书配置
-文件 `tele_bot/config/feishu/local.env` 的 `KB_CREATOR_USER_IDS` 中列出的用户可以
-创建空间；空间可绑定到多个群聊或私聊，每个
+知识库项目空间与飞书 chat 相互独立。当前仅支持统一配置
+`FEISHU_ADMIN_USER_IDS` 中的管理员创建、读取和管理空间，包括已有空间；不需要维护成员列表。
+读取和搜索仍只使用当前 chat 绑定的空间，不支持跨空间全局搜索。空间可绑定到多个群聊或私聊，每个
 会话同一时间只绑定一个空间。管理员使用以下显式命令：
 
 ```text
@@ -313,7 +352,6 @@ Ubuntu 隔离目录需要由运行 telebot 的用户拥有写权限。Codex 进�
 /kb inspect-doc <链接>
 /kb sources
 /kb refresh <来源ID>
-/kb add-member <user_id> [member|admin]
 /kb delete <完整文档 ID>
 ```
 
@@ -326,7 +364,7 @@ Ubuntu 隔离目录需要由运行 telebot 的用户拥有写权限。Codex 进�
 每个提问者仍必须是该空间成员。在 `tele_bot/config/feishu/local.env` 中配置创建权限：
 
 ```env
-KB_CREATOR_USER_IDS=u_123456,ou_abcdef
+FEISHU_ADMIN_USER_IDS=ou_abcdef
 ```
 
 可先发送 `/kb whoami` 查看应写入白名单的飞书用户标识，修改配置后需重启服务。
@@ -590,12 +628,12 @@ FEISHU_BITABLE_CONFIRM_TTL_SECONDS=600
 返回的真实数据表，Base 仍会被记住，工具列出真实数据表供选择；不会误报需要管理员后台登记，
 也不会把后续记录操作自动转到另一张表。
 
-多维表格模块不设用户、会话或记录操作权限管理，所有飞书调用者默认可调用增删改查；
+多维表格模块不另设用户、会话或记录操作权限管理，通过统一入口验证的管理员可调用增删改查；
 能否成功由 Friday 的飞书 API scope、文档权限及高级权限决定。全部记录操作不包含表结构管理。
 可选旧 `bitable_targets.json` 仍支持作为发现入口与唯一别名配置，但无需创建；
 旧 `users`、`chats`、`operations` 已忽略，旧展示名称不作为清单的真实名称来源。
-`local.env` 的 `FEISHU_ALLOWED_USER_IDS` 是整个飞书机器人入口的用户白名单（逗号分隔，
-留空不限制入口），属于机器人全局配置，本次没有修改；多维表格模块不再另设权限管理。
+`local.env` 的 `FEISHU_ADMIN_USER_IDS` 统一控制飞书机器人入口（逗号分隔，
+留空不授予权限）；多维表格模块不另设权限管理。
 
 发送“现在你管着哪些多维表格？”或 `/bitable list`，会列出当前已知资源，
 例如“1. 飞书返回的 Base 名称 / 内容选题管理（可阅读、可编辑）”。
@@ -647,6 +685,11 @@ FEISHU_BITABLE_CONFIRM_TTL_SECONDS=600
 
 同一用户、会话只有一个待确认表格操作时可直接回复“确认”“确认修改”或“取消”，由服务端执行冻结计划，
 不再交给模型重新调用写入工具。多个待确认项必须点击对应卡片或带明确令牌选择。工具不能自行确认。
+写入请求需要补充 URL、日期或字段值时，不必重说完整指令。服务端持久化待补充请求，绑定原用户、会话、
+操作及首轮实时读取的表、记录和字段；后续读取不会扩大范围。补充信息后生成确认预览，单条修改也需确认。
+待补充请求默认十分钟有效（随 `FEISHU_BITABLE_CONFIRM_TTL_SECONDS` 配置），补充不延长有效期；
+生成预览时原请求与操作登记在同一事务内消费。取消、无表格活动的话题切换、更换请求和权限版本变化会终止旧请求，
+完成或结果未知后不能再次沿用。重复消息不会延长或重新激活授权，附件和工具返回内容不授予权限。
 卡片回调兼容飞书当前 operator 用户字段，立即返回已收到提示；执行后原卡片更新为结果并移除按钮，
 更新卡片失败时在会话发送结果。成功反馈说明修改条数、记录名、字段前后值及回读核验结果。
 飞书开发者后台的“事件与回调”中，卡片回传交互 `card.action.trigger` 也须配置到同一

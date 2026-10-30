@@ -15,6 +15,7 @@ from tele_bot.scheduled.proposals import is_complete_proposal
 from tele_bot.tools.workspace_policy import WorkspacePolicy
 from tele_bot.tools.workspace_resolver import WorkspaceResolver
 from tele_bot.tools.codex_runner import CodexRunner
+from tele_bot.tools.codex_history import THREAD_ID, requests_codex_resume
 from tele_bot.tools.bailian_web import normalize_web_tool_names
 
 TOOLS = {"web_search", "web_extractor", "filesystem_list_dir", "filesystem_read_file", "write_report", "codex_apply"}
@@ -45,6 +46,9 @@ class ScheduleParser:
             "web_search 用于联网搜索；web_extractor 用于读取指定 URL 的页面正文。"
             "用户明确要求未来用 Codex 执行时，工具设为 codex_apply，目录写入 scope.directories；"
             "Codex 可以在该目录调用指定 skill，skill 名称保留在 content 中。"
+            "继续已有 Codex 会话时，必须将完整会话 UUID 填入 scope.codex_thread_id，"
+            "保留明确的工作区；不能把续聊改成新建会话。仅有标题且没有唯一 ID 时返回 clarify，"
+            "提示先用 codex_history_lookup 查询，不要扫描 .codex 目录或要求用户扩大文件权限。"
             "如果用户更正了先前的触发时间，以最后一次更正为准，并保留原任务内容。"
             "会话参考用于解析‘这个任务’、沿用任务目标、目录、输出要求和此前未完成的操作；"
             "当前用户消息优先。只有指代唯一时才能填入 task_id，存在歧义时返回 clarify。"
@@ -202,6 +206,14 @@ class ScheduleService:
         scope = task.get("scope") or {}
         task["scope"] = scope
         scope["tools"] = ["codex_apply"]
+        if re.search(r"继续|恢复|resume", original_text, re.I):
+            ids = set(THREAD_ID.findall(original_text))
+            if len(ids) == 1:
+                scope["codex_thread_id"] = ids.pop()
+            elif len(ids) > 1:
+                raise ValueError("提供了多个 Codex 会话 ID，请明确选择一个。")
+        else:
+            scope.pop("codex_thread_id", None)
         if not scope.get("directories"):
             match = re.search(r"在\s*([\w.-]+)目录", original_text, re.I)
             if match:
@@ -253,6 +265,7 @@ class ScheduleService:
         if op not in {"create", "update"}:
             raise ValueError("无法识别任务操作。")
         specs = [self._validate(item) for item in request.get("tasks", [])]
+        self._check_resume_chat(message, specs)
         if not specs:
             raise ValueError("没有可创建的任务。")
         if op == "update" and len(specs) != 1:
@@ -271,6 +284,7 @@ class ScheduleService:
         if operation == "create":
             # Validate again: paths may have changed since proposal creation.
             specs = [self._validate(spec) for spec in payload["specs"]]
+            self._check_resume_chat(message, specs)
             ids = self.store.create_many(owner, message.channel, message.chat_id, specs)
             return self._out(message, "已创建任务：" + "、".join(ids))
         task_id = payload["task_id"]
@@ -281,6 +295,7 @@ class ScheduleService:
             ok = self.store.cancel(task_id, owner)
             return self._out(message, f"任务 {task_id} 已取消后续调度。" if ok else "任务已结束。")
         spec = self._validate(payload["specs"][0])
+        self._check_resume_chat(message, [spec])
         ok = self.store.update(task_id, owner, spec)
         return self._out(message, f"任务 {task_id} 已更新。" if ok else "任务正在执行或已结束，暂不能修改。")
 
@@ -328,7 +343,7 @@ class ScheduleService:
             content, re.I,
         ):
             raise ValueError("当前定时执行尚不支持代码或已有文件修改、命令及发布操作；可改为仅提醒。")
-        if set(scope) - {"tools", "directories", "skills", "mcp_tools"}:
+        if set(scope) - {"tools", "directories", "skills", "mcp_tools", "codex_thread_id"}:
             raise ValueError("权限范围包含未支持的字段。")
         if scope.get("mcp_tools") or (scope.get("skills") and "codex_apply" not in requested_tools):
             raise ValueError("定时执行暂不支持调用 Skills 或 MCP Tools。")
@@ -359,6 +374,13 @@ class ScheduleService:
             raise ValueError("执行模式必须明确列出允许工具；仅提醒模式无需工具。")
         if "codex_apply" in tools and len(directories) != 1:
             raise ValueError("Codex 定时执行必须且只能指定一个工作区。")
+        thread_id = scope.get("codex_thread_id")
+        if thread_id is not None:
+            if (tools != ["codex_apply"] or not isinstance(thread_id, str)
+                    or not THREAD_ID.fullmatch(thread_id)):
+                raise ValueError("继续 Codex 会话必须提供完整会话 ID，并单独授权 codex_apply。")
+        elif "codex_apply" in tools and requests_codex_resume(content):
+            raise ValueError("继续已有 Codex 对话需要完整会话 ID；请先用 codex_history_lookup 查询后填写 scope.codex_thread_id。")
         if any(tool.startswith("filesystem_") or tool == "write_report" for tool in tools) and not directories:
             raise ValueError("文件工具必须指定允许目录。")
         missed = str(raw.get("missed_policy", "skip"))
@@ -368,9 +390,19 @@ class ScheduleService:
         auth = int(raw.get("auth_seconds") or 900)
         if not 0 <= grace <= 86400 or not 60 <= auth <= 86400:
             raise ValueError("宽限时间或授权有效期超出范围。")
+        validated_scope = {"directories": directories, "tools": tools}
+        if thread_id is not None:
+            validated_scope["codex_thread_id"] = thread_id
         return {"content": content, "at": iso(moment), "rule": rule, "mode": mode,
-                "scope": {"directories": directories, "tools": tools},
+                "scope": validated_scope,
                 "missed_policy": missed, "grace_seconds": grace, "auth_seconds": auth}
+
+    @staticmethod
+    def _check_resume_chat(message, specs):
+        if any(spec["scope"].get("codex_thread_id") for spec in specs) and (
+            message.channel != "feishu" or message.chat_type != "p2p"
+        ):
+            raise ValueError("Codex 会话续聊定时任务仅可在飞书私聊中创建和确认。")
 
     @staticmethod
     def _format_spec(spec: dict) -> str:
@@ -378,9 +410,10 @@ class ScheduleService:
         rule = spec["rule"]
         timing = {"once": "单次", "daily": f"每 {rule['interval']} 天", "weekly": f"每 {rule['interval']} 周，星期 {rule['weekdays']}"}[rule["kind"]]
         scope = spec["scope"]
+        continuation = f"｜续聊会话 ID {scope['codex_thread_id']}" if scope.get("codex_thread_id") else ""
         return (f"{spec['content']}｜首次触发 {local}（Asia/Shanghai）｜{timing}｜"
                 f"{MODES[spec['mode']]}｜工具 {scope['tools']}｜目录 {scope['directories']}｜"
-                f"错过执行 {MISSED[spec['missed_policy']]}｜授权有效期 {spec['auth_seconds']} 秒")
+                f"错过执行 {MISSED[spec['missed_policy']]}｜授权有效期 {spec['auth_seconds']} 秒{continuation}")
 
     @classmethod
     def _format(cls, task: dict) -> str:

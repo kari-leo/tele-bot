@@ -17,7 +17,7 @@ OUTPUT_SCHEMA = {
         "paths": {"type": "array", "items": {"type": "string"}},
     },
 }
-DELIVERABLE_SUFFIXES = {".xlsx", ".xls", ".csv", ".tsv", ".pdf", ".docx", ".pptx", ".md", ".txt"}
+DELIVERABLE_SUFFIXES = {".xlsx", ".xls", ".csv", ".tsv", ".pdf", ".docx", ".pptx", ".md", ".txt", ".json"}
 PROTECTED_DIRS = {".codex", ".agents", ".git", ".aws"}
 SKIP_DIRS = PROTECTED_DIRS | {"node_modules", "__pycache__", ".venv", "venv"}
 

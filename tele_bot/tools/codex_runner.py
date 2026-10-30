@@ -49,7 +49,15 @@ class CodexResult:
 
 def codex_failure_message(result: CodexResult) -> str:
     """Return the actionable error instead of forwarding noisy CLI retries."""
-    details = result.stderr or result.stdout or "Codex 未返回错误信息。"
+    details = "\n".join(part for part in (result.stderr, result.stdout) if part) or "Codex 未返回错误信息。"
+    lowered = details.lower().replace("’", "'")
+    if "usage_limit_exceeded" in lowered or "you've hit your usage limit" in lowered:
+        return ("Codex 账号的使用额度已用尽。请等待额度恢复或在 Codex 用量页面检查额度后重试。"
+                "本次不是文件授权或网络连接问题；重复确认执行不会恢复额度。")
+    if "approval policy is never" in lowered or "approval_policy=never" in lowered:
+        return ("Codex 命令需要沙箱外权限，但当前执行器不接受交互式授权。"
+                "飞书中的任务确认仅授权当前任务，不会解除 CLI 沙箱限制。"
+                "请让任务使用当前工作区内的文件与运行目录；需要额外权限的操作须在 Codex 中单独审批。")
     unsupported = re.search(
         r"The '([^']+)' model is not supported when using Codex with a ChatGPT account",
         details,
@@ -57,7 +65,7 @@ def codex_failure_message(result: CodexResult) -> str:
     if unsupported:
         return (f"当前 Codex CLI 登录会话无法使用模型 {unsupported.group(1)}。"
                 "请检查 CLI 版本、登录账号和模型可用性，或调整 TELE_BOT_CODEX_MODEL 后重试。")
-    if "request timed out" in details.lower() or "connection timed out" in details.lower():
+    if "request timed out" in lowered or "connection timed out" in lowered:
         return "连接 Codex 服务超时。请检查网络后重试。"
     return details[-2000:]
 

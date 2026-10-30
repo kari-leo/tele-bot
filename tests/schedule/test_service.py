@@ -49,6 +49,56 @@ def spec(at, mode="remind", rule=None, scope=None):
 
 
 class ScheduledTests(unittest.TestCase):
+    def test_codex_thread_id_is_confirmed_and_persisted_in_scope(self):
+        workspace = Path(self.temp.name) / "workspace"
+        workspace.mkdir()
+        self.service.policy = WorkspacePolicy((Path(self.temp.name),), workspace, Path(self.temp.name) / "quarantine")
+        task = spec(now_utc() + timedelta(hours=1), "auto", scope={
+            "tools": ["codex_apply"], "directories": [str(workspace)],
+            "codex_thread_id": "01a187a9-24cf-7e72-ad49-93b6c99817dc"})
+        task["content"] = "调用 Codex 继续指定会话核对代码进度"
+        original = IncomingMessage("feishu", "alice", "private", "/schedule create " + json.dumps(task), chat_type="p2p")
+        response = self.service.handle(original)
+        self.assertIn(task["scope"]["codex_thread_id"], response.text)
+        self.assertIn("确认预授权", response.text)
+        token = response.text.split("确认预授权 ")[1].splitlines()[0]
+        confirmed = self.service.handle(IncomingMessage("feishu", "alice", "private", f"确认预授权 {token}", chat_type="p2p"))
+        self.assertIn("已创建", confirmed.text)
+        saved = self.store.list_tasks("alice")[0]
+        self.assertEqual(json.loads(saved["scope_json"])["codex_thread_id"], task["scope"]["codex_thread_id"])
+
+    def test_resume_request_without_id_cannot_silently_start_a_new_session(self):
+        workspace = Path(self.temp.name) / "workspace"
+        workspace.mkdir()
+        self.service.policy = WorkspacePolicy((Path(self.temp.name),), workspace, Path(self.temp.name) / "quarantine")
+        task = spec(now_utc() + timedelta(hours=1), "auto", scope={"tools": ["codex_apply"], "directories": [str(workspace)]})
+        task["content"] = "调用 Codex 继续评估项目开发进度这个对话"
+        response = self.service.handle(self.msg("alice", "/schedule create " + json.dumps(task)))
+        self.assertIn("会话 ID", response.text)
+        self.assertEqual(self.store.list_tasks("alice"), [])
+
+    def test_codex_resume_rejects_group_and_invalid_scope(self):
+        workspace = Path(self.temp.name) / "workspace"
+        workspace.mkdir()
+        self.service.policy = WorkspacePolicy((Path(self.temp.name),), workspace, Path(self.temp.name) / "quarantine")
+        task = spec(now_utc() + timedelta(hours=1), "auto", scope={"tools": ["codex_apply"],
+            "directories": [str(workspace)], "codex_thread_id": "01a187a9-24cf-7e72-ad49-93b6c99817dc"})
+        task["content"] = "调用 Codex 继续指定会话"
+        for change, expected in (({}, "私聊"), ({"codex_thread_id": "invalid"}, "完整会话 ID"),
+                                 ({"tools": ["web_search"]}, "单独授权")):
+            with self.subTest(change=change):
+                changed = {**task, "scope": {**task["scope"], **change}}
+                reply = self.service.handle(IncomingMessage("feishu", "alice", "group", "/schedule create " + json.dumps(changed), chat_type="group"))
+                self.assertIn(expected, reply.text)
+        self.assertEqual(self.store.list_tasks("alice"), [])
+
+    def test_original_session_id_overrides_model_guess_before_confirmation(self):
+        original_id = "01a187a9-24cf-7e72-ad49-93b6c99817dc"
+        task = {"content": "猜测", "scope": {"codex_thread_id": "01a18908-9e49-7453-b676-210dbd520c19"}}
+        proposal = {"operation": "create", "tasks": [task]}
+        self.service._preserve_codex_request(proposal, f"明天调用 Codex 继续 session id {original_id} 核对进度")
+        self.assertEqual(task["scope"]["codex_thread_id"], original_id)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

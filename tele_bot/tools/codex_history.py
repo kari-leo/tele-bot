@@ -5,14 +5,32 @@ from __future__ import annotations
 import json
 import os
 import queue
+import re
 import shlex
 import signal
 import subprocess
 import threading
 import time
 from collections import deque
+from contextvars import ContextVar
+from pathlib import Path
 
 from tele_bot.tools.codex_runner import CodexRunner, MAX_CODEX_TIMEOUT_SECONDS
+
+THREAD_ID = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", re.I)
+CURRENT_CODEX_HISTORY_MESSAGE = ContextVar("current_codex_history_message", default=None)
+
+
+def thread_is_archived(thread):
+    return bool(thread.get("archived") or thread.get("_archived")
+                or "archived_sessions" in Path(thread.get("path") or "").parts)
+
+
+def requests_codex_resume(content):
+    return bool(re.search(
+        r"(?:继续|恢复|resume).{0,80}(?:会话|对话|session|thread)|(?:会话|对话|session|thread).{0,80}(?:继续|恢复|resume)",
+        content, re.I | re.S,
+    ))
 
 
 class CodexHistoryError(RuntimeError):
@@ -225,7 +243,7 @@ class CodexHistoryClient:
             raise CodexHistoryError("会话工作目录不存在或不在 Codex 允许的工作区内，无法恢复执行。") from None
         return str(target)
 
-    def resume(self, thread_id, prompt, *, progress=None):
+    def resume(self, thread_id, prompt, *, progress=None, workspace=None, output_schema=None):
         if not prompt.strip() or len(prompt) > 30_000:
             raise CodexHistoryError("请输入 1–30000 字的继续执行任务。")
         if not self.execution_lock.acquire(blocking=False):
@@ -233,9 +251,13 @@ class CodexHistoryClient:
         try:
             with self.connection_factory(self.runner) as server:
                 thread = server.rpc("thread/read", {"threadId": thread_id, "includeTurns": False})["thread"]
+                if thread_is_archived(thread):
+                    raise CodexHistoryError("此会话已归档，当前只能查看。请先在 Codex 中取消归档。")
                 if thread.get("status", {}).get("type") == "active":
                     raise CodexHistoryError("该会话正在执行，请等待本轮结束后再继续。")
                 cwd = self._workspace(thread)
+                if workspace is not None and Path(cwd).resolve() != Path(workspace).expanduser().resolve():
+                    raise CodexHistoryError("会话工作区与定时任务已授权工作区不一致，未恢复执行。")
                 model = thread.get("model") or self.runner.model
                 resume_params = {
                     "threadId": thread_id, "cwd": cwd, "excludeTurns": True,
@@ -250,14 +272,17 @@ class CodexHistoryClient:
                 deadline = time.monotonic() + budget
                 turn_id = None
                 try:
-                    started = server.rpc("turn/start", {
+                    turn_params = {
                         "threadId": thread_id, "cwd": cwd, "model": model,
                         "approvalPolicy": "never", "approvalsReviewer": "user",
                         "sandboxPolicy": {"type": "workspaceWrite", "writableRoots": [cwd],
                                           "networkAccess": False, "excludeSlashTmp": True,
                                           "excludeTmpdirEnvVar": True},
                         "input": [{"type": "text", "text": self.runner._prepare_prompt(prompt)}],
-                    }, timeout=min(30, budget))
+                    }
+                    if output_schema is not None:
+                        turn_params["outputSchema"] = output_schema
+                    started = server.rpc("turn/start", turn_params, timeout=min(30, budget))
                     turn_id = started["turn"]["id"]
                     return server.wait_turn(thread_id, turn_id, deadline=deadline, progress=progress)
                 except CodexHistoryError:

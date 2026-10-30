@@ -40,6 +40,8 @@ from tele_bot.channels.feishu import FeishuWebhookAdapter
 from tele_bot.mcp.schedule import create_schedule_server
 from tele_bot.models import IncomingMessage
 from tele_bot.router.codex_service import CodexCommandService
+from tele_bot.router.codex_history_service import CodexHistoryService
+from tele_bot.tools.codex_history import CURRENT_CODEX_HISTORY_MESSAGE, CodexHistoryError
 from tele_bot.scheduled.service import ScheduleService
 from tele_bot.scheduled.proposals import ScheduleRequest
 
@@ -280,6 +282,7 @@ def build_core_tools(
     include_domain_hotspot: bool = False,
     feishu_adapter: FeishuWebhookAdapter | None = None,
     codex_service: CodexCommandService | None = None,
+    codex_history_service: CodexHistoryService | None = None,
     schedule_service: ScheduleService | None = None,
     knowledge_search=None,
     skill_loader=None,
@@ -470,6 +473,33 @@ def build_core_tools(
             return asyncio.run(call_mcp())
 
         tools.append(schedule_manage)
+
+    if codex_history_service is not None:
+        @tool
+        def codex_history_lookup(search: str = "", thread_id: str = "", cursor: str = "", archived: bool = False) -> str:
+            """Find native Codex conversation IDs, titles, workspaces and saved models.
+
+            Use for Codex history, locating a named conversation, or preparing
+            continuation in a specified session. Reads metadata through the
+            native App Server, without scanning .codex or changing file roots.
+            search filters titles; thread_id reads one known UUID; cursor pages
+            results. Never invent IDs or choose among ambiguous matches.
+            For scheduled continuation pass the selected ID in schedule_manage
+            tasks[].scope.codex_thread_id and its cwd in scope.directories.
+            For immediate continuation show /codex resume <ID> <task>.
+            This tool never starts a turn. Only authenticated admin private
+            chats can read history; model-supplied identity cannot grant access.
+            """
+            try:
+                result = codex_history_service.lookup(
+                    CURRENT_CODEX_HISTORY_MESSAGE.get(), search=search,
+                    thread_id=thread_id, cursor=cursor or None, archived=archived,
+                )
+            except CodexHistoryError as exc:
+                result = {"error": str(exc)}
+            return json.dumps(result, ensure_ascii=False)
+
+        tools.append(codex_history_lookup)
 
     if codex_service is not None:
         @tool

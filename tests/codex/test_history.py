@@ -145,6 +145,65 @@ def test_explicit_resume_uses_selected_number_and_ignores_other_commands(service
     assert len(history.resume_calls) == 1
 
 
+def test_explicit_uuid_resumes_without_first_opening_a_numbered_list(service, history):
+    thread_id = "01a187a9-24cf-7e72-ad49-93b6c99817dc"
+    history.rows[0]["id"] = thread_id
+    reply = service.handle(message(f"/codex resume {thread_id} 核对当前进度"))
+    assert history.resume_calls == [(thread_id, "核对当前进度")]
+    assert "执行完成" in reply.text
+
+
+def test_history_lookup_returns_native_ids_without_filesystem_access(service, history):
+    page = service.lookup(message("找到评估项目开发进度的对话 ID"), search="评估项目开发进度")
+    assert page["data"][0]["id"] == "thread-0"
+    assert history.list_calls[-1]["search"] == "评估项目开发进度"
+    assert not history.resume_calls
+
+
+@pytest.mark.parametrize("change", [{"chat_type": "group"}, {"channel": "api"},
+                                    {"user_id": "other", "sender_ids": ()}])
+def test_history_lookup_preserves_admin_private_boundary(service, history, change):
+    with pytest.raises(CodexHistoryError):
+        service.lookup(replace(message(), **change), search="项目")
+    assert not history.list_calls
+
+
+def test_lookup_tool_uses_only_authenticated_message_context(service, history):
+    from tele_bot.tools.codex_history import CURRENT_CODEX_HISTORY_MESSAGE
+    from tele_bot.tools.lc_adapters import build_core_tools
+    lookup = next(t for t in build_core_tools(codex_history_service=service) if t.name == "codex_history_lookup")
+    result = json.loads(lookup.invoke({"search": "评估项目开发进度"}, config={
+        "configurable": {"user_id": "ou_owner", "channel": "feishu", "chat_type": "p2p"}}))
+    assert "error" in result
+    assert not history.list_calls
+    token = CURRENT_CODEX_HISTORY_MESSAGE.set(message("查找指定 Codex 对话"))
+    try:
+        result = json.loads(lookup.invoke({"search": "评估项目开发进度"}))
+        assert result["data"][0]["id"] == "thread-0"
+    finally:
+        CURRENT_CODEX_HISTORY_MESSAGE.reset(token)
+    assert not history.resume_calls
+
+
+def test_service_pins_and_clears_history_context_for_natural_language_tools(service):
+    from tele_bot.service import MessageService
+    from tele_bot.tools.codex_history import CURRENT_CODEX_HISTORY_MESSAGE
+    from tele_bot.models import OutgoingMessage
+    core = Mock()
+    observed = []
+    core.handle_message.side_effect = lambda msg: observed.append(CURRENT_CODEX_HISTORY_MESSAGE.get()) or OutgoingMessage("feishu", "private", "查询结果")
+    adapter = FeishuWebhookAdapter("app", "secret")
+    attachments = Mock()
+    attachments.find.return_value = ()
+    messages = MessageService(core, feishu_adapter=adapter, codex_history_service=service,
+                              attachment_store=attachments, admin_user_ids=("ou_owner",))
+    request = message("帮我查找评估项目开发进度的 Codex ID")
+    messages.handle(request)
+    messages.handle(request, allow_codex_history=False)
+    assert observed == [replace(request, user_id="ou_owner"), None]
+    assert CURRENT_CODEX_HISTORY_MESSAGE.get() is None
+
+
 def test_search_archive_and_list_expiry(service, history):
     service.handle(message("/codex history --archived 机器人"))
     assert history.list_calls[-1] == {"cursor": None, "search": "机器人", "archived": True}
@@ -260,6 +319,26 @@ def test_resume_preserves_id_model_and_overrides_inherited_permissions(runner):
     assert turn["approvalsReviewer"] == "user"
     assert turn["sandboxPolicy"] == {"type": "workspaceWrite", "writableRoots": [str(runner.default_workspace)],
                                       "networkAccess": False, "excludeSlashTmp": True, "excludeTmpdirEnvVar": True}
+
+
+def test_scheduled_resume_checks_expected_workspace_and_requests_structured_output(runner, tmp_path):
+    server = Server(runner)
+    client = CodexHistoryClient(runner, lambda _: server)
+    schema = {"type": "object", "properties": {"status": {"type": "string"}}}
+    assert client.resume("thread", "任务", workspace=str(runner.default_workspace), output_schema=schema) == "done"
+    assert dict(server.calls)["turn/start"]["outputSchema"] == schema
+    server.calls.clear()
+    with pytest.raises(CodexHistoryError, match="工作区"):
+        client.resume("thread", "任务", workspace=str(tmp_path))
+    assert [m for m, _ in server.calls] == ["thread/read"]
+
+
+def test_archived_native_rollout_cannot_be_resumed_by_id(runner):
+    server = Server(runner)
+    server.thread["path"] = "C:/Users/owner/.codex/archived_sessions/rollout.jsonl"
+    with pytest.raises(CodexHistoryError, match="归档"):
+        CodexHistoryClient(runner, lambda _: server).resume("thread", "task")
+    assert [m for m, _ in server.calls] == ["thread/read"]
 
 
 @pytest.mark.parametrize("bad_cwd", ["", "missing", "outside"])

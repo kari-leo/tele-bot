@@ -66,6 +66,7 @@ def _build_executor(
     sqlite_path: str,
     feishu_adapter: FeishuWebhookAdapter | None = None,
     codex_service: CodexCommandService | None = None,
+    codex_history_service: CodexHistoryService | None = None,
     schedule_service: ScheduleService | None = None,
     knowledge_search: KnowledgeSearch | None = None,
     bitable_service=None,
@@ -103,6 +104,7 @@ def _build_executor(
         include_domain_hotspot=True,
         feishu_adapter=feishu_adapter,
         codex_service=codex_service,
+        codex_history_service=codex_history_service,
         schedule_service=schedule_service,
         knowledge_search=knowledge_search,
         skill_loader=skill_loader,
@@ -210,6 +212,7 @@ try:
     executor = _build_executor(
         llm_settings, runtime_settings.sqlite_checkpoint_path,
         feishu_adapter=feishu_adapter, codex_service=codex_service,
+        codex_history_service=codex_history_service,
         schedule_service=schedule_service if feishu_adapter is not None else None,
         knowledge_search=knowledge_search,
         bitable_service=bitable_service,

@@ -18,6 +18,75 @@ class FakeLLM:
 
 
 class ExecutionScopeTests(unittest.TestCase):
+    def test_attachment_validation_failure_preserves_summary_and_names_delivery_stage(self):
+        with tempfile.TemporaryDirectory() as directory:
+            payload = {"content": "核对代码进度并交付报告", "planned_at": "2026-10-29T19:00:00+00:00",
+                       "scope": {"tools": ["codex_apply"], "directories": [directory]}}
+            receipt = {"status": "success", "result": "已完成代码进度核对", "paths": [str(Path(directory) / "missing.md")]}
+            with patch.object(execution.CodexRunner, "from_env") as factory:
+                factory.return_value.run.return_value = SimpleNamespace(returncode=0, stdout=json.dumps(receipt), stderr="")
+                result = execution.execute(payload)
+            self.assertEqual(result["status"], "failed")
+            self.assertIn("交付未完成", result["result"])
+            self.assertIn("已完成代码进度核对", result["result"])
+            self.assertNotIn('"paths":', result["result"])
+            self.assertEqual(result["paths"], [])
+
+    def test_old_resume_task_without_scoped_id_does_not_launch_fresh_codex(self):
+        with tempfile.TemporaryDirectory() as directory:
+            payload = {"content": "调用 Codex 继续评估项目开发进度这个对话", "planned_at": "2026-10-29T19:00:00+00:00",
+                       "scope": {"tools": ["codex_apply"], "directories": [directory]}}
+            with patch.object(execution.CodexRunner, "from_env") as factory:
+                result = execution.execute(payload)
+            factory.assert_not_called()
+            self.assertEqual(result["status"], "failed")
+            self.assertIn("未新建会话", result["result"])
+
+    def test_scheduled_codex_thread_id_uses_resume_and_keeps_current_artifacts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "report.md"
+            thread_id = "01a187a9-24cf-7e72-ad49-93b6c99817dc"
+            payload = {"content": "用 Codex 继续指定会话核对进度", "planned_at": "2026-10-29T19:00:00+00:00",
+                       "scope": {"tools": ["codex_apply"], "directories": [directory], "codex_thread_id": thread_id}}
+
+            def resume(*args, **kwargs):
+                report.write_text("本轮进度", encoding="utf-8")
+                return json.dumps({"status": "success", "result": "已续聊", "paths": [str(report)]})
+
+            with patch.object(execution.CodexRunner, "from_env") as factory, \
+                    patch("tele_bot.scheduled.execution.CodexHistoryClient") as history:
+                history.return_value.resume.side_effect = resume
+                result = execution.execute(payload)
+            factory.return_value.run.assert_not_called()
+            call = history.return_value.resume.call_args
+            self.assertEqual(call.args[0], thread_id)
+            self.assertEqual(call.kwargs["workspace"], str(Path(directory).resolve()))
+            self.assertEqual(call.kwargs["output_schema"], execution.OUTPUT_SCHEMA)
+            self.assertEqual(result, {"status": "success", "result": "已续聊", "paths": [str(report)]})
+
+    def test_code_task_delivers_current_json_evidence_with_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            report = root / "tracking_outputs" / "report.md"
+            evidence = root / "tracking_outputs" / "evidence.json"
+            payload = {"content": "核对代码并输出进度和测试证据", "planned_at": "2026-10-29T19:00:00+00:00",
+                       "scope": {"tools": ["codex_apply"], "directories": [directory]}}
+
+            def run(*args, **kwargs):
+                report.parent.mkdir()
+                report.write_text("本轮进度", encoding="utf-8")
+                evidence.write_text('{"tests": 30}', encoding="utf-8")
+                return SimpleNamespace(returncode=0, stdout=json.dumps({
+                    "status": "success", "result": "核对完成",
+                    "paths": [str(report), str(evidence)],
+                }), stderr="")
+
+            with patch.object(execution.CodexRunner, "from_env") as factory:
+                factory.return_value.run.side_effect = run
+                result = execution.execute(payload)
+            self.assertEqual(result["status"], "success", result["result"])
+            self.assertEqual(result["paths"], [str(report), str(evidence)])
+
     def test_table_request_without_current_attachment_is_failed(self):
         with tempfile.TemporaryDirectory() as directory:
             payload = {"content": "查询岗位，将新增和修改总结成表格发给我", "planned_at": "2026-10-05T18:30:00+00:00",

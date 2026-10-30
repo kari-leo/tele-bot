@@ -27,6 +27,7 @@ from tele_bot.channels.feishu import FeishuWebhookAdapter
 from tele_bot.models import CardAction, IncomingMessage, InteractiveCard, MessageType, OutgoingMessage
 from tele_bot.router.codex_service import CodexCommandService
 from tele_bot.router.codex_history_service import CodexHistoryService
+from tele_bot.tools.codex_history import CURRENT_CODEX_HISTORY_MESSAGE
 from tele_bot.router.knowledge_service import KnowledgeCommandService
 from tele_bot.tools.lc_adapters import CURRENT_SCHEDULE_ALLOWED
 from tele_bot.tools.knowledge_search import CURRENT_KNOWLEDGE_MESSAGE
@@ -260,6 +261,10 @@ class MessageService:
             allow_schedule and self.feishu_adapter is not None
             and message.channel == self.feishu_adapter.name
         )
+        history_token = CURRENT_CODEX_HISTORY_MESSAGE.set(
+            message if allow_codex_history and self.feishu_adapter is not None
+            and message.channel == self.feishu_adapter.name else None
+        )
         knowledge_token = CURRENT_KNOWLEDGE_MESSAGE.set(
             message if allow_knowledge and self.feishu_adapter is not None
             and message.channel == self.feishu_adapter.name else None
@@ -300,6 +305,7 @@ class MessageService:
             response = self.agent_core.handle_message(message)
             return self._bitable_receipts(message, response, receipts) if receipts else response
         finally:
+            CURRENT_CODEX_HISTORY_MESSAGE.reset(history_token)
             CURRENT_BITABLE_RECEIPTS.reset(receipt_token)
             CURRENT_BITABLE_MESSAGE.reset(bitable_token)
             CURRENT_KNOWLEDGE_MESSAGE.reset(knowledge_token)

@@ -6,11 +6,40 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from tele_bot.tools.codex_runner import CodexRunner
+from tele_bot.tools.codex_runner import CodexResult, CodexRunner, codex_failure_message
 from tele_bot.tools.workspace_policy import WorkspacePolicy
 
 
 class CodexRunnerTests(unittest.TestCase):
+    def test_usage_limit_is_not_reported_as_connection_timeout(self):
+        result = CodexResult(
+            mode="inspect", workspace="workspace", returncode=1, stdout="",
+            stderr=("warning: request timed out; falling back to HTTPS\n"
+                    "ERROR: You've hit your usage limit. Try again at 2:44 AM."),
+            truncated=False,
+        )
+        message = codex_failure_message(result)
+        self.assertIn("额度", message)
+        self.assertNotIn("连接 Codex 服务超时", message)
+
+    def test_failure_checks_stdout_even_when_stderr_has_retry_noise(self):
+        result = CodexResult(
+            mode="inspect", workspace="workspace", returncode=1,
+            stdout='{"error":{"code":"usage_limit_exceeded"}}',
+            stderr="warning: request timed out", truncated=False,
+        )
+        self.assertIn("额度", codex_failure_message(result))
+
+    def test_sandbox_rejection_explains_that_business_confirmation_is_separate(self):
+        result = CodexResult(
+            mode="apply", workspace="workspace", returncode=1, stdout="",
+            stderr="approval policy is Never; reject command requesting escalation",
+            truncated=False,
+        )
+        message = codex_failure_message(result)
+        self.assertIn("沙箱", message)
+        self.assertIn("授权", message)
+
     @unittest.skipUnless(os.name == "nt", "Windows npm shim regression")
     def test_real_cmd_shim_receives_complete_utf8_stdin_without_shell_expansion(self):
         with TemporaryDirectory() as temp_dir:

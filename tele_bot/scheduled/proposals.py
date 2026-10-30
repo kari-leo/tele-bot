@@ -11,7 +11,7 @@ class ScheduleTaskProposal(TypedDict, total=False):
     at: Annotated[str, Field(description="首次触发时间，ISO8601 且带时区，例如 2026-10-07T03:30:00+08:00。")]
     rule: Annotated[dict[str, Any], Field(description="周期：kind=once/daily/weekly，interval、weekdays、count、until。")]
     mode: Annotated[str, Field(description="remind=仅提醒，auto=明确预授权自动执行，confirm=每次执行前确认。")]
-    scope: Annotated[dict[str, Any], Field(description="授权范围：directories 为目录数组，tools 为工具数组。Codex 使用 codex_apply。")]
+    scope: Annotated[dict[str, Any], Field(description="授权范围：directories 为目录数组，tools 为工具数组。Codex 使用 codex_apply；续聊必须填写 codex_thread_id（完整会话 UUID），目录须匹配原会话。")]
     missed_policy: Annotated[str, Field(description="错过触发策略：skip/run_once/ask。")]
     grace_seconds: int
     auth_seconds: int

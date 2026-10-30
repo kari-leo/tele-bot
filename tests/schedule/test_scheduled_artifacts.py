@@ -6,17 +6,52 @@ import sys
 import tempfile
 import unittest
 from contextlib import closing
+from datetime import timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from tele_bot.models import OutgoingMessage
 from tele_bot.scheduled.codex_artifacts import artifact_snapshot, validate_artifacts
 from tele_bot.scheduled.delivery import send_scheduled_message
 from tele_bot.scheduled.store import ScheduleStore
+from tele_bot.scheduled.store import iso, now_utc
+from tele_bot.scheduled import execution
 from tele_bot.scheduled.worker import ScheduleWorker
 
 
 class ScheduledArtifactTests(unittest.TestCase):
+    def test_six_file_codex_receipt_persists_all_delivery_notices_including_json(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "workspace"
+            root.mkdir()
+            names = ["report.md", "added.csv", "modified.csv", "progress.csv", "evidence.json", "deliveries.csv"]
+            paths = [str(root / "tracking_outputs" / name) for name in names]
+            store = ScheduleStore(Path(directory) / "schedule.sqlite")
+            at = iso(now_utc() - timedelta(seconds=1))
+            task = {"content": "用 Codex 核对代码进度并交付报告", "mode": "auto", "at": at,
+                    "rule": {"kind": "once"}, "scope": {"tools": ["codex_apply"], "directories": [str(root)]},
+                    "missed_policy": "run_once", "grace_seconds": 300, "auth_seconds": 900}
+            task_id = store.create_many("owner", "feishu", "original-chat", [task])[0]
+            store.trigger(task_id, at, now_utc())
+
+            def codex(*args, **kwargs):
+                (root / "tracking_outputs").mkdir()
+                for path in paths:
+                    Path(path).write_text("{}" if path.endswith(".json") else "本轮结果", encoding="utf-8")
+                return SimpleNamespace(returncode=0, stdout=json.dumps({"status": "success", "result": "核对完成", "paths": paths}), stderr="")
+
+            worker = ScheduleWorker(store, runner=lambda payload, timeout: execution.execute(payload))
+            with patch.object(execution.CodexRunner, "from_env") as factory:
+                factory.return_value.run.side_effect = codex
+                self.assertTrue(worker.execute_one())
+            self.assertEqual(store.history(task_id, "owner")[0]["status"], "success")
+            notices = store.pending_notifications(now_utc())
+            attached = [json.loads(n["file_paths_json"])[0] for n in notices if n["kind"] == "result_file"]
+            self.assertCountEqual(attached, paths)
+            self.assertTrue(all(n["chat_id"] == "original-chat" for n in notices))
+            self.assertFalse(worker.execute_one())
+
     def test_real_child_round_trip_overrides_inherited_gbk_environment(self):
         store = Mock()
         store.is_run_cancelled.return_value = False
@@ -72,6 +107,24 @@ class ScheduledArtifactTests(unittest.TestCase):
             for invalid in ([str(old)], [str(root.parent / "secret.xlsx")], [str(root / ".codex" / "state.xlsx")], [str(root / "missing.xlsx")]):
                 with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                     validate_artifacts(invalid, root, before)
+
+    def test_json_evidence_keeps_scope_freshness_and_size_checks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "workspace"
+            root.mkdir()
+            old = root / "old.json"
+            old.write_text("{}", encoding="utf-8")
+            before = artifact_snapshot(root)
+            current = root / "evidence.json"
+            current.write_text('{"passed": 30}', encoding="utf-8")
+            self.assertEqual(validate_artifacts([str(current)], root, before), [str(current)])
+            for invalid in (old, root.parent / "secret.json", root / ".codex" / "auth.json"):
+                with self.subTest(path=invalid), self.assertRaises(ValueError):
+                    validate_artifacts([str(invalid)], root, before)
+            with current.open("wb") as output:
+                output.truncate(30 * 1024 * 1024 + 1)
+            with self.assertRaisesRegex(ValueError, "exceeds"):
+                validate_artifacts([str(current)], root, before)
 
     def test_file_only_notification_uploads_to_the_original_chat(self):
         adapter = Mock()

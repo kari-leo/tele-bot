@@ -11,7 +11,7 @@ from secrets import token_urlsafe
 from threading import RLock
 
 from tele_bot.models import CardAction, InteractiveCard, OutgoingMessage
-from tele_bot.tools.codex_history import CodexHistoryError
+from tele_bot.tools.codex_history import CodexHistoryError, THREAD_ID, thread_is_archived
 
 _HISTORY = re.compile(r"^(?:查看|看看|列出|显示)?\s*codex\s*(?:的)?\s*(?:最近|历史)?\s*(?:会话|对话)(?:列表|记录)?[。！!？?]?$", re.I)
 _RESUME = re.compile(r"^(?:继续|恢复)(?:执行)?(?:这个|此|该)(?:会话|对话)\s*[:：]?\s*(.*)$", re.S)
@@ -77,6 +77,23 @@ class CodexHistoryService:
                          if value in self.admin_user_ids), None)
         return None
 
+    def lookup(self, message, *, search="", cursor=None, thread_id="", archived=False):
+        """Read native metadata for a trusted private-chat tool call; never run a turn."""
+        if message is None or message.chat_type != "p2p" or not self._admin_id(message):
+            raise CodexHistoryError("仅配置的管理员可在飞书私聊中查询 Codex 会话。")
+        if thread_id:
+            if not THREAD_ID.fullmatch(thread_id):
+                raise CodexHistoryError("请提供完整的 Codex 会话 ID。")
+            rows = [self.client.read_thread(thread_id)]
+            next_cursor = None
+        else:
+            page = self.client.list_threads(search=search[:200], cursor=cursor, archived=archived)
+            rows, next_cursor = page["data"][:10], page.get("nextCursor")
+        return {"data": [{"id": row["id"], "title": _title(row), "cwd": row.get("cwd"),
+                          "model": row.get("model"), "updatedAt": row.get("updatedAt"),
+                          "archived": archived or thread_is_archived(row)} for row in rows],
+                "nextCursor": next_cursor}
+
     def handle(self, message, *, trusted=True, progress=None):
         text = message.text.strip()
         parts = text.split(maxsplit=2)
@@ -120,8 +137,9 @@ class CodexHistoryService:
                     return self._list(message, search=query[:200], archived=archived)
                 if command == "resume":
                     args = parts[2].split(maxsplit=1) if len(parts) > 2 else []
-                    if args and args[0].isdigit():
-                        thread = self._number(message, args[0])
+                    if args and (args[0].isdigit() or THREAD_ID.fullmatch(args[0])):
+                        thread = (self._number(message, args[0]) if args[0].isdigit()
+                                  else self.client.read_thread(args[0]))
                         self.selected[message.chat_id] = (thread, self.clock() + 1800)
                         task = args[1] if len(args) > 1 else ""
                     else:
@@ -222,7 +240,7 @@ class CodexHistoryService:
         if selected is None:
             raise CodexHistoryError("请先打开会话详情，或发送 /codex resume 序号 任务。")
         thread = selected[0]
-        if thread.get("_archived"):
+        if thread_is_archived(thread):
             raise CodexHistoryError("此会话已归档，当前只能查看。请先在 Codex 中取消归档，再刷新列表继续执行。")
         if not task.strip():
             self.waiting[message.chat_id] = self.clock() + 600

@@ -16,8 +16,9 @@ from tele_bot.tools.file_system import FileSystemTool
 from tele_bot.tools.bailian_web import build_web_tools, normalize_web_tool_names
 from tele_bot.tools.write_report import WriteReportTool
 from tele_bot.tools.codex_runner import CodexRunner, codex_failure_message
+from tele_bot.tools.codex_history import CodexHistoryClient, CodexHistoryError, THREAD_ID, requests_codex_resume
 from tele_bot.scheduled.codex_artifacts import (
-    OUTPUT_SCHEMA, artifact_snapshot, prepare_skill_runtime, scoped_path, validate_artifacts,
+    DELIVERABLE_SUFFIXES, OUTPUT_SCHEMA, artifact_snapshot, prepare_skill_runtime, scoped_path, validate_artifacts,
 )
 from tele_bot.workflows.react_graph import MAX_ITERATIONS, build_react_graph
 from langchain_core.messages import HumanMessage, ToolMessage
@@ -67,6 +68,11 @@ def execute(payload: dict) -> dict:
     if "codex_apply" in allowed:
         if allowed != {"codex_apply"} or len(roots) != 1:
             raise ValueError("Codex run requires one tool and one workspace")
+        thread_id = scope.get("codex_thread_id")
+        if thread_id is not None and (not isinstance(thread_id, str) or not THREAD_ID.fullmatch(thread_id)):
+            return {"status": "failed", "result": "Codex 会话 ID 无效，未执行。", "paths": []}
+        if not thread_id and requests_codex_resume(payload["content"]):
+            return {"status": "failed", "result": "继续已有 Codex 对话缺少已授权会话 ID，未新建会话。", "paths": []}
         try:
             skill = _requested_skill(payload["content"], roots[0])
         except ValueError as exc:
@@ -94,27 +100,41 @@ def execute(payload: dict) -> dict:
             "完成任务后核对变更；要求表格时必须生成本轮的 Excel 或 CSV 文件，"
             "在文件中分别列出新增和修改项，无变更也生成注明无变更的表格。"
             "输出文件保存到工作区 tracking_outputs；不要仅返回文字日报或旧表格。"
+            f"可发送附件类型：{', '.join(sorted(DELIVERABLE_SUFFIXES))}；单个文件不超过 30 MiB，最多 20 个。"
+            "paths 只填写需要发送的本轮产物，不填写源码、配置、凭据或运行时内部文件。"
             "最终回复必须符合 JSON schema：status 为 success 或 failed，result 是给用户的总结"
             "（包含实际完成和未完成事项），paths 是本轮生成或修改、需要发送的文件完整路径数组。"
             "只有全部完成才能写 success；部分失败也列出已生成文件，不要自行发消息。\n\n"
             f"任务：{payload['content']}\n计划时间：{payload['planned_at']}"
         )
-        result = CodexRunner.from_env().run("apply", prompt, str(roots[0]), output_schema=schema)
-        if result.returncode:
-            return {"status": "failed", "result": codex_failure_message(result), "paths": []}
-        summary = result.stdout.strip()
+        runner = CodexRunner.from_env()
+        if thread_id:
+            try:
+                summary = CodexHistoryClient(runner).resume(
+                    thread_id, prompt, workspace=str(roots[0]), output_schema=OUTPUT_SCHEMA,
+                ).strip()
+            except CodexHistoryError as exc:
+                return {"status": "failed", "result": str(exc), "paths": []}
+        else:
+            result = runner.run("apply", prompt, str(roots[0]), output_schema=schema)
+            if result.returncode:
+                return {"status": "failed", "result": codex_failure_message(result), "paths": []}
+            summary = result.stdout.strip()
         try:
             receipt = json.loads(summary)
         except ValueError:
             receipt = {"status": "success" if summary.startswith("执行结论：成功") else "failed",
                        "result": summary or "Codex 未返回总结。", "paths": []}
+        if not isinstance(receipt, dict) or receipt.get("status") not in {"success", "failed"} or not isinstance(receipt.get("result"), str):
+            return {"status": "failed", "result": "Codex 返回结果收据无效，无法确认执行结果；请查看该会话的最新记录。", "paths": []}
+        status, summary = receipt["status"], receipt["result"]
         try:
-            if not isinstance(receipt, dict) or receipt.get("status") not in {"success", "failed"} or not isinstance(receipt.get("result"), str):
-                raise ValueError("invalid Codex result receipt")
             paths = validate_artifacts(receipt.get("paths", []), roots[0], before)
         except ValueError as exc:
-            return {"status": "failed", "result": f"Codex 结果/附件校验失败：{exc}\n{summary}", "paths": []}
-        status, summary = receipt["status"], receipt["result"]
+            return {"status": "failed", "result": (
+                "Codex 已返回执行结果，但附件校验失败，本次交付未完成。\n"
+                f"Codex 报告状态：{status}\n执行摘要：{summary}\n附件错误：{exc}"
+            ), "paths": []}
         if "表格" in payload["content"] and not any(Path(path).suffix.lower() in {".xlsx", ".xls", ".csv", ".tsv"} for path in paths):
             status = "failed"
             summary += "\n未完成：未生成并确认本轮表格附件。"

@@ -14,6 +14,7 @@ import { eventually } from '../tests/support/temp-dir.mjs'
 import { startMockFeishu } from '../tests/support/mock-feishu.mjs'
 import { startMockModel } from '../tests/support/mock-model.mjs'
 import { prepareFeatureMocks } from '../tests/support/feature-probes.mjs'
+import { saveThroughNativeSettings } from '../tests/support/native-settings-client.mjs'
 
 const desktop = process.argv.includes('--desktop')
 const host = await officialHost(), work = await mkdtemp(path.join(tmpdir(), 'telebot-setup-'))
@@ -60,6 +61,7 @@ try {
   featureMocks=await prepareFeatureMocks(work,env)
   await writeFile(patch, JSON.stringify([{insert:[{id:'setup-acp-startup',name:'@deepseek-ai/dsh-acp-app'},{id:'acp',name:'@deepseek-ai/dsh-acp',inject:['acpAppStartup']}]},{id:'session-title-llm',disabled:true},{id:'web-runtime',config:{printUrl:false,openBrowser:false}}, {id:'telebot-diagnostics',config:{nativeProbeDirectory:path.join(work,'probe')}}, { id: 'llm-pi-ai', config: { providers: { 'setup-loopback': { api:'openai-completions', apiKeyEnv:'TELEBOT_SETUP_UNUSED_KEY',baseURL:model.url,retryPolicy:{mode:'normal',maxRetries:0},models:[{id:'setup-mock',contextWindow:131072,maxTokens:4096,input:['text']}] } } } }, { id: 'telebot-feishu', disabled: false, config: desktop ? {dedicatedIngress:true,deploymentPort:port} : {} },{id:'telebot-codex',disabled:false,config:{}},{id:'telebot-adviser',disabled:false,config:{}},{id:'telebot-publishing',disabled:false,config:{}},{id:'telebot-automation',disabled:false,config:{}}]))
   const configuredPatch=JSON.parse(await readFile(patch,'utf8'))
+  const channelPatch=configuredPatch.find(row=>row.id==='telebot-feishu');channelPatch.config={...channelPatch.config,apiBaseUrl:platform.origin}
   configuredPatch[0].insert.find(row=>row.id==='acp').config={provider:'setup-loopback',model:'setup-mock'}
   configuredPatch.push({id:'agent-default-model',config:{provider:'setup-loopback',model:'setup-mock'}})
   await writeFile(patch,JSON.stringify(configuredPatch))
@@ -98,7 +100,11 @@ try {
   assert.equal(invalid.status, 400); assert.equal(await readFile(file, 'utf8'), before)
   check('invalid setup does not replace the file or activate the channel')
   const body = { revision: initial.body.revision, config: { appId:'cli_setup',adminUserIds:['ou_setup'],allowedChatIds:['oc_setup'],workspace,dedicatedIngress:desktop,deploymentPort:port,apiBaseUrl:platform.origin,publicWebhookUrl:'https://test.example/feishu/webhook',businessEnabled:true,provider:'setup-loopback',model:'setup-mock' }, secrets:{appSecret:'setup-loopback-secret',verificationToken:'setup-loopback-token'} }
-  const saved = await api('POST',body); assert.equal(saved.status,200); assert(saved.body.active)
+  assert.deepEqual(initial.body.fields.find(field=>field.key==='business.resourcesJson').emptyValue,[])
+  const saved = await saveThroughNativeSettings({clientFile:path.join(home,'profiles',profile,'node_modules/@telebot/core/client/index.js'),origin:access.origin,cookie,values:{appId:'cli_setup',adminUserIds:'ou_setup',allowedChatIds:'oc_setup',workspace,dedicatedIngress:desktop,deploymentPort:port,publicWebhookUrl:'https://test.example/feishu/webhook',provider:'setup-loopback',model:'setup-mock',appSecret:'setup-loopback-secret',verificationToken:'setup-loopback-token','business.resourcesJson':'  \n  '}})
+  assert.equal(saved.status,200); assert(saved.body.active)
+  assert.deepEqual(JSON.parse((await api()).body.config.business.resourcesJson),[])
+  check('installed native settings client saves blank optional JSON through official owner API into a real empty resource whitelist')
   assert.deepEqual(JSON.parse((await challenge()).text),{challenge:'configured'})
   let persisted = await readFile(file,'utf8'); assert(!persisted.includes('setup-loopback-secret')); assert(!persisted.includes('setup-loopback-token'))
   const configured = await api(); assert.equal(configured.body.credentials.appSecret,true); assert.equal(configured.body.credentials.verificationToken,true)

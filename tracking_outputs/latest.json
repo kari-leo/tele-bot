@@ -1,5 +1,5 @@
 {
-  "assessedAt": "2026-11-01T03:53:28.938Z",
+  "assessedAt": "2026-11-01T07:42:45.589Z",
   "branch": "codex/compat-desktop-0.2.1-rc.5",
   "workingTreeCommitted": true,
   "targetRuntime": "0.2.1-rc.5",
@@ -36,10 +36,10 @@
     "home": "C:\\Users\\41547\\.dsh",
     "profile": "C:\\Users\\41547\\.dsh\\profiles\\desktop",
     "physicalProfile": "D:\\files_data\\windborne\\dsh-runtime\\profiles\\desktop",
-    "release": "D:/files_data/windborne/dsh-runtime/releases/telebot-0.1.0-desktop-ui-20261101-r3",
-    "backup": "D:\\files_data\\windborne\\dsh-runtime\\backups\\native-settings-before-2026-11-01T03-42-53-831Z",
+    "release": "D:/files_data/windborne/dsh-runtime/releases/telebot-0.1.0-native-json-fix-20261101",
+    "backup": "D:/files_data/windborne/dsh-runtime/backups/native-json-before-2026-11-01T07-34-47-386Z",
     "profileBackup": "C:/Users/41547/.dsh/backups/desktop-before-profile-junction-20261101",
-    "launcher": "D:\\files_data\\windborne\\dsh-runtime\\releases\\telebot-0.1.0-desktop-ui-20261101-r3\\start-desktop.ps1",
+    "launcher": "D:\\files_data\\windborne\\dsh-runtime\\releases\\telebot-0.1.0-native-json-fix-20261101\\start-desktop.ps1",
     "startupEvidenceScope": "filesystem endpoints with living writer PIDs, initialized business databases; no model turns",
     "uiAcceptance": false,
     "adviserEnabled": false,
@@ -59,33 +59,34 @@
     "nativeConfigurationApiVerified": true,
     "visualAcceptance": "user_managed",
     "independentSetupPages": false,
-    "setupCapabilityTokens": false
+    "setupCapabilityTokens": false,
+    "nativeJsonSaveFixInstalled": true
   },
   "counts": {
-    "tests": 77,
+    "tests": 80,
     "harness": 11,
     "p0": 18,
     "feishuAcp": 13,
     "feishuWeb": 13,
     "featuresAcp": 25,
     "featuresWeb": 25,
-    "setup": 14,
-    "desktopPortSimulation": 14,
+    "setup": 15,
+    "desktopPortSimulation": 15,
     "knowledge": 6,
     "browser": 4,
     "nativeCodex": 16,
     "nativeDesktop": 16,
     "nativeBrowser": 3,
     "formalInstallation": 5,
-    "nativeConfigurationComponents": 3,
-    "formalNativeSettings": 8
+    "nativeConfigurationComponents": 6,
+    "formalNativeSettings": 9
   },
   "evidence": {
     "harness": {
       "status": "passed",
       "passedChecks": 11,
       "report": ".runtime/verify-latest.json",
-      "sha256": "3f840ca3ebf460d3d379e7396218a6c653f89ea50c3d3a0c2575a32c97812c69",
+      "sha256": "d937c7ed43d9edede345eff4add8d5cd8d5bf2a03224d533fd94f74130d9d0a7",
       "retainedEarlierEvidence": false,
       "releaseHashesMatch": true
     },
@@ -94,77 +95,64 @@
       "passedChecks": 18,
       "report": ".runtime/verify-p0-latest.json",
       "sha256": "621afc01a121f56704d2beeb5b3fcc957ab419ec22555af4ddfb7bd9702e3af5",
-      "retainedEarlierEvidence": false,
-      "releaseHashesMatch": false,
-      "runtimePayloadsMatch": true,
-      "metadataOnlyRepackProof": ".runtime/native-ui-peer-metadata.json"
+      "retainedEarlierEvidence": true,
+      "releaseHashesMatch": false
     },
     "feishuAcp": {
       "status": "passed",
       "passedChecks": 13,
       "report": ".runtime/verify-feishu-latest.json",
       "sha256": "649f5be82adadc3e911b282e63b07df993ac30be85b28029df75d618a6266b58",
-      "retainedEarlierEvidence": false,
-      "releaseHashesMatch": false,
-      "runtimePayloadsMatch": true,
-      "metadataOnlyRepackProof": ".runtime/native-ui-peer-metadata.json"
+      "retainedEarlierEvidence": true,
+      "releaseHashesMatch": false
     },
     "feishuWeb": {
       "status": "passed",
       "passedChecks": 13,
       "report": ".runtime/verify-feishu-web-latest.json",
       "sha256": "67c0745ee00a76eac5b8b5bde178b661ab3f9801df1871dcda963e81111ed1a8",
-      "retainedEarlierEvidence": false,
-      "releaseHashesMatch": false,
-      "runtimePayloadsMatch": true,
-      "metadataOnlyRepackProof": ".runtime/native-ui-peer-metadata.json"
+      "retainedEarlierEvidence": true,
+      "releaseHashesMatch": false
     },
     "featuresAcp": {
       "status": "passed",
       "passedChecks": 25,
       "report": ".runtime/verify-features-latest.json",
       "sha256": "f2184ab2a60407c58dcca4b46ff7da682a2acbdca2b729e7f0444ea4f4b6ef6f",
-      "retainedEarlierEvidence": false,
-      "releaseHashesMatch": false,
-      "runtimePayloadsMatch": true,
-      "metadataOnlyRepackProof": ".runtime/native-ui-peer-metadata.json"
+      "retainedEarlierEvidence": true,
+      "releaseHashesMatch": false
     },
     "featuresWeb": {
       "status": "passed",
       "passedChecks": 25,
       "report": ".runtime/verify-features-web-latest.json",
       "sha256": "c384755cb361dc69afa534b0c04a3c6e7faa35613ed3da53670ab97fcd48faf1",
-      "retainedEarlierEvidence": false,
-      "releaseHashesMatch": false,
-      "runtimePayloadsMatch": true,
-      "metadataOnlyRepackProof": ".runtime/native-ui-peer-metadata.json"
+      "retainedEarlierEvidence": true,
+      "releaseHashesMatch": false
     },
     "setup": {
       "status": "passed",
-      "passedChecks": 14,
+      "passedChecks": 15,
       "report": ".runtime/verify-feishu-setup-latest.json",
-      "sha256": "77a2e8d4e4b71978f5149a06b755f7487b49b49c7698c63fa80102b9979407bb",
+      "sha256": "da574706956ca1f986e02e5aa26e84d1ae56ae16d18fc8f97f43415094e849eb",
       "retainedEarlierEvidence": false,
-      "releaseHashesMatch": false,
-      "runtimePayloadsMatch": true,
-      "metadataOnlyRepackProof": ".runtime/native-ui-peer-metadata.json"
+      "releaseHashesMatch": true
     },
     "desktopPortSimulation": {
       "status": "passed",
-      "passedChecks": 14,
+      "passedChecks": 15,
       "report": ".runtime/verify-desktop-setup-latest.json",
-      "sha256": "4e801cce7325b4b1e872b62f83c5ab4e5e93bb0be7c54e26bc1d463c13e7b82b",
+      "sha256": "cc9fedfeeb58f1f3c42bef4ea09e61b0feabb0feedfff62c12cea70aad12ce76",
       "retainedEarlierEvidence": false,
-      "releaseHashesMatch": false,
-      "runtimePayloadsMatch": true,
-      "metadataOnlyRepackProof": ".runtime/native-ui-peer-metadata.json"
+      "releaseHashesMatch": true
     },
     "knowledge": {
       "status": "passed",
       "passedChecks": 6,
       "report": ".runtime/verify-knowledge-latest.json",
       "sha256": "255943049eae0214abf2eb59e088692a5a41f363a515987337f37c6c839149e1",
-      "retainedEarlierEvidence": true
+      "retainedEarlierEvidence": true,
+      "releaseHashesMatch": false
     },
     "browser": {
       "status": "passed",
@@ -172,7 +160,8 @@
       "report": ".runtime/setup-browser-latest.json",
       "sha256": "29cdc48fbfc7d1bb254897af3eee3d21bda374ac03f6ec2ed3d308e16eb31baa",
       "retainedEarlierEvidence": true,
-      "appliesToCurrentConfigurationUi": false
+      "appliesToCurrentConfigurationUi": false,
+      "releaseHashesMatch": false
     },
     "nativeCodex": {
       "status": "passed",
@@ -181,17 +170,16 @@
       "sha256": "6a0d31c8c8187480729ae1ebe9edfd7ca2f2039fec7f50ab39267abfb4e8cfb3",
       "retainedEarlierEvidence": true,
       "cli": "0.160.0",
-      "harnessIndependent": true
+      "harnessIndependent": true,
+      "releaseHashesMatch": false
     },
     "nativeDesktop": {
       "status": "passed",
       "passedChecks": 16,
       "report": ".runtime/verify-desktop-latest.json",
       "sha256": "4e3903993c183731b3f8d60ca29a8cc4bba7a0fb5e1117c07d1440562123fbb9",
-      "retainedEarlierEvidence": false,
-      "releaseHashesMatch": false,
-      "runtimePayloadsMatch": true,
-      "metadataOnlyRepackProof": ".runtime/native-ui-peer-metadata.json"
+      "retainedEarlierEvidence": true,
+      "releaseHashesMatch": false
     },
     "nativeBrowser": {
       "status": "passed",
@@ -199,28 +187,31 @@
       "report": ".runtime/native-browser-latest.json",
       "sha256": "325cc96a387691520f2fee0c8056f56a02b209b4c08a17483c0b89407d46bb53",
       "retainedEarlierEvidence": true,
-      "appliesToCurrentConfigurationUi": false
+      "appliesToCurrentConfigurationUi": false,
+      "releaseHashesMatch": false
     },
     "formalInstallation": {
       "status": "passed",
       "passedChecks": 5,
       "report": ".runtime/formal-install-latest.json",
       "sha256": "106f6d94c2619e63e7571fce1ff1501b08a3c520b179ddc2bbe250425ab4ebd0",
-      "scope": "installation and Electron startup filesystem evidence only"
+      "scope": "installation and Electron startup filesystem evidence only",
+      "retainedEarlierEvidence": true,
+      "releaseHashesMatch": false
     },
     "nativeConfigurationComponents": {
       "status": "passed",
-      "passedChecks": 3,
-      "report": ".runtime/native-configuration-components-latest.json",
-      "sha256": "4547a595792e6310ac5625ed680e7b3b6831f8b38b156c639f9f38fff2bc3f48",
+      "passedChecks": 6,
+      "report": ".runtime/native-json-components-latest.json",
+      "sha256": "a4796325ede482ef2d4c22889d401e4c493ca9158a22d51fcd0dc3d030ca35fd",
       "retainedEarlierEvidence": false,
       "releaseHashesMatch": true
     },
     "formalNativeSettings": {
       "status": "passed",
-      "passedChecks": 8,
+      "passedChecks": 9,
       "report": ".runtime/formal-native-settings-latest.json",
-      "sha256": "6bf499382d1a5486f39fc024b3f90cce7c62b23bbba1367fa4516bff4249323c",
+      "sha256": "04b05290516ed26a09be037f30185f1c97ca4ebef0bcc40b42e36b1d91b95f58",
       "retainedEarlierEvidence": false,
       "releaseHashesMatch": true
     },
@@ -228,7 +219,10 @@
       "status": "passed",
       "report": ".runtime/native-ui-peer-metadata.json",
       "sha256": "af3aee999ffd23203f1fa68c1b91a9428f5751fcf6b7e5da88480be344d4c8e7",
-      "runtimeAndReadmeBytesIdentical": true
+      "runtimeAndReadmeBytesIdentical": true,
+      "retainedEarlierEvidence": true,
+      "releaseHashesMatch": false,
+      "appliesToCurrentArtifacts": false
     }
   },
   "artifacts": [
@@ -236,7 +230,7 @@
       "name": "@telebot/core",
       "version": "0.1.0",
       "filename": "telebot-core-0.1.0.tgz",
-      "sha256": "1365ba3bbadefe0f7636a9e557bc6f476ed5b7745ff147fcf7c258fecbdd52cc",
+      "sha256": "336f0b97235420e2a830b13cc929c6e02b78a5c974d97d025ea5fe0701088fef",
       "fixture": false
     },
     {
@@ -250,7 +244,7 @@
       "name": "@telebot/feishu",
       "version": "0.1.0",
       "filename": "telebot-feishu-0.1.0.tgz",
-      "sha256": "d14b67a3beb522f9c734804d05638d1c8a1ad8862ac78728f13bc82af4f6bd6e",
+      "sha256": "d22ce0f654de899af897e0999262b9d6eab8644078e171e10bc7ba1c46f61a6c",
       "fixture": false
     },
     {
@@ -336,10 +330,19 @@
     "previousDetails": "tracking_outputs/archive/2026-10-31/cleanup-before-p8.json",
     "nativeSettings": {
       "report": ".runtime/native-settings-cleanup.json",
-      "sha256": "fd72439a65fde41c1f70532910034e2469ac07c0abf74808eefde6cddfa086b8",
+      "sha256": "d8fb9e73ef7735f8c3ea588e42f94bdefe03e4d56fd6c8ec483685e79009acfc",
       "temporaryOfficialRuntimeRemoved": true,
       "userDataDeleted": false,
-      "releaseArchivesPreserved": true
+      "releaseArchivesPreserved": true,
+      "supersededBy": "nativeJsonFix"
+    },
+    "nativeJsonFix": {
+      "report": ".runtime/native-settings-cleanup.json",
+      "sha256": "d8fb9e73ef7735f8c3ea588e42f94bdefe03e4d56fd6c8ec483685e79009acfc",
+      "temporaryOfficialRuntimeRemoved": true,
+      "userDataDeleted": false,
+      "releaseArchivesPreserved": true,
+      "removedTemporaryBytes": 724833246
     }
   },
   "entrypointAssessment": {
@@ -376,9 +379,9 @@
     }
   },
   "activeWork": {
-    "phase": "native_configuration_settings_installed_verified",
-    "localTests": 77,
-    "nativeConfigurationComponentChecks": 3,
+    "phase": "native_configuration_blank_json_save_fixed",
+    "localTests": 80,
+    "nativeConfigurationComponentChecks": 6,
     "nativeDesktopChecks": 16,
     "formalInstallation": "updated_with_native_configuration_settings",
     "visualAcceptance": "user_managed",
@@ -388,5 +391,15 @@
       "manual application configuration and real Feishu checklist",
       "Linux/macOS deferred"
     ]
+  },
+  "configurationSaveFix": {
+    "status": "fixed_and_installed",
+    "rootCause": "Optional resource JSON textarea was blank; JSON.parse failed before any save request",
+    "userConfirmedBlankField": true,
+    "emptyValue": "schema-declared []",
+    "invalidJson": "field-specific message; no save",
+    "invalidResponse": "HTTP status and reread guidance; no automatic retry",
+    "fullClientToOfficialApiToFileVerified": true,
+    "realFeishuSent": false
   }
 }

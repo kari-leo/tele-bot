@@ -5,7 +5,7 @@
 日常从 D 盘交付目录启动（先退出已运行桌面）：
 
 ```powershell
-& 'D:\files_data\windborne\dsh-runtime\releases\telebot-0.1.0-desktop-ui-20261101-r3\start-desktop.ps1'
+& 'D:\files_data\windborne\dsh-runtime\releases\telebot-0.1.0-native-json-fix-20261101\start-desktop.ps1'
 ```
 
 脚本与配套环境脚本已复制到该目录，独立于源码；它只准备当前进程的 D 盘缓存/临时目录、稳定 PowerShell 7.6.9 和 Git 路径，然后启动官方程序。原桌面快捷方式仍能启动，但不保证继承这些环境变量。

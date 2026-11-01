@@ -2,7 +2,7 @@
 
 2026-11-01。已按最新授权完成正式 desktop profile 安装及启动检查，七个自有包 + 知识库均已安装。以下是你仍需填写或验收的部分；重装、启动脚本与备份位置见[安装指南](installation.md)。
 
-1. 日常用 D 盘交付目录 `releases/telebot-0.1.0-desktop-ui-20261101-r3/start-desktop.ps1` 启动官方桌面，以保留 D 盘缓存和稳定 PowerShell/Git 路径。整个 desktop profile 已放 D 盘，原入口为 Junction；无需重复安装。
+1. 日常用 D 盘交付目录 `releases/telebot-0.1.0-native-json-fix-20261101/start-desktop.ps1` 启动官方桌面，以保留 D 盘缓存和稳定 PowerShell/Git 路径。整个 desktop profile 已放 D 盘，原入口为 Junction；无需重复安装。
 2. 原生入口默认完整权限；Codex 已填既有本地 CLI，沿用原账户。发布的文章目录/Git 目标、自动化时区按实际用途补充；adviser 保持停用。知识库已安装，关键词检索无需下载模型。
 3. 启动后在 Harness 桌面“设置 → Telebot 插件”中选择对应插件配置；不再打开独立页面或输入配置访问令牌。飞书手填已有应用凭据/管理员/工作目录；Codex 已填既有 CLI；原生入口默认完整权限，无须填飞书 ID/写根。飞书使用时另填允许目录/管理员/历史本人 ID；发布和自动化按用途填目标目录/时区。core 无需业务参数；adviser 可保持停用。
 4. 保留现有 Cloudflare 上游 3000，仅暴露 `/feishu/webhook`。在飞书后台完成 URL 校验和消息/卡片订阅，见[回调指南](feishu-callback.md)。公网历史 502 是此前无监听的记录，本轮未切换或重新证明接通。

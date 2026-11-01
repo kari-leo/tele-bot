@@ -10,7 +10,7 @@ const {act}=Renderer
 const text=node=>typeof node==='string'?node:Array.isArray(node)?node.map(text).join(''):node?.children?.map(text).join('')??''
 async function page(t){
  const calls=[],config=Config({appId:'cli_fixture',adminUserIds:['ou_fixture'],allowedChatIds:['oc_scope'],workspace:'D:/fixture',business:{resourcesJson:JSON.stringify([{alias:'doc',kind:'documents',id:'doc1',identity:'tenant',tokenRef:'FEISHU_APP_TENANT',expiresAt:0,capabilities:['documents.read']}])}})
- let revision='one',fields=feishuFields,saved=config,reject=false,capture,registration
+ let revision='one',fields=feishuFields,saved=config,reject=false,emptyResponse=false,capture,registration
  const snapshot=()=>({name:'telebot-feishu',title:'飞书配置',fields,config:structuredClone(saved),revision,missing:[],active:true,busy:false,directory:'D:/fixture/config',credentials:{appSecret:true,verificationToken:true}})
  const request=async(url,options={})=>{
   assert.equal(url,'/api/telebot/configuration');assert.equal(options.credentials,'same-origin');assert(!options.headers?.Authorization)
@@ -19,6 +19,7 @@ async function page(t){
   if(body.plugin==='telebot-codex')return Response.json({title:'Codex 插件配置',fields:[{key:'cli',label:'CLI 路径'}],config:{cli:'D:/codex/cli.js'},revision:'codex',missing:[],active:true,directory:'D:/fixture/codex'})
   if(body.action==='get')return Response.json(snapshot())
   if(body.body.operation==='discover-bitable')return Response.json({baseId:'fixture-base',tables:[{table_id:'table1',name:'Fixture table'}]})
+  if(emptyResponse)return new Response(null,{status:502})
   if(reject)return Response.json({code:'configuration_revision_conflict'},{status:409})
   saved=structuredClone(body.body.config);revision+='-next';return Response.json({saved:true,active:true,revision})
  }
@@ -32,7 +33,7 @@ async function page(t){
  let root;await act(async()=>{root=Renderer.create(React.createElement(registration.component));await new Promise(setImmediate)})
  t.after(()=>act(()=>root.unmount()))
  const button=label=>root.root.findAllByType('button').find(item=>text(item.toJSON?.()??item)==label||item.children.filter(x=>typeof x==='string').join('')===label)
- return{root,calls,button,get saved(){return saved},get revision(){return revision},reject(){reject=true},input:key=>root.root.findByProps({id:'telebot-'+key})}
+ return{root,calls,button,get saved(){return saved},get revision(){return revision},reject(){reject=true},empty(){emptyResponse=true},input:key=>root.root.findByProps({id:'telebot-'+key})}
 }
 
 test('native settings mount in the official slot, preserve hidden fields and send secrets separately without a setup token',async t=>{
@@ -62,4 +63,33 @@ test('native settings protect dirty edits when switching plugins and preserve th
  assert.equal(view.input('appId').props.value,'unsaved');assert.match(text(view.root.toJSON()),/配置已被更新/)
  await act(async()=>{await view.button('重新读取').props.onClick()});await act(async()=>{await view.button('Codex 插件配置').props.onClick()})
  assert.equal(view.input('cli').props.value,'D:/codex/cli.js')
+})
+
+test('blank optional Feishu resource JSON saves an empty whitelist instead of a JSON parsing error',async t=>{
+ const view=await page(t)
+ await act(async()=>view.input('business.resourcesJson').props.onChange({target:{value:'  \n  '}}))
+ await act(async()=>{await view.root.root.findByType('form').props.onSubmit({preventDefault(){}})})
+ assert(view.calls.some(x=>x.action==='save'),'No save was sent; page notice: '+text(view.root.toJSON()))
+ assert.deepEqual(JSON.parse(view.saved.business.resourcesJson),[])
+})
+
+test('invalid nonempty resource JSON identifies the field and retains unsaved edits without sending a save',async t=>{
+ const view=await page(t)
+ await act(async()=>view.input('business.resourcesJson').props.onChange({target:{value:'{'}}))
+ await act(async()=>{await view.root.root.findByType('form').props.onSubmit({preventDefault(){}})})
+ assert.equal(view.calls.filter(x=>x.action==='save').length,0)
+ assert.equal(view.input('business.resourcesJson').props.value,'{')
+ assert.match(text(view.root.toJSON()),/文档、日历和任务白名单.*JSON/)
+ assert(!text(view.root.toJSON()).includes('Unexpected end'))
+})
+
+test('empty server responses report HTTP status and uncertain save state without retrying or losing form values',async t=>{
+ const view=await page(t);view.empty()
+ await act(async()=>view.input('appId').props.onChange({target:{value:'still-unsaved'}}))
+ await act(async()=>{await view.root.root.findByType('form').props.onSubmit({preventDefault(){}})})
+ assert.equal(view.calls.filter(x=>x.action==='save').length,1)
+ assert.equal(view.input('appId').props.value,'still-unsaved')
+ assert.match(text(view.root.toJSON()),/502/)
+ assert.match(text(view.root.toJSON()),/重新读取/)
+ assert(!text(view.root.toJSON()).includes('Unexpected end'))
 })

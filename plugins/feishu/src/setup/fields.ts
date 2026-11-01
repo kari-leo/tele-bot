@@ -15,5 +15,5 @@ export const feishuFields: SettingField[] = [
   {key:'publicWebhookUrl',label:'公网 webhook URL',section:'部署与回调',help:'HTTPS 地址，路径需与本地 webhook 路径一致。'},
   {key:'webhookPath',label:'本地 webhook 路径',section:'部署与回调'},
   {key:'businessEnabled',label:'启用飞书业务',type:'boolean',section:'业务资源',help:'多维表格在独立链接区管理；文档、日历、任务均使用应用身份。'},
-  {key:'business.resourcesJson',label:'文档、日历和任务白名单',type:'json',section:'业务资源',help:'资源数组；identity=tenant、tokenRef=FEISHU_APP_TENANT、expiresAt=0。不填写实际 token。'},
+  {key:'business.resourcesJson',label:'文档、日历和任务白名单',type:'json',emptyValue:[],section:'业务资源',help:'可留空，表示暂不接入这些资源。填写时使用资源数组；identity=tenant、tokenRef=FEISHU_APP_TENANT、expiresAt=0。不填写实际 token。'},
 ]

@@ -3,7 +3,7 @@ import type {} from '@deepseek-ai/dsh-client-connection'
 
 export interface SettingField {
   key: string; label: string; type?: 'text' | 'list' | 'number' | 'boolean' | 'json' | 'password'
-  help?: string; min?: number; max?: number; section?: string; secret?: boolean
+  help?: string; min?: number; max?: number; section?: string; secret?: boolean; emptyValue?: unknown
 }
 export interface ConfigurationPage {
   name: string; title: string; fields: SettingField[]

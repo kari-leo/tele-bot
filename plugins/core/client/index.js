@@ -7,13 +7,22 @@ window.__ModuleLoader__.load({id:'@telebot/core',factory:require=>{
   const order=['telebot-feishu','telebot-desktop','telebot-codex','telebot-publishing','telebot-automation','telebot-adviser','telebot-core'];
   async function api(plugin,action,body,signal){
     const response=await fetch(endpoint,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(plugin?{plugin,action,body}:{action:'list'}),signal});
-    const data=await response.json();if(!response.ok)throw new Error(messages[data.code]||data.code||'读取失败');return data;
+    const raw=await response.text();let data;
+    try{data=JSON.parse(raw);if(!data||typeof data!=='object'||Array.isArray(data))throw new Error('invalid_response')}
+    catch{throw new Error('配置服务未返回有效的 JSON（HTTP '+response.status+'）。'+(action==='save'&&!body?.operation?'请先重新读取，确认保存是否已完成。':'请关闭后重新打开设置页。'))}
+    if(!response.ok)throw new Error(messages[data.code]||data.code||'读取失败');return data;
   }
   const styles={root:{display:'grid',gap:20,maxWidth:1000,width:'100%',padding:'8px 0',color:'inherit'},tabs:{display:'flex',flexWrap:'wrap',gap:8},button:{font:'inherit',padding:'8px 14px',border:'1px solid color-mix(in srgb, currentColor 22%, transparent)',borderRadius:8,background:'transparent',color:'inherit',cursor:'pointer'},section:{border:'1px solid color-mix(in srgb, currentColor 16%, transparent)',borderRadius:12,padding:20,display:'grid',gap:16},field:{display:'grid',gap:7,fontSize:13},input:{boxSizing:'border-box',width:'100%',font:'inherit',border:'1px solid color-mix(in srgb, currentColor 25%, transparent)',borderRadius:7,padding:'9px 10px',background:'transparent',color:'inherit'},hint:{opacity:.7,fontSize:12,lineHeight:1.6},notice:{padding:12,borderRadius:8,background:'color-mix(in srgb, currentColor 6%, transparent)',whiteSpace:'pre-wrap'},row:{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}};
   const read=(object,key)=>key.split('.').reduce((value,part)=>value?.[part],object);
   function write(object,key,value){const parts=key.split('.'),last=parts.pop();let target=object;for(const part of parts)target=target[part]??=( {} );target[last]=value;}
   function format(field,value){return field.secret?'':field.type==='list'?(value||[]).join('\n'):field.type==='json'?JSON.stringify(typeof value==='string'?JSON.parse(value):value??[],null,2):value??'';}
-  function parse(field,value){return field.type==='list'?value.split(/[,;\n]+/).map(x=>x.trim()).filter(Boolean):field.type==='json'?JSON.stringify(JSON.parse(value)):field.type==='number'?Number(value):field.type==='boolean'?Boolean(value):value.trim();}
+  function parse(field,value){
+    if(field.type==='json'){
+      if(!value.trim()&&Object.hasOwn(field,'emptyValue'))return JSON.stringify(field.emptyValue);
+      try{return JSON.stringify(JSON.parse(value))}catch{throw new Error(field.label+'：请输入有效的 JSON'+(Object.hasOwn(field,'emptyValue')?'，没有资源可留空':'')+'。')}
+    }
+    return field.type==='list'?value.split(/[,;\n]+/).map(x=>x.trim()).filter(Boolean):field.type==='number'?Number(value):field.type==='boolean'?Boolean(value):value.trim();
+  }
   function ConfigurationSection(){
     const [pages,setPages]=useState([]),[selected,setSelected]=useState(''),[snapshot,setSnapshot]=useState(null),[values,setValues]=useState({}),[notice,setNotice]=useState('正在读取插件配置…'),[error,setError]=useState(false),[busy,setBusy]=useState(false),[dirty,setDirty]=useState(false),[baseLinks,setBaseLinks]=useState([]),[baseResources,setBaseResources]=useState([]),[baseUrl,setBaseUrl]=useState('');
     const generation=useRef(0),mounted=useRef(true);

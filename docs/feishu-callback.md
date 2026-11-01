@@ -10,7 +10,7 @@
 Test-NetConnection 127.0.0.1 -Port 3000
 ```
 
-打开本机 `http://127.0.0.1:3000/telebot/feishu/setup`，从配置目录 setup.token 连接（或按安装指南组合 endpoint/token 打开）。手填现有 App ID/Secret/Verification Token、管理员和工作目录，保存启用。默认主模型在官方宿主设置；飞书 provider/model 可同时留空。
+在 Harness 桌面“设置 → Telebot 插件 → 飞书配置”中填写；不打开 3000 端口的配置网页。手填现有 App ID/Secret/Verification Token、管理员和工作目录，保存启用。默认主模型在官方宿主设置；飞书 provider/model 可同时留空。
 
 公网 URL 填 `https://feishu.windborne.cc/feishu/webhook`。本机普通 GET 的 404/405 不证明失败或成功，实际验收需飞书合法 POST challenge。
 

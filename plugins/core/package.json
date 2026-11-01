@@ -26,12 +26,14 @@
     "./restricted-tools": {
       "types": "./lib/harness/restricted-tools.d.ts",
       "default": "./lib/harness/restricted-tools.js"
-    }
+    },
+    "./client": "./client/index.js"
   },
   "files": [
     "lib",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "client"
   ],
   "engines": {
     "dsh": "0.2.1-rc.5"
@@ -39,6 +41,17 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ],
+      "external": [
+        "react"
+      ]
     }
   },
   "peerDependencies": {
@@ -56,7 +69,9 @@
     "@deepseek-ai/dsh-home-paths": "0.2.1-rc.5",
     "@deepseek-ai/dsh-tools": "0.2.1-rc.5",
     "@deepseek-ai/dsh-agent-preset-registry": "0.2.1-rc.5",
-    "@deepseek-ai/dsh-tool-web": "0.2.1-rc.5"
+    "@deepseek-ai/dsh-tool-web": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-client-connection": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-client-ui-settings": "0.2.1-rc.5"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-permission-presets": "0.2.1-rc.5",
@@ -74,6 +89,7 @@
     "@deepseek-ai/dsh-host-webserver": "0.2.1-rc.5",
     "@deepseek-ai/dsh-home-paths": "0.2.1-rc.5",
     "@deepseek-ai/dsh-tools": "0.2.1-rc.5",
-    "@deepseek-ai/dsh-tool-web": "0.2.1-rc.5"
+    "@deepseek-ai/dsh-tool-web": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-client-connection": "0.2.1-rc.5"
   }
 }

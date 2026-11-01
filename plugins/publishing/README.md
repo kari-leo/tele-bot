@@ -1,6 +1,6 @@
 # 报告与发布
 
-独立安装到官方 DSH 0.2.1-rc.5，依赖 core。启用后通过 `/telebot/publishing/setup` 本机 UI 配置管理员、根目录、可选博客目录与 Git 目标；访问令牌位于独立 `config/setup.token`。首次缺项时只提供配置引导。
+独立安装到官方 DSH 0.2.1-rc.5，依赖 core。启用后在 Harness 桌面“设置 → Telebot 插件 → 报告与发布配置”中配置管理员、根目录、可选博客目录与 Git 目标。首次缺项时只提供配置引导。
 
 `write_report`/`/report {"filename":"report.md","content":"正文"}` 只新建并回读校验。`publish_source` 或 `/publish publish {"items":[...]}` 冻结源文件、元数据和目标；保留原文正文，单独本人确认后批量新建。`/publish git {"files":["指定.md"],"message":"提交说明"}` 再次确认后只提交指定文件并推送当前目标分支。Git 使用官方 Shell，保留既有登录，禁止混入已暂存文件和客户端 hooks。发布和 Git 分别授权，不自动推送。
 

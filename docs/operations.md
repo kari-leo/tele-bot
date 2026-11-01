@@ -4,7 +4,7 @@ P0–P4 当前可用代码包括文字/卡片、命令/模型/目录/权限、�
 
 ## 配置与参考参数
 
-首次/缺项配置与后续维护优先使用 [本机 UI 和文件配置](feishu-configuration.md)。下列环境 patch 仅作尚无文件时的启动输入；文件生效后以文件为准。渠道/业务属于同一安装包。
+首次/缺项配置与后续维护优先使用 [Harness 桌面设置与文件配置](feishu-configuration.md)。下列环境 patch 仅作尚无文件时的启动输入；文件生效后以文件为准。渠道/业务属于同一安装包。
 
 使用 [配置示例](../examples/feishu.patch.example.yml)，安装步骤见 [installation.md](installation.md)。沿用参考项目的 `127.0.0.1:3000/feishu/webhook`；HTTP listener 由官方 webServer 提供。服务端将 HTTPS webhook 路径反向代理到该地址即可，不要将整套 Harness Web API 一并暴露给公网。官方服务器要求具体网卡地址，不接受 `0.0.0.0`。
 

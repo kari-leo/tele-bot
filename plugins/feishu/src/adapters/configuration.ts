@@ -1,5 +1,5 @@
 import { mkdir, readFile, open, rename, unlink, realpath, stat, chmod } from 'node:fs/promises'
-import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { Config, validateCallbacks } from '../config.js'
 import { apiOrigin } from './feishu-api.js'
@@ -24,7 +24,6 @@ function knownFields(value: any, schema: typeof Config | any) {
 }
 /** Atomic, versioned, non-secret configuration; credentials are owned by the official provider. */
 export class Configuration {
-  readonly token = randomBytes(32).toString('base64url')
   private lockOwner = randomUUID()
   private closed = false
   private readonly lock: string
@@ -69,15 +68,14 @@ export class Configuration {
         store.revision = saved.revision
         store.loadError = ''
       } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') store.loadError = 'config_file_invalid' }
-      await store.atomic('setup.token', store.token + '\n')
+      for (const obsolete of ['setup.token','endpoint.json']) await unlink(path.join(directory,obsolete)).catch(error=>{if(error.code!=='ENOENT')throw error})
       // An editable, harmless template exists even before the first successful setup.
       await store.template('config.example.json', stringify({ version: 1, revision: 'example', config: { appId: '', adminUserIds: [], workspace: '', appSecretRef: 'FEISHU_APP_SECRET', verificationTokenRef: 'FEISHU_VERIFICATION_TOKEN', businessEnabled: true, business: { resources: [], confirmAll: true } } }))
-      await store.template('README.txt', 'Edit config.json while this profile is stopped, or use its local setup UI. Secrets are credential references, not values. setup.token grants local configuration access; do not expose this directory. Uninstall preserves this directory.\n')
+      await store.atomic('README.txt', 'Configure in Harness Settings > Telebot 插件 > 飞书配置. Edit config.json only while stopped. Secrets are credential references, not values. Uninstall preserves this directory.\n')
       if (!store.revision && !store.loadError) await store.save({ ...safeInitial, configDirectory: store.directory })
       return store
     } catch (error) { await store.close(); throw error }
   }
-  authorized(value: string) { const supplied = Buffer.from(value), expected = Buffer.from(this.token); return supplied.length === expected.length && timingSafeEqual(supplied, expected) }
   async missing(config = this.current) {
     const missing: string[] = []
     if (this.loadError) missing.push(this.loadError)

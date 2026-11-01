@@ -123,7 +123,7 @@ tele-bot/
   .runtime/                         忽略：测试临时 home、模型 mock 与证据
 ```
 
-统一飞书包在 `plugins/feishu/src/` 内使用 setup、domain、adapters、harness 和 business 子模块；business 内保留独立 DTO/端口/适配器，不将业务规则混进渠道。首次/缺项配置由本机 UI 引导并原子保存，密钥属于官方 credentials，普通文件只存引用。`plugins/core/src/` 继续持有公共宿主接缝与服务身份，不持有飞书业务规则。
+统一飞书包在 `plugins/feishu/src/` 内使用 setup、domain、adapters、harness 和 business 子模块；business 内保留独立 DTO/端口/适配器，不将业务规则混进渠道。首次/缺项配置由 Harness 桌面原生设置页引导并原子保存，密钥属于官方 credentials，普通文件只存引用。`plugins/core/src/` 继续持有公共宿主接缝与服务身份，不持有飞书业务规则。
 
 本地接口按用例建立，例如 AgentPort、CommandPort、InteractionPort、FileAccessPort、ArtifactDeliveryPort、CodingExecutorPort、CodexHistoryPort、SchedulePort、AdviserPort、EmbeddingPort。上游类型留在 `harness/`；飞书业务由统一包内的独立模块承载；可停用 business 保留渠道，停用整包会卸载二者。Web/测试通过可信端口调用，不伪造 Actor。飞书云 API 身份由可信调用上下文和明确配置解析，Web 来源没有飞书用户授权时不能伪造 Actor。
 

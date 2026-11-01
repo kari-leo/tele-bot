@@ -9,7 +9,7 @@
     ]
   },
   "feishu": {
-    "description": "渠道、持久队列、收发、配置和本机 UI 安全",
+    "description": "渠道、持久队列、收发、配置和原生设置身份安全",
     "files": [
       "tests/acceptance/feishu.test.mjs",
       "tests/acceptance/feishu-configuration.test.mjs",
@@ -29,7 +29,8 @@
   "desktop": {
     "description": "原生入口身份、权限隔离与持久幂等",
     "files": [
-      "tests/acceptance/desktop.test.mjs"
+      "tests/acceptance/desktop.test.mjs",
+      "tests/acceptance/native-configuration-ui.test.mjs"
     ]
   }
 }

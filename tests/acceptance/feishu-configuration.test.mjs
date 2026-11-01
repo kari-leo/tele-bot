@@ -1,13 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile, writeFile, readdir } from 'node:fs/promises'
-import { createServer, request as httpRequest } from 'node:http'
-import { once } from 'node:events'
 import path from 'node:path'
 import { Config } from '../../plugins/feishu/lib/config.js'
 import { Configuration } from '../../plugins/feishu/lib/adapters/configuration.js'
 import { readReference } from '../../plugins/feishu/lib/adapters/reference-env.js'
-import { setupHandler, setupPath } from '../../plugins/feishu/lib/setup/http.js'
 import { discoverBase } from '../../plugins/feishu/lib/business/adapters/discovery.js'
 import { temporaryDirectory, cleanup } from '../support/temp-dir.mjs'
 const credentials = () => { const values = new Map(); return { values, read: async key => values.get(key) ?? '', write: async (key, value) => values.set(key, value), remove: async key => { values.delete(key) } } }
@@ -25,7 +22,7 @@ test('unconfigured unified Feishu creates editable non-secret files, detects mis
   const directory = await temporaryDirectory(t), store = await Configuration.open(directory, Config({}), credentials())
   cleanup(t, () => store.close())
   assert.deepEqual(await store.missing(), ['appId','adminUserIds','workspace','appSecret','verificationToken_or_encryptKey'])
-  for (const name of ['config.json','config.example.json','README.txt','setup.token']) assert((await readdir(directory)).includes(name))
+  for (const name of ['config.json','config.example.json','README.txt']) assert((await readdir(directory)).includes(name))
   assert.equal(JSON.parse(await readFile(path.join(directory,'config.json'),'utf8')).config.business.resources.length,0)
   await assert.rejects(Configuration.open(directory, Config({}), credentials()), /already_active/)
 })
@@ -38,9 +35,9 @@ test('unknown bootstrap values and literal resource tokens cannot leak through f
   for(const name of await readdir(directory)) assert(!(await readFile(path.join(directory,name),'utf8')).includes('must-not-'))
 })
 
-test('configuration persists credential refs and resource metadata, survives restart and rotates local setup access', async t => {
+test('configuration persists credential refs and resource metadata, survives restart without standalone setup capabilities', async t => {
   const directory = await temporaryDirectory(t), secrets = credentials()
-  let store = await Configuration.open(directory, Config({}), secrets), token = store.token
+  let store = await Configuration.open(directory, Config({}), secrets)
   const {candidate,pending} = await store.prepare({appId:'cli_test',adminUserIds:['ou_alice'],workspace:directory,publicWebhookUrl:'https://test.example/feishu/webhook'}, {appSecret:'test-secret-never-in-json',verificationToken:'test-verification-never-in-json'})
   for(const row of pending) await secrets.write(row.ref,row.value)
   await store.save(candidate)
@@ -49,7 +46,7 @@ test('configuration persists credential refs and resource metadata, survives res
   assert((await store.describe()).credentials.appSecret); assert.deepEqual(await store.missing(),[])
   await store.close(); store=await Configuration.open(directory,Config({}),secrets); cleanup(t,()=>store.close())
   assert.equal(store.current.appId,'cli_test'); assert.equal(store.current.workspace,directory)
-  assert.notEqual(store.token,token); assert.equal(store.authorized(token),false); assert(store.authorized(store.token))
+  assert(!(await readdir(directory)).includes('setup.token')); assert(!(await readdir(directory)).includes('endpoint.json'))
 })
 
 test('configuration rejects invalid workspace/callback/secret and unknown literal credential fields without replacing saved data', async t => {
@@ -74,21 +71,18 @@ test('reference env import is literal, bounded, whitelisted and does not import 
   await assert.rejects(readReference('relative.env'),/invalid_reference/)
 })
 
-test('setup HTTP requires a local capability and same origin; proxies, forgery and oversized saves cannot write',async t=>{
-  let writes=0,serverOrigin
-  const server=createServer((request,response)=>setupHandler(serverOrigin,{authorized:token=>token==='local-test-capability',describe:async()=>({missing:['appId']}),save:async body=>{writes++;return{saved:true,value:body.value}}})(request,response))
-  server.listen(0,'127.0.0.1');await once(server,'listening');serverOrigin='http://127.0.0.1:'+server.address().port
-  cleanup(t,()=>new Promise(resolve=>{server.closeAllConnections();server.close(resolve)}))
-  const url=serverOrigin+setupPath,auth={Authorization:'Bearer local-test-capability'}
-  const html=await fetch(url);assert.equal(html.status,200);assert(html.headers.get('content-security-policy').includes("frame-ancestors 'none'"));assert((await html.text()).includes('保存并启用飞书插件'))
-  assert.equal((await fetch(url+'/api')).status,403)
-  for(const headers of [{...auth,Origin:'https://evil.example'},{...auth,'x-forwarded-for':'203.0.113.1'}]) assert.equal((await fetch(url+'/api',{headers})).status,403)
-  const rebound=await new Promise((resolve,reject)=>{const req=httpRequest(url+'/api',{headers:{...auth,Host:'evil.example'}},response=>{response.resume();resolve(response.statusCode)});req.on('error',reject);req.end()})
-  assert.equal(rebound,403)
-  assert.deepEqual(await(await fetch(url+'/api',{headers:auth})).json(),{missing:['appId']})
-  assert.equal((await fetch(url+'/api',{method:'POST',headers:{...auth,'Content-Type':'application/json'},body:'{}'})).status,403)
-  const headers={...auth,Origin:serverOrigin,'Content-Type':'application/json'}
-  assert.equal((await fetch(url+'/api',{method:'POST',headers,body:JSON.stringify({value:'safe'})})).status,200)
-  assert.equal((await fetch(url+'/api',{method:'POST',headers,body:'x'.repeat(262145)})).status,413)
-  assert.equal(writes,1)
+test('native settings registry scopes pages to enabled plugins, bounds writes and does not leak arbitrary errors',async t=>{
+  const {createRequire}=await import('node:module');const require=createRequire(new URL('../../plugins/core/package.json',import.meta.url));
+  const {pathToFileURL}=await import('node:url');const {Context}=await import(pathToFileURL(require.resolve('@deepseek-ai/cordis')));
+  const {ConfigurationPages}=await import('../../plugins/core/lib/harness/configuration-ui.js');
+  const ctx=new Context(),registry=new ConfigurationPages(ctx);cleanup(t,()=>ctx.fiber.dispose());let writes=0;
+  const remove=registry.register({name:'telebot-fixture',title:'Fixture',fields:[],describe:async()=>({config:{},revision:'one',missing:[],active:true}),save:async body=>{writes++;if(body.fail)throw new Error('/private/secret');return{saved:true}}});
+  const request=(body,headers={})=>new Request('http://127.0.0.1/api/telebot/configuration',{method:'POST',headers:{'Content-Type':'application/json',...headers},body:JSON.stringify(body)});
+  const listing=await registry.handle(request({action:'list'}));assert.equal((await listing.json()).pages[0].name,'telebot-fixture');
+  assert.equal((await registry.handle(request({plugin:'telebot-fixture',action:'save',body:{}}))).status,200);
+  assert.equal((await registry.handle(request({plugin:'telebot-fixture',action:'save',body:{}},{'x-forwarded-for':'203.0.113.1'}))).status,403);
+  assert.equal((await registry.handle(request({plugin:'telebot-fixture',action:'save',body:{value:'x'.repeat(262145)}}))).status,413);
+  assert.equal(writes,1);
+  const failure=await registry.handle(request({plugin:'telebot-fixture',action:'save',body:{fail:true}}));assert.equal((await failure.json()).code,'configuration_request_rejected');
+  remove();assert.equal((await registry.handle(request({plugin:'telebot-fixture',action:'get'}))).status,404);
 })

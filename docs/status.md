@@ -1,24 +1,23 @@
 # 开发状态与接续入口
 
-核对：2026-11-01；分支 codex/compat-desktop-0.2.1-rc.5；本次安装记录与重建代码一并提交（提交号见 git log）。唯一计划为 HARNESS_DEVELOPMENT_PLAN.md。
+核对：2026-11-01；分支 codex/compat-desktop-0.2.1-rc.5。唯一计划为 HARNESS_DEVELOPMENT_PLAN.md；提交状态见 git log。
 
 ## 已交付
 
-- P0–P6 代码及 Windows 隔离验收完成；P7 的 Windows 归档安装/启停/卸载通过；P8 原生入口实现及公开原生 RPC 验收完成。七个自有包：core、desktop、统一 feishu、codex、adviser、publishing、automation；外部 KB 为 dsh-knowledge@0.5.2。
-- 精确兼容官方 0.2.1-rc.5、Cordis 4.0.5、schemastery 3.18.5。2026-11-01 已用桌面随附 rc.5 CLI 正式安装七个自有包及 dsh-knowledge@0.5.2；adviser 保持停用。整个 desktop profile 与依赖位于 D 盘，原路径用目录联接兼容；只联接 node_modules 会导致官方宿主模块解析失败，已改正。安装前已备份配置/凭据/会话，详见[安装与启动](installation.md)。
-- 原生入口：core + desktop + 所需业务包即可，无飞书凭据；从官方所有者 RPC 取得身份，默认完整权限，inspect/plan 保持只读。支持实际写入/发布/Git/任务、文件附件、冷恢复；非所有者、ACP、后台回执不能取得原生权限。UI/独立配置目录已验证。见[原生入口](native-desktop.md)。
-- 飞书：原管理员/目录/冻结确认继续生效，双入口已验隔离。端口和独立 webhook 服务、Base 链接 UI/可信自然语言管理保留；无导入、OAuth/scopes、测试字段。模型和计时复用官方宿主。
-- Codex：原生 0.160.0，保留账户/配置；飞书/受限模式限定工作区、关闭网络/临时写根；原生完整权限使用官方 full access，已实测受控 cwd 外写入、回环 HTTP、历史和续聊。冻结/去重/unknown、Skill 副本、CSV/XLSX、产物哈希保留；已拒绝旧 apply-token 确认别名，模型不能消费真实用户提案。
-- 发布/自动化：新建报告、原文保真、指定文件 Git、恢复副本和独立投递账本；官方唯一时钟。飞书创建与 auto 授权仍分开，原生完整权限 auto 创建即授权，显式 confirm 按次确认。未知结果不重做业务。
+- P0–P8 已实现并完成 Windows 隔离验收。七个自有包：core、desktop、统一 feishu、codex、adviser、publishing、automation；外部 KB 为 dsh-knowledge@0.5.2。精确兼容官方 0.2.1-rc.5、Cordis 4.0.5、schemastery 3.18.5。
+- 配置已迁入官方桌面 **设置 → Telebot 插件**：使用 dsh.client/settings.section 注册 React 页面，复用宿主主题、设置导航和官方 Connection 所有者认证；没有独立 localhost 页面、iframe 或配置访问令牌。六个启用插件有配置页；adviser 保持停用，启用后出现；知识库使用上游页面。
+- 飞书手填应用配置，端口可修改，Base 链接独立增删；无导入、OAuth/scopes 或测试字段。保存仍保留原子文件、凭据分离、单写者/revision、忙碌保护和失败回滚；旧 endpoint.json/setup.token 在升级启动时移除，配置/凭据/业务数据保留。
+- 原生入口默认完整权限，身份来自官方所有者 RPC；inspect/plan 始终只读，非所有者、ACP、后台回执不能取得原生权限；飞书管理员/目录/冻结确认隔离。Codex 沿用本机 0.160.0 账户和配置，保留历史、Skill 副本、产物哈希与一次性确认。发布保持原文/新文件/指定 Git 文件规则；自动化复用官方唯一时钟和独立投递账本，unknown 不重做业务。
+- 正式 desktop profile 已更新并启动。整个 profile/依赖在 D 盘，原 C 盘入口为 Junction；不要只联接 node_modules。正式原生配置 API 和客户端模块注入通过 8 项检查。安装包位于 `D:/files_data/windborne/dsh-runtime/releases/telebot-0.1.0-desktop-ui-20261101-r3`，启动/备份见[安装指南](installation.md)。
 
 ## 验证与剩余边界
 
-本地 74；官方基础 11、P0 18、飞书 ACP/Web 13/13、完整业务 25/25、普通配置/桌面端口模拟 14/14；原生入口 16、真实 Codex 16、新原生页面 QA 3。上游 KB 6、较早页面 QA 4 保留为此前证据。报告位置、SHA-256 与当前归档绑定只维护在 [latest.json](../tracking_outputs/latest.json)。
+本地 77（含原生配置组件交互 3）；官方基础 11、P0 18、飞书 ACP/Web 13/13、完整业务 25/25、普通配置/桌面端口模拟 14/14、原生入口 16。真实 Codex 16、上游 KB 6 为后端未变的保留证据。报告位置、SHA-256 与最终归档绑定只维护在 [latest.json](../tracking_outputs/latest.json)。
 
-原生入口覆盖四种**完全不安装飞书包**的最小组合、真实官方 Web 所有者 RPC、非所有者/ACP/回执拒绝、官方 Shell Git 回环推送、任务附件和冷恢复；另有双入口模拟飞书检查。它使用桌面共用的 SessionController。另已完成正式 Electron 启动落盘检查 5 项：七包哈希/版本、KB 精确版本、D 盘 profile、六个存活配置写者及四类业务数据库。未发模型请求；正式 UI 和实际账户端到端验收仍不能由这些检查替代。浏览器检查因自动审批服务额度不足受阻。
+用户明确自行做视觉验收，本轮不执行页面点击/截图验收；旧独立页面视觉报告仅作历史，不能作为新原生页面的证据。当前验证覆盖实际桌面启动/官方客户端模块、所有者配置 API、秘密分离保存、Base 增删、未保存修改/版本冲突保护、重启和卸载保留。没有付费模型请求或新增真实飞书发送。
 
-真实飞书入站/按钮/复杂媒体/资源 ACL/通知/产物/切流仍按[联调清单](feishu-live-checklist.md)关闭；此前指定 Base 9 项与获批三条群发送是历史证据，本轮无新增真实发送或公网切换。Linux/macOS、真实 OpenCLI 账户按用户决定待验/不开展。真实搜索 provider 与真实 Git 认证需用户环境核对；Windows Git file 传输的 MSYS 沙箱限制仍保留，不通过关闭沙箱解决。
+飞书仍需本人在桌面页手填应用凭据、管理员、工作目录及资源；端口 3000 已作为配置保留，未切公网回调。入站/按钮/复杂媒体/ACL/通知/产物/切流按[真实清单](feishu-live-checklist.md)验收；此前指定 Base 与三条群测试仅为历史证据。Linux/macOS 待验；真实 OpenCLI 账户按用户决定不开展。真实搜索 provider/Git 认证另验；不通过关闭官方沙箱绕过 Windows Git file 传输的 MSYS IPC 限制。
 
 ## 接续只读
 
-先本页与 AGENTS.md，再读计划相关小节和[测试分组](../tests/README.md)。不默认读 archive。正式安装已执行；日常用 D 盘交付目录中的 start-desktop.ps1 启动，确保 PowerShell/Git 与缓存环境稳定。飞书配置 UI 已生成，仍待本人手填应用凭据/管理员/工作目录及资源，当前没有监听 3000、没有公网切流。D 盘缓存/依赖/临时目录要求继续，环境脚本不修改 ACL。各插件业务 UI 已有，统一安装前迁移向导未实现。远程单插件不断线更新仅留愿景，不实施、不作为门禁。仅更新本页与 latest.json，不新增并列进度长文。
+先本页和 AGENTS.md，再读计划相关小节与[测试分组](../tests/README.md)，不默认读 archive。使用官方管理器停机安装；D 盘缓存/依赖/临时目录要求继续，环境脚本不修改 ACL。没有统一安装前迁移向导。远程单插件不断线更新仅留愿景、不实施。仅更新本页与 latest.json，不另增并列进度长文。

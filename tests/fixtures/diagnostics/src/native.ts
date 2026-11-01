@@ -23,6 +23,9 @@ export async function installNativeProbes(ctx:Context,directory:string){
    }else if(input.action==='delivery'){
     const actor=actors.get(input.sessionId);if(!actor)throw new Error('fixture_actor_missing')
     result=await ctx.telebotCore.deliver({id:input.id,actor,result:input.result})
+   }else if(input.action==='foreign-configuration'){
+    const response=await handler.fetch(new Request(origin+'/api/telebot/configuration',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({plugin:'telebot-feishu',action:'get'})}),foreign)
+    result={status:response.status,body:await response.text()}
    }else if(input.action==='foreign'){
     const endpoint=input.endpoint,response=await handler.fetch(new Request(origin+'/api/'+endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'client-request',rpcId:randomUUID(),method:endpoint,payload:{args:{request:input.payload}}})}),foreign)
     result={status:response.status,body:await response.text()}

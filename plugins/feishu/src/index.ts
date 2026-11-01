@@ -1,13 +1,13 @@
 /** One installable Feishu plugin: configuration UI, webhook and all business capabilities. */
 import type { Context, Fiber } from '@deepseek-ai/cordis'
 import WebServer from '@deepseek-ai/dsh-host-webserver'
-import { writeFile } from 'node:fs/promises'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import path from 'node:path'
 import { Config, validateCallbacks } from './config.js'
 import { Configuration, type Credentials } from './adapters/configuration.js'
-import { setupHandler, setupPath } from './setup/http.js'
+import { registerConfigurationPage } from '@telebot/core/configuration'
+import { feishuFields } from './setup/fields.js'
 import { apply as startBusiness } from './business/index.js'
 import { startChannel } from './harness/runtime.js'
 import { FeishuApi, apiOrigin } from './adapters/feishu-api.js'
@@ -43,7 +43,6 @@ export async function apply(ctx: Context, bootstrap: Config) {
   await configure(ctx, store, directory, credentials, false)
 }
 async function configure(ctx: Context, store: Configuration, directory: string, credentials: Credentials, dedicatedIngress: boolean) {
-  await writeFile(path.join(directory, 'endpoint.json'), JSON.stringify({ origin: ctx.webServer.getOrigin(), route: setupPath }) + '\n', { mode: 0o600 })
   let runtime: Fiber | undefined, busy = () => false, hold = () => () => {}, start = () => {}, active = false, stopping = false, failure = ''
   let business: Awaited<ReturnType<typeof startBusiness>> | undefined
   let initializing = true, finishInitialization!: () => void
@@ -90,7 +89,6 @@ async function configure(ctx: Context, store: Configuration, directory: string, 
       throw error
     } finally { releasePrevious() }
   }
-  let remove: () => void
   const unregisterBases = ctx.telebotCore.registerFeature('bases', async request => {
     const task = queue.then(async () => {
       const config = store.current
@@ -122,21 +120,20 @@ async function configure(ctx: Context, store: Configuration, directory: string, 
     queue = task.catch(() => {})
     return task
   })
-  try { remove = ctx.webServer.register({ kind: 'prefix', path: setupPath, handler: setupHandler(ctx.webServer.getOrigin(), {
-    authorized: token => store.authorized(token), describe: async () => ({ ...await store.describe(), active, initializing, busy: active ? busy() : false, failure,
-      deployment: { effectivePort: ctx.webServer.port, configuredPort: store.current.deploymentPort, dedicatedIngress,
-        restartRequired: ctx.webServer.port !== store.current.deploymentPort || dedicatedIngress !== store.current.dedicatedIngress } }),
-    save: body => { const job = queue.then(() => commit(body)); queue = job.catch(() => {}); return job },
-  }) }) } catch (error) { await store.close(); throw error }
-  ctx.effect(() => async () => { stopping = true; unregisterBases(); remove(); await queue; try { await runtime?.dispose() } finally { await store.close() } })
+  registerConfigurationPage(ctx,{
+    name,title:'飞书配置',fields:feishuFields,
+    describe:async()=>({...await store.describe(),active,initializing,busy:active?busy():false,failure,
+      deployment:{effectivePort:ctx.webServer.port,configuredPort:store.current.deploymentPort,dedicatedIngress,
+        restartRequired:ctx.webServer.port!==store.current.deploymentPort||dedicatedIngress!==store.current.dedicatedIngress}}),
+    save:body=>{const job=queue.then(()=>commit(body));queue=job.catch(()=>{});return job},
+  })
+  ctx.effect(() => async () => { stopping = true; unregisterBases(); await queue; try { await runtime?.dispose() } finally { await store.close() } })
   try {
     const missing = await store.missing()
     if (!missing.length) {
       try { await activate(store.current); if (!store.revision) await store.save(store.current); start(); active = true }
       catch { failure = 'runtime_configuration_rejected' }
     }
-    const url = ctx.webServer.getOrigin() + setupPath + '#' + store.token
-    if (!active) ctx.logger.warn('Feishu configuration required (%s). Open locally: %s', missing.join(', ') || failure, url)
-    else ctx.logger.info('Feishu configuration UI (local only): %s', url)
+    if (!active) ctx.logger.warn('Feishu configuration required (%s). Settings → Telebot 插件 → 飞书配置', missing.join(', ') || failure)
   } finally { initializing = false; finishInitialization() }
 }

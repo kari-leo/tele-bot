@@ -1,6 +1,7 @@
 /** Shared service identity for independently installed Telebot bundles. */
 import { Context, Service } from '@deepseek-ai/cordis'
 import { configuredPlugin } from './harness/configuration.js'
+import { ConfigurationPages } from './harness/configuration-ui.js'
 import { hostCapabilities, type CapabilitySnapshot } from './contracts.js'
 import { HarnessConversations } from './harness/conversations.js'
 import type { FeatureHandler, FeatureRequest, TrustedActor, ActorProvider } from './contracts.js'
@@ -131,6 +132,7 @@ export const name = 'telebot-core'
 
 /** Register one service in the owning plugin fiber; Cordis removes it on unload. */
 export async function apply(ctx: Context): Promise<void> {
+  new ConfigurationPages(ctx)
   const core = new TelebotCore(ctx)
   core.registerFeature('confirm', request => core.confirmLatest(request.actor, request.text === 'cancel', request.signal))
   core.registerFeature('answer', async ({ actor, text }) => {

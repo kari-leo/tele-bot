@@ -1,11 +1,11 @@
 # 官方桌面安装、启动与重装
 
-2026-11-01 已按最新授权安装到官方 **0.2.1-rc.5 desktop profile**：七个自有包 0.1.0 + dsh-knowledge@0.5.2；adviser 停用。正式桌面已启动并生成六个配置入口、四类业务数据库。未发送付费模型请求或真实飞书消息；正式 UI 交互因浏览器自动审批服务额度不足尚未复验。以下步骤保留用于重装和其他机器，当前机器无需重复安装。
+2026-11-01 已按最新授权安装到官方 **0.2.1-rc.5 desktop profile**：七个自有包 0.1.0 + dsh-knowledge@0.5.2；adviser 停用。正式桌面已启动并生成六个配置入口、四类业务数据库。未发送付费模型请求或真实飞书消息；原生配置接口、客户端模块和组件交互已验证；视觉验收由你自行完成。以下步骤保留用于重装和其他机器，当前机器无需重复安装。
 
 日常从 D 盘交付目录启动（先退出已运行桌面）：
 
 ```powershell
-& 'D:\files_data\windborne\dsh-runtime\releases\telebot-0.1.0-20261101\start-desktop.ps1'
+& 'D:\files_data\windborne\dsh-runtime\releases\telebot-0.1.0-desktop-ui-20261101-r3\start-desktop.ps1'
 ```
 
 脚本与配套环境脚本已复制到该目录，独立于源码；它只准备当前进程的 D 盘缓存/临时目录、稳定 PowerShell 7.6.9 和 Git 路径，然后启动官方程序。原桌面快捷方式仍能启动，但不保证继承这些环境变量。
@@ -90,20 +90,11 @@ if ($LASTEXITCODE -ne 0) { throw '知识库安装失败' }
 
 从保留上述 D 盘环境的进程启动 `D:\daily_app\Deepseek Harness\DeepSeek Harness.exe`。Shell 需要 PowerShell 7 和 Git；本轮使用 D 盘 PowerShell 7.6.9 和现有 Git，不依赖 Codex 缓存内的可执行文件。启动失败先查看本机错误，不同时启动第二个写者。
 
-## 4. 手填正式配置
+## 4. 在 Harness 桌面内配置
 
-原生入口另见 [desktop 说明](native-desktop.md)。各插件目录是 `$DSH_HOME/plugins/telebot-名称/config/`，含配置/模板、`setup.token`、`endpoint.json` 和写者锁。endpoint 仅记录地址。打开插件 UI：
+打开 Harness 桌面左下角账号菜单的“设置”，选择 **Telebot 插件**，再选择对应插件页签。填写后点击“保存并应用”；无需离开桌面、打开 localhost、拼接 URL 或输入配置令牌。缺项会在页签和页面提示中显示。停用的插件需先在官方“插件”页启用；知识库继续使用上游自身页面。
 
-```powershell
-$dshHome = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $env:USERPROFILE '.dsh' }
-$name = 'feishu' # 或 desktop、core、codex、publishing、automation；adviser 需先启用
-$configDir = Join-Path $dshHome "plugins/telebot-$name/config"
-$endpoint = Get-Content -Raw -LiteralPath (Join-Path $configDir 'endpoint.json') | ConvertFrom-Json
-$token = (Get-Content -Raw -LiteralPath (Join-Path $configDir 'setup.token')).Trim()
-Start-Process ($endpoint.origin + $endpoint.route + '#' + $token)
-```
-
-不要分享令牌链接。
+原生入口另见 [desktop 说明](native-desktop.md)。各插件仍使用 `$DSH_HOME/plugins/telebot-名称/config/` 下的版本化配置/模板和写者锁；旧 `endpoint.json/setup.token` 会在升级启动时移除。配置数据和凭据不迁移或清空。没有桌面/Web 客户端的纯 headless/ACP 部署，可停机后手工编辑同一配置文件。
 
 - 飞书：手填 App ID、Secret、Verification Token、管理员、工作目录和资源；参考旧 env 由本人查阅，无导入/OAuth/scopes UI。凭据由官方 credentials 保存。provider/model 同时留空使用宿主默认模型。
 - desktop：默认完整权限，可在 UI 关闭并填写受限目录；inspect/plan 始终只读。
@@ -118,7 +109,7 @@ Start-Process ($endpoint.origin + $endpoint.route + '#' + $token)
 
 保留 Cloudflare 上游 `http://localhost:3000`，先确认本机监听，再在飞书验证 `https://feishu.windborne.cc/feishu/webhook`。反代仅公开 webhook 路径，不能公开整个桌面/知识库管理接口；改端口时同步改隧道上游。见[回调指南](feishu-callback.md)。
 
-切换前核对已有任务和 unknown 账本，停用旧 Telebot 对应入口，确保唯一回调消费者/任务写者。真实输入、通知、资源写入按[联调清单](feishu-live-checklist.md)验收。本机已正式安装并完成启动检查；这不代表公网已接通。飞书仍缺手填应用配置，当前不监听 3000。
+切换前核对已有任务和 unknown 账本，停用旧 Telebot 对应入口，确保唯一回调消费者/任务写者。真实输入、通知、资源写入按[联调清单](feishu-live-checklist.md)验收。本机已正式安装并完成启动检查；这不代表公网已接通。飞书仍缺手填应用配置，补齐前 webhook 不准入；未进行公网切换。
 
 卸载：退出桌面，依次 automation、publishing、adviser、codex、feishu、desktop、core 执行 `& $dsh plugin --profile desktop remove '@telebot/名称'`，移除对应 patch 条目。保留配置/凭据/会话/业务数据；停用使用 `disabled: true`。
 
@@ -147,4 +138,4 @@ Start-Process ($endpoint.origin + $endpoint.route + '#' + $token)
 | 独立官方 Web profile | 本轮隔离验证的载体 | 同版本 dsh --profile 名称 --from-default-profile web --dump-config 初始化；安装相同 tgz 后启动。独立 home 可放 D，不共享 desktop 的已加载实例 |
 | npm 包名、HTTPS tgz、Git/市场 | 官方支持；自有插件当前尚未发布这些入口 | 暂不能输入 @telebot/codex 或整个 monorepo Git URL完成安装；发布独立包/归档后需验证。上游知识库已可用 dsh-knowledge@0.5.2 包名安装 |
 
-UI 与 CLI 使用同一官方管理器；无需另一个加载器。当前没有统一的安装前 D 盘目录/联接迁移向导，业务配置已有各自本机 UI。空机器完全离线安装未承诺，只有固定 peer/依赖已缓存齐全时才可能。插件配置页面没有导入/OAuth/scopes/测试字段。远程修复后不断线更新仅留愿景，本轮没有实现；本指南是手动停机安装。
+UI 与 CLI 使用同一官方管理器；无需另一个加载器。当前没有统一的安装前 D 盘目录/联接迁移向导，业务配置统一在 Harness 桌面“设置 → Telebot 插件”中。空机器完全离线安装未承诺，只有固定 peer/依赖已缓存齐全时才可能。插件配置页面没有导入/OAuth/scopes/测试字段。远程修复后不断线更新仅留愿景，本轮没有实现；本指南是手动停机安装。

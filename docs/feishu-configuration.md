@@ -1,15 +1,15 @@
 # 统一飞书插件的配置与 UI
 
-更新：2026-10-30。`@telebot/feishu` 已同时包含渠道与飞书业务，原 `@telebot/feishu-tools` 不再发布或单独安装。内部仍按 channel/business/setup 分层；停用 `businessEnabled` 保留渠道，停用整个飞书包则同时卸载二者。Codex/adviser 保持独立。
+更新：2026-11-01。`@telebot/feishu` 已同时包含渠道与飞书业务，原 `@telebot/feishu-tools` 不再发布或单独安装。内部仍按 channel/business/setup 分层；停用 `businessEnabled` 保留渠道，停用整个飞书包则同时卸载二者。Codex/adviser 保持独立。
 
 插件没有独立的聊天模型或 Agent 循环。页面的 provider/model 是为飞书关联的官方 Harness Session 设置可选模型覆盖；同时留空即使用宿主默认选择，`/model` 也只修改当前 Harness 会话。它不配置知识库 embedding、Codex 或 adviser 模型。
 
 ## 首次使用
 
 1. 在受支持的官方 Harness `0.2.1-rc.5` 的 Web profile 中先安装 core，再安装 feishu。该 profile 必须提供官方 webServer、tools、Agent/Session 和 credentials；桌面需启用 dedicatedIngress 隔离官方 webServer，使配置端口独立于桌面临时根端口；详见安装指南。
-2. 飞书 row 默认启用。首次加载会创建配置目录；缺 App ID、管理员、工作目录、Secret 或来源校验时，宿主继续运行，webhook 不准入，并在启动提示中提供本机配置 UI 链接。
-3. 用本机浏览器打开提示中的 `/telebot/feishu/setup#…`，手动填写配置。链接片段是本机配置访问令牌；没有片段时可从配置目录的 `setup.token` 输入。不要分享访问令牌或把配置目录暴露到公网。
-4. 点击“保存并启用”。普通字段和资源元数据写入配置文件，Secret/Verification Token/Encrypt Key 写入官方 credentials，仅引用进入 JSON。空密码框保留已配置凭据，页面只显示是否配置，不回显值。
+2. 飞书 row 默认启用。首次加载会创建配置目录；缺 App ID、管理员、工作目录、Secret 或来源校验时，宿主继续运行，webhook 不准入，并提示到桌面“设置 → Telebot 插件 → 飞书配置”补齐。
+3. 在 Harness 桌面左下角账号菜单打开“设置”，选择“Telebot 插件 → 飞书配置”，手动填写。页面由官方客户端插槽渲染，适配宿主主题与设置导航；没有独立 localhost 页面、iframe、配置访问令牌或 env 导入。
+4. 点击“保存并应用”。普通字段和资源元数据写入配置文件，Secret/Verification Token/Encrypt Key 写入官方 credentials，仅引用进入 JSON。空密码框保留已配置凭据，页面只显示是否配置，不回显值。
 5. 任务空闲时立即生效，无需重启整个 Harness。有排队输入、执行或待投递内容时拒绝修改；初始化和保存串行，新消息准入在切换时暂停，新配置提交后才启动处理。保存失败恢复之前的运行态，旧 revision 的保存拒绝覆盖。
 
 验证范围见 [兼容记录](compatibility.md)；本页只说明正式配置。
@@ -22,14 +22,12 @@
 |---|---|
 | `config.json` | version=1、revision 和非秘密配置；资源保存为 `config.business.resources` 数组 |
 | `config.example.json` | 首次使用的空值模板 |
-| `endpoint.json` | 当前本机 origin/route，无令牌 |
-| `setup.token` | 本机配置访问令牌，每次加载旋转 |
 | `writer.lock` | 当前配置写者的 PID/随机所有者；拒绝同目录多实例写入 |
 | `README.txt` | 本地维护说明 |
 
 参考结构见 [config.example.json](../examples/feishu-config/config.example.json)。生效配置文件优先于启动 patch；首次尚无文件时接收已有 profile 配置。手工编辑时先停止对应 profile，保留版本结构，再启动验证。不要在 JSON 中填写实际 token、Secret 或扩展的明文凭据字段；资源元数据字段及 credential ref 有校验。
 
-渠道数据默认是 `$DSH_HOME/plugins/telebot-feishu/<appId>/`，包含 channel、attachments、reminders 数据库，业务账本在其 `business/operations.sqlite`。配置、官方 credentials 和业务数据一起备份；运行中的 SQLite 应使用一致性备份。卸载保留这些目录。Windows 访问隔离以目录 ACL 为准。
+渠道数据默认是 `$DSH_HOME/plugins/telebot-feishu/<appId>/`，包含 channel、attachments、reminders 数据库，业务账本在其 `business/operations.sqlite`。升级会移除旧 endpoint.json/setup.token（仅废弃的页面访问材料）；配置、官方 credentials 和业务数据保留并一起备份；运行中的 SQLite 应使用一致性备份。卸载保留这些目录。Windows 访问隔离以目录 ACL 为准。
 
 ## 应用身份与权限
 
@@ -49,11 +47,11 @@
 
 ## 高级接入限制与公网回调
 
-正式 UI 只保留应用/会话、凭据/来源校验、消息回调与资源白名单，不展示测试会话或验收开关。高级文件选项 `allowedChatIds` 留空时不额外限制管理员会话；已有白名单仍在接收前执行，页面保存保留该值。需修改时停止 profile 并编辑 config.json，不会因移除 UI 输入而放宽已配置限制。
+正式 UI 只保留应用/会话、凭据/来源校验、消息回调与资源白名单，不展示测试身份或验收开关。可选的“允许的会话 ID”用于正式接入范围限制，留空不额外限制管理员会话。多维表格链接单独管理；页面保存不会清空未展示的高级配置。
 
-UI 只接受 loopback、匹配的 Host/Origin 和访问令牌，拒绝反向代理转发的配置请求；无 CORS。页面使用 CSP、禁止嵌套/缓存，写操作要求 JSON 和同源。webhook 不能占用 setup 路径，不注册用户授权路由。
+页面保存通过官方 Connection 的精确 Fetch 路由；其载体执行 Host/Origin 与所有者身份校验，非所有者/未登录/外站/代理转发请求均拒绝。服务自行限制请求 256 KiB，配置响应不缓存；页面不回显密钥。飞书独立监听器只承载 webhook，不能访问桌面配置；webhook 不能占用 /api、/connect、/telebot 路径，不注册用户授权路由。
 
-公网地址只作为配置元数据，保存 UI 不会替用户修改飞书后台、DNS、隧道或反向代理。旧项目记录的公网地址是 `https://feishu.windborne.cc/feishu/webhook`；上次 GET 可达性检查返回 502，尚未证明已接到新插件。远程维护可使用同端口的 SSH 本地转发访问 loopback 页面，不把配置页面开放给公网。
+公网地址只作为配置元数据，保存 UI 不会替用户修改飞书后台、DNS、隧道或反向代理。旧项目记录的公网地址是 `https://feishu.windborne.cc/feishu/webhook`；上次 GET 可达性检查返回 502，尚未证明已接到新插件。配置维护在官方桌面设置中完成；不要把桌面管理接口开放给公网。
 
 ## 从旧两包安装升级
 

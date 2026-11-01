@@ -30,15 +30,16 @@
     "@deepseek-ai/dsh-shell": "0.2.1-rc.5",
     "@deepseek-ai/dsh-fs": "0.2.1-rc.5",
     "@deepseek-ai/dsh-client-connection": "0.2.1-rc.5",
-    "@deepseek-ai/dsh-api-session-controller": "0.2.1-rc.5"
+    "@deepseek-ai/dsh-api-session-controller": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-client-ui-settings": "0.2.1-rc.5"
   },
   "verifiedPlatforms": [
     "win32"
   ],
   "verifiedDate": "2026-11-01",
-  "status": "Windows official rc.5 isolated ACP/Web/native RPC verified; formal Electron installation/startup filesystem checks passed, UI and live tenant acceptance pending",
+  "status": "Windows official rc.5 ACP/Web/native RPC and native configuration backend/client-module integration verified; visual acceptance user-managed, live tenant acceptance pending",
   "localVerification": {
-    "tests": 74,
+    "tests": 77,
     "harness": 11,
     "p0": 18,
     "feishuAcp": 13,
@@ -52,21 +53,25 @@
     "nativeCodex": 16,
     "nativeDesktop": 16,
     "nativeBrowser": 3,
-    "formalInstallation": 5
+    "formalInstallation": 5,
+    "nativeConfigurationComponents": 3,
+    "formalNativeSettings": 8
   },
   "desktop": {
     "installed": "0.2.1-rc.5",
     "target": "0.2.1-rc.5",
     "modified": false,
-    "scope": "Official Electron: seven Telebot bundles and knowledge installed; six configuration writers alive and four business databases initialized; no paid model or live tenant tests",
+    "scope": "Formal Electron with native settings module in official client boot graph and owner-authenticated configuration pages; no paid model turns or live tenant tests",
     "versionEvidence": "Read-only packaged CLI --version on 2026-11-01",
     "profileModified": true,
     "formalPluginsInstalled": true,
     "startupVerified": true,
-    "uiAcceptance": false
+    "uiAcceptance": false,
+    "nativeConfigurationApiVerified": true,
+    "visualAcceptance": "user_managed"
   },
   "limitations": [
-    "Formal Electron installation/startup verified from local files; UI and actual-account business acceptance pending; browser automatic approval quota blocked UI check",
+    "Native configuration module, owner API and React component interactions verified; desktop appearance left to user acceptance; actual-account business/live Feishu acceptance pending",
     "Real Feishu ingress/cards/media/resource ACL/notifications and scheduled delivery need tenant acceptance",
     "Linux/macOS deferred by user",
     "Windows Git local file transport may fail MSYS signal-pipe IPC under official sandbox; HTTP fixture passes without disabling sandbox",
@@ -86,7 +91,9 @@
     "publicCallbackPort": 3000,
     "nativeDesktopPermissions": "full_by_default_for_authenticated_desktop_entry_only",
     "remoteIndependentPluginUpdate": "vision_only_do_not_implement",
-    "finalInstallationGuide": "enumerate_all_actually_feasible_methods_after_development_keep_D_drive"
+    "finalInstallationGuide": "enumerate_all_actually_feasible_methods_after_development_keep_D_drive",
+    "configurationUi": "official_dsh_client_settings_section_owner_connection_no_standalone_pages",
+    "visualAcceptance": "user_managed"
   },
   "developmentPeers": "autoInstallPeers=false; upstream transitive development peer closure intentionally partial; formal host composition verified"
 }

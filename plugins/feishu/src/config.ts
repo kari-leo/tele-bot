@@ -69,8 +69,7 @@ export const Config = z.object({
 })
 export function validateCallbacks(config: Config) {
   if (!Number.isSafeInteger(config.deploymentPort) || config.deploymentPort < 1 || config.deploymentPort > 65535) throw new Error('valid_deployment_port_required')
-  const reserved = '/telebot/feishu/setup'
-  if (config.webhookPath === reserved || config.webhookPath.startsWith(reserved + '/')) throw new Error('setup_path_is_reserved')
+  if (['/api','/connect','/telebot'].some(reserved=>config.webhookPath===reserved||config.webhookPath.startsWith(reserved+'/'))) throw new Error('setup_path_is_reserved')
   if (config.publicWebhookUrl) {
     const url = new URL(config.publicWebhookUrl)
     if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || url.pathname !== config.webhookPath) throw new Error('matching_https_public_callback_required')

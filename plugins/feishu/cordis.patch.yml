@@ -1,0 +1,4 @@
+- insert:
+    - id: telebot-feishu
+      name: '@telebot/feishu'
+      disabled: false

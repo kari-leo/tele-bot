@@ -1,0 +1,5 @@
+- insert:
+    - id: telebot-diagnostics
+      name: '@telebot/diagnostics'
+      config:
+        label: telebot-local

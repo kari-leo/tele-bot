@@ -1,0 +1,34 @@
+{
+  "name": "telebot-harness-plugins",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.28.5",
+  "engines": {
+    "node": ">=24.9.0"
+  },
+  "scripts": {
+    "build": "node tooling/build.mjs",
+    "pack:plugins": "node tooling/pack.mjs",
+    "check:artifacts": "node tooling/check-artifacts.mjs",
+    "test": "node tooling/test.mjs",
+    "install:knowledge": "node tooling/install-knowledge.mjs",
+    "verify:knowledge": "node tooling/verify-knowledge.mjs",
+    "verify:harness": "node tooling/verify-harness.mjs",
+    "verify:p0": "node tooling/verify-harness.mjs --p0",
+    "verify:codex": "node tooling/verify-codex.mjs",
+    "verify:feishu": "node tooling/verify-feishu.mjs",
+    "verify:features": "node tooling/verify-feishu.mjs --features",
+    "preflight:feishu": "node tooling/feishu-preflight.mjs",
+    "verify:bitable:live": "node tooling/verify-bitable-live.mjs",
+    "verify:feishu:setup": "node tooling/verify-feishu-setup.mjs",
+    "verify:feishu:live": "node tooling/verify-feishu-live.mjs",
+    "verify:desktop": "node tooling/verify-desktop.mjs"
+  },
+  "devDependencies": {
+    "@agentclientprotocol/sdk": "1.4.0",
+    "@types/node": "22.20.1",
+    "typescript": "6.0.3",
+    "zod": "4.6.7"
+  }
+}

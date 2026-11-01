@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "revision": "example",
+  "config": {
+    "appId": "",
+    "adminUserIds": [],
+    "allowedChatIds": [],
+    "workspace": "",
+    "publicWebhookUrl": "",
+    "webhookPath": "/feishu/webhook",
+    "appSecretRef": "FEISHU_APP_SECRET",
+    "verificationTokenRef": "FEISHU_VERIFICATION_TOKEN",
+    "encryptKeyRef": "FEISHU_ENCRYPT_KEY",
+    "businessEnabled": true,
+    "business": {
+      "confirmAll": true,
+      "resources": []
+    },
+    "deploymentPort": 3000,
+    "dedicatedIngress": false
+  }
+}

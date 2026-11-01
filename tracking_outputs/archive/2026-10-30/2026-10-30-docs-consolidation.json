@@ -1,0 +1,117 @@
+{
+  "assessedAt": "2026-10-30T09:29:18.383Z",
+  "branch": "codex/telebot-plugin-rebuild",
+  "gitCommitted": false,
+  "officialHarness": "0.2.2-alpha.2",
+  "platform": "win32",
+  "productionBundles": [
+    "@telebot/core",
+    "@telebot/feishu",
+    "@telebot/codex",
+    "@telebot/adviser"
+  ],
+  "summary": "Documentation/test entry consolidation and formal Feishu setup UI cleanup; other plugin UI requirements are plan-only.",
+  "currentRun": {
+    "build": "passed",
+    "localTests": {
+      "passed": 54,
+      "failed": 0
+    },
+    "packWithFixtures": "passed",
+    "artifactCheck": "passed",
+    "harness": {
+      "status": "passed",
+      "checks": 11,
+      "report": ".runtime/verify-latest.json",
+      "reportSha256": "91abb8fff4933e2850c4d350ae6ac2a1e7b9fa8fae49a961820d973130d2af51",
+      "updatedAt": "2026-10-30T09:25:28.757Z"
+    },
+    "feishuAcp": {
+      "status": "passed",
+      "checks": 13,
+      "report": ".runtime/verify-feishu-latest.json",
+      "reportSha256": "75866fbd568484f9104738acfddb0df8698f8d15c43fa07738ba580626735776",
+      "updatedAt": "2026-10-30T09:26:35.318Z"
+    },
+    "feishuWeb": {
+      "status": "passed",
+      "checks": 13,
+      "report": ".runtime/verify-feishu-web-latest.json",
+      "reportSha256": "21cf229ff26014247002f96629e8a0132dc69798e9f118a3fdfa7c85b89e8209",
+      "updatedAt": "2026-10-30T09:26:54.044Z"
+    },
+    "setup": {
+      "status": "passed",
+      "checks": 11,
+      "report": ".runtime/verify-feishu-setup-latest.json",
+      "reportSha256": "58bcb50ecbbae53520c7c1ae9ddc77d42bb586f190761a393907f8d2f3b93f3d",
+      "updatedAt": "2026-10-30T09:27:46.718Z"
+    },
+    "browser": {
+      "status": "passed",
+      "checks": 3,
+      "report": ".runtime/verify-feishu-page-latest.json",
+      "reportSha256": "a0a8a476b1cb5bf0b51cd2787a33e7befbe0b7d00a681568488ab98e74e35223",
+      "updatedAt": "2026-10-30T09:27:40.914Z"
+    }
+  },
+  "retainedEvidence": {
+    "assessedAt": "2026-10-30 17:01:15（Asia/Shanghai）",
+    "source": "tracking_outputs/archive/2026-10-30/2026-10-30-feishu-unified-final.json",
+    "p0": 17,
+    "featuresAcp": 19,
+    "featuresWeb": 19,
+    "nativeCodex": 9,
+    "liveBitable": 9,
+    "liveBitableCleanup": "completed",
+    "approvedOutbound": 3,
+    "publicCallbackLastStatus": 502,
+    "chatInfo": "scope_missing_99991672"
+  },
+  "boundaries": {
+    "newLiveCalls": false,
+    "paidModels": false,
+    "productionCutover": false,
+    "productionDataMigration": false,
+    "otherPluginUiImplemented": false,
+    "p5p6p7Complete": false
+  },
+  "artifacts": [
+    {
+      "name": "@telebot/core",
+      "sha256": "a1b893ea78a338524e64944caa2b7a0a8d6d69f1ca4b721de4861d635eb89371",
+      "filename": "telebot-core-0.1.0.tgz",
+      "fixture": false
+    },
+    {
+      "name": "@telebot/feishu",
+      "sha256": "804edde5e18c0c089541a84c4f1ef360ec204b98660e42b125cb9781eeb6f606",
+      "filename": "telebot-feishu-0.1.0.tgz",
+      "fixture": false
+    },
+    {
+      "name": "@telebot/codex",
+      "sha256": "cfa9d2132fd34969a231b57bcc6825dcb6dd832eb2ce2c05b9717f9863b108db",
+      "filename": "telebot-codex-0.1.0.tgz",
+      "fixture": false
+    },
+    {
+      "name": "@telebot/adviser",
+      "sha256": "109fa6b6d02c1af9ba8925d1a75c16cc20a73f4a3dac673ee5d2f5c675ebe27b",
+      "filename": "telebot-adviser-0.1.0.tgz",
+      "fixture": false
+    },
+    {
+      "name": "@telebot/diagnostics",
+      "sha256": "f0e265e7625d13454f1c7c8ff45afd9d55c0a0ca7f74f94b5041d77ad340d080",
+      "filename": "telebot-diagnostics-0.1.0.tgz",
+      "fixture": true
+    }
+  ],
+  "sourceSha256": {
+    "plugins/feishu/src/setup/page.ts": "e0a74958059ae4fd2b6b39294311c6dbc6399e0116404164b899fc66abf753f6",
+    "tooling/test.mjs": "c6522ae0c288b91ad1543fdf7f49957f2ca63b0a32eba7abc0ca621dc3959ac7",
+    "tooling/test-suites.json": "8fb6c508dc6fcd047a0fb97dadc6e2c1c0f09de8a79bc22ff9c1928ae47f9f69",
+    "tooling/verify-feishu-setup.mjs": "ffd0f96afd86c9aeed46ff164d05d4b52d13959c18c48e8309f854dff31a93be"
+  }
+}

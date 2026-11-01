@@ -1,0 +1,101 @@
+{
+  "auditedAt": "2026-10-29T19:19:22.518Z",
+  "source": ".runtime/verify-latest.json",
+  "runtime": "0.2.2-alpha.2",
+  "platform": "win32",
+  "transport": "official ACP v1 SDK / stdio",
+  "checks": [
+    "tarballs installed through the official plugin manager outside the repository",
+    "incompatible engines.dsh is rejected by the official CLI",
+    "official ACP initializes and creates independent workspace sessions without source tarballs",
+    "installed fixture executes through the Agent, preserves shared core identity, and emits ACP tool events",
+    "official pwsh executes in a workspace containing spaces and Unicode",
+    "ACP rejection prevents the native shell escalation and its external write",
+    "ACP model selection changes the next actual model request",
+    "one session remains responsive while another is cancelled through ACP",
+    "ACP close/restart/list/resume preserves history and model selection without replay",
+    "disabled fixture disappears from the real model tool catalog",
+    "both installed bundles are removable through the official plugin manager"
+  ],
+  "sessionA": "5f0ba16e-8827-4c61-bb48-88af001000f7",
+  "status": "passed",
+  "modelRequests": [
+    {
+      "model": "telebot-mock-a",
+      "toolCount": 24,
+      "hasEcho": true,
+      "hasReceipt": false,
+      "instruction": "ECHO:635b723e-2f5e-4122-89b2-eb4ee6b4fcab"
+    },
+    {
+      "model": "telebot-mock-a",
+      "toolCount": 24,
+      "hasEcho": true,
+      "hasReceipt": true,
+      "instruction": "ECHO:635b723e-2f5e-4122-89b2-eb4ee6b4fcab"
+    },
+    {
+      "model": "telebot-mock-a",
+      "toolCount": 24,
+      "hasEcho": true,
+      "hasReceipt": false,
+      "instruction": "SHELL_READ"
+    },
+    {
+      "model": "telebot-mock-a",
+      "toolCount": 24,
+      "hasEcho": true,
+      "hasReceipt": true,
+      "instruction": "SHELL_READ"
+    },
+    {
+      "model": "telebot-mock-a",
+      "toolCount": 24,
+      "hasEcho": true,
+      "hasReceipt": false,
+      "instruction": "SHELL_DENIED"
+    },
+    {
+      "model": "telebot-mock-a",
+      "toolCount": 24,
+      "hasEcho": true,
+      "hasReceipt": true,
+      "instruction": "SHELL_DENIED"
+    },
+    {
+      "model": "telebot-mock-b",
+      "toolCount": 24,
+      "hasEcho": true,
+      "hasReceipt": false,
+      "instruction": "MODEL_SWITCH_CHECK"
+    },
+    {
+      "model": "telebot-mock-b",
+      "toolCount": 24,
+      "hasEcho": true,
+      "hasReceipt": false,
+      "instruction": "WAIT_FOR_CANCEL:d6ae517a-8511-4588-afb8-7b8e95471f50"
+    },
+    {
+      "model": "telebot-mock-a",
+      "toolCount": 24,
+      "hasEcho": true,
+      "hasReceipt": false,
+      "instruction": "INDEPENDENT_SESSION_CHECK"
+    },
+    {
+      "model": "telebot-mock-b",
+      "toolCount": 24,
+      "hasEcho": true,
+      "hasReceipt": false,
+      "instruction": "RESUMED_SESSION_CHECK"
+    },
+    {
+      "model": "telebot-mock-a",
+      "toolCount": 23,
+      "hasEcho": false,
+      "hasReceipt": false,
+      "instruction": "DISABLED_PLUGIN_CHECK"
+    }
+  ]
+}

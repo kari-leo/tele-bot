@@ -1,0 +1,4 @@
+- insert:
+    - id: telebot-adviser
+      name: '@telebot/adviser'
+      disabled: true

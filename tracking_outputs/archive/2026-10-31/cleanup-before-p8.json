@@ -1,0 +1,142 @@
+{
+  "date": "2026-10-31T09:03:00.008Z",
+  "removed": [
+    {
+      "path": "D:\\files_data\\windborne\\dsh-runtime\\tmp\\telebot-acp-r5BYfM",
+      "parent": "D:\\files_data\\windborne\\dsh-runtime\\tmp",
+      "kind": "isolated_test_home",
+      "logicalBytes": 4187785
+    },
+    {
+      "path": "D:\\files_data\\windborne\\dsh-runtime\\tmp\\telebot-acp-Y86hoU",
+      "parent": "D:\\files_data\\windborne\\dsh-runtime\\tmp",
+      "kind": "isolated_test_home",
+      "logicalBytes": 4215833
+    },
+    {
+      "path": "D:\\files_data\\windborne\\dsh-runtime\\tmp\\telebot-codex-p0-aKiW8q",
+      "parent": "D:\\files_data\\windborne\\dsh-runtime\\tmp",
+      "kind": "isolated_test_home",
+      "logicalBytes": 7320619
+    },
+    {
+      "path": "D:\\files_data\\windborne\\dsh-runtime\\tmp\\telebot-feishu-EZ7LcS",
+      "parent": "D:\\files_data\\windborne\\dsh-runtime\\tmp",
+      "kind": "isolated_test_home",
+      "logicalBytes": 8582526
+    },
+    {
+      "path": "D:\\files_data\\windborne\\dsh-runtime\\tmp\\telebot-feishu-hlzaGd",
+      "parent": "D:\\files_data\\windborne\\dsh-runtime\\tmp",
+      "kind": "isolated_test_home",
+      "logicalBytes": 9128321
+    },
+    {
+      "path": "D:\\files_data\\windborne\\dsh-runtime\\tmp\\telebot-feishu-mEZqwg",
+      "parent": "D:\\files_data\\windborne\\dsh-runtime\\tmp",
+      "kind": "isolated_test_home",
+      "logicalBytes": 8785550
+    },
+    {
+      "path": "D:\\files_data\\windborne\\dsh-runtime\\tmp\\telebot-feishu-oiWVTa",
+      "parent": "D:\\files_data\\windborne\\dsh-runtime\\tmp",
+      "kind": "isolated_test_home",
+      "logicalBytes": 8712147
+    },
+    {
+      "path": "D:\\files_data\\windborne\\dsh-runtime\\tmp\\telebot-feishu-oscuBo",
+      "parent": "D:\\files_data\\windborne\\dsh-runtime\\tmp",
+      "kind": "isolated_test_home",
+      "logicalBytes": 8812392
+    },
+    {
+      "path": "D:\\files_data\\windborne\\dsh-runtime\\tmp\\telebot-feishu-uV7JWs",
+      "parent": "D:\\files_data\\windborne\\dsh-runtime\\tmp",
+      "kind": "isolated_test_home",
+      "logicalBytes": 8669533
+    },
+    {
+      "path": "D:\\files_data\\windborne\\dsh-runtime\\tmp\\telebot-feishu-XnTGym",
+      "parent": "D:\\files_data\\windborne\\dsh-runtime\\tmp",
+      "kind": "isolated_test_home",
+      "logicalBytes": 8816623
+    },
+    {
+      "path": "D:\\files_data\\windborne\\dsh-runtime\\tmp\\telebot-feishu-YOyBrF",
+      "parent": "D:\\files_data\\windborne\\dsh-runtime\\tmp",
+      "kind": "isolated_test_home",
+      "logicalBytes": 8823248
+    },
+    {
+      "path": "D:\\files_data\\windborne\\dsh-runtime\\tmp\\telebot-setup-4SREQd",
+      "parent": "D:\\files_data\\windborne\\dsh-runtime\\tmp",
+      "kind": "isolated_test_home",
+      "logicalBytes": 8214938
+    },
+    {
+      "path": "D:\\files_data\\windborne\\dsh-runtime\\tmp\\telebot-setup-8OKoAH",
+      "parent": "D:\\files_data\\windborne\\dsh-runtime\\tmp",
+      "kind": "isolated_test_home",
+      "logicalBytes": 8360711
+    },
+    {
+      "path": "D:\\files_data\\windborne\\dsh-runtime\\tmp\\telebot-setup-F4Bhvx",
+      "parent": "D:\\files_data\\windborne\\dsh-runtime\\tmp",
+      "kind": "isolated_test_home",
+      "logicalBytes": 8219883
+    },
+    {
+      "path": "D:\\files_data\\windborne\\dsh-runtime\\tmp\\telebot-setup-Oz8qf9",
+      "parent": "D:\\files_data\\windborne\\dsh-runtime\\tmp",
+      "kind": "isolated_test_home",
+      "logicalBytes": 8215263
+    },
+    {
+      "path": "D:\\files_data\\windborne\\dsh-runtime\\tmp\\telebot-setup-Xqxc6T",
+      "parent": "D:\\files_data\\windborne\\dsh-runtime\\tmp",
+      "kind": "isolated_test_home",
+      "logicalBytes": 8113844
+    },
+    {
+      "path": "D:\\files_data\\windborne\\dsh-runtime\\official\\0.2.2-alpha.2",
+      "parent": "D:\\files_data\\windborne\\dsh-runtime\\official",
+      "kind": "agent_test_runtime",
+      "version": "0.2.2-alpha.2",
+      "logicalBytes": 772248124
+    },
+    {
+      "path": "D:\\files_data\\windborne\\dsh-runtime\\tmp\\telebot-compat-rc5-runtime",
+      "parent": "D:\\files_data\\windborne\\dsh-runtime\\tmp",
+      "kind": "agent_test_runtime",
+      "version": "0.2.1-rc.5",
+      "logicalBytes": 724831810
+    }
+  ],
+  "skipped": [],
+  "removedLogicalBytes": 1624259150,
+  "beforeFreeBytes": {
+    "C:/": 20446580736,
+    "D:/": 96354058240
+  },
+  "afterFreeBytes": {
+    "C:/": 20472545280,
+    "D:/": 98885537792
+  },
+  "netFreeByteChange": {
+    "C:/": 25964544,
+    "D:/": 2531479552
+  },
+  "protected": [
+    "native desktop",
+    "user profiles/config/credentials/sessions/knowledge",
+    "existing Codex account/home",
+    "D-drive PowerShell prerequisite",
+    "workspace development dependencies and release tgz"
+  ],
+  "userDataDeleted": false,
+  "cacheMaintenance": {
+    "npmD": "cleaned",
+    "runtimePnpmD": "pruned; 2 unused packages / 29017410 bytes",
+    "workspacePnpmD": "metadata pruned; optional slow content scan stopped after 454 seconds; installed dependencies retained"
+  }
+}

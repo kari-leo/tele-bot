@@ -1,0 +1,5 @@
+# Telebot adviser plugin
+
+Independently installable bundle for official Harness `0.2.1-rc.5`, dependent on `@telebot/core`; disabled by default. Configure the external OpenCLI entrypoint, administrator IDs and credential refs to redact. `ask_adviser` and `/adviser` require a trusted current actor. All question, context and excerpt text is filtered before provider dispatch and hashing, and the response is filtered again. Pattern filtering does not detect every possible secret.
+
+The process adapter invokes `chatgpt ask --new -f plain` without a shell. Defaults are 180 seconds, 16 cache entries per session and 64 sessions. Requests are stateless and input/output bounded; timeout/disable terminates owned CLI work, clears cache and removes tools. Unavailable advice lets the primary conversation continue. Local tests run a substitute CLI, and official Harness integration verifies lifecycle; real OpenCLI account availability remains deployment acceptance. This plugin grants no file mutation, publishing or approval powers. See [acceptance](../../docs/status.md).

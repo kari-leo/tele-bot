@@ -1,0 +1,16 @@
+{
+  "auditedAt": "2026-10-29T19:19:22.518Z",
+  "source": ".runtime/verify-codex-latest.json",
+  "platform": "win32",
+  "paidModels": false,
+  "realUserHistory": false,
+  "checks": [
+    "official Codex app-server initializes in an isolated home and completes a loopback-only native turn under read-only/never",
+    "native thread/list pagination and thread/read expose the persisted Codex history independently of Harness Sessions",
+    "native thread/resume survives process restart and accepts an explicit permission reset",
+    "archived native history remains readable; production connectors must keep archived threads read-only"
+  ],
+  "cli": "codex-cli 0.160.0",
+  "modelRequests": 1,
+  "status": "passed"
+}

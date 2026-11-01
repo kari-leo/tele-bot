@@ -1,0 +1,3 @@
+- insert:
+    - id: telebot-core
+      name: '@telebot/core'

@@ -1,0 +1,4 @@
+- insert:
+    - id: telebot-publishing
+      name: '@telebot/publishing'
+      disabled: true

@@ -1,0 +1,20 @@
+# Merge into the desktop profile's existing cordis.patch.yml while stopped.
+# Preserve unrelated entries. No credentials here. Saved config takes precedence.
+# Install only entries for packages actually selected; desktop is optional for Feishu-only.
+- id: telebot-desktop
+  disabled: false
+  config:
+    fullAccess: true
+- id: telebot-feishu
+  disabled: false
+  config:
+    dedicatedIngress: true
+    deploymentPort: 3000
+- id: telebot-codex
+  disabled: false
+- id: telebot-publishing
+  disabled: false
+- id: telebot-automation
+  disabled: false
+- id: telebot-adviser
+  disabled: true

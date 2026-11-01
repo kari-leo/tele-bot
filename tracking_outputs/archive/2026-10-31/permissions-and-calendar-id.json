@@ -1,0 +1,247 @@
+{
+  "assessedAt": "2026-10-30T17:41:16.348Z",
+  "clientDate": "2026-10-31",
+  "branch": "codex/telebot-plugin-rebuild",
+  "gitCommitted": false,
+  "officialHarness": "0.2.2-alpha.2",
+  "platform": "win32",
+  "productionBundles": [
+    "@telebot/core",
+    "@telebot/feishu",
+    "@telebot/codex",
+    "@telebot/adviser"
+  ],
+  "summary": "Document precise Feishu business scopes/resource ACL/OAuth preparation, compare legacy Codex session permissions without widening execution, and fix valid calendar @ ID validation.",
+  "currentRun": {
+    "kind": "permissions_review_and_calendar_identifier_fix",
+    "runtimeCodeChanged": true,
+    "codexRuntimeCodeChanged": false,
+    "checks": {
+      "build": "passed",
+      "localTests": {
+        "passed": 55,
+        "failed": 0
+      },
+      "packWithFixtures": "passed",
+      "artifactCheck": "passed",
+      "harness": {
+        "status": "passed",
+        "checks": 11,
+        "report": ".runtime/verify-latest.json",
+        "reportSha256": "607d67ed3c24a9eb5cca6ab505e432e4de8bc45c1e3a47c8817df2c2cac59e85"
+      },
+      "feishuAcp": {
+        "status": "passed",
+        "checks": 13,
+        "report": ".runtime/verify-feishu-latest.json",
+        "reportSha256": "6752cae850b01e5d637f2ea944be3d675aea48d8efd29aee32648b6cc6876c99"
+      },
+      "feishuWeb": {
+        "status": "passed",
+        "checks": 13,
+        "report": ".runtime/verify-feishu-web-latest.json",
+        "reportSha256": "21cf229ff26014247002f96629e8a0132dc69798e9f118a3fdfa7c85b89e8209"
+      },
+      "featuresAcp": {
+        "status": "passed",
+        "checks": 19,
+        "report": ".runtime/verify-features-latest.json",
+        "reportSha256": "cd7b1c5a185b1254d1b7f46f281b760347cc1622355cb515b3f68f4997e853bd"
+      },
+      "featuresWeb": {
+        "status": "passed",
+        "checks": 19,
+        "report": ".runtime/verify-features-web-latest.json",
+        "reportSha256": "1553518bdef040a8e714d374c66cd518c1e71b4e0eaea4a4b598a8cd5c4e265e"
+      }
+    },
+    "localLinks": {
+      "status": "passed",
+      "files": 33,
+      "links": 138
+    },
+    "resourceExamples": "validated_with_current_domain_validator",
+    "productionCutover": false,
+    "publicCallbackRechecked": false
+  },
+  "knowledge": {
+    "package": "dsh-knowledge",
+    "version": "0.5.2",
+    "profile": "web",
+    "installed": true,
+    "embeddingProvider": "none",
+    "nativeManagementUi": true,
+    "modelsDownloaded": false,
+    "legacyDataImported": false
+  },
+  "migration": {
+    "runtimeRoot": "D:/files_data/windborne/dsh-runtime",
+    "directories": [
+      {
+        "source": "C:\\Users\\41547\\.dsh\\profiles\\web\\node_modules",
+        "target": "D:\\files_data\\windborne\\dsh-runtime\\profiles\\web\\node_modules",
+        "files": 8144,
+        "bytes": 960087629,
+        "sha256Verified": true,
+        "cBackupRemoved": true
+      },
+      {
+        "source": "C:\\Users\\41547\\AppData\\Local\\pnpm\\store\\v11",
+        "target": "D:\\files_data\\windborne\\dsh-runtime\\cache\\pnpm\\store\\v11",
+        "files": 7227,
+        "bytes": 886669324,
+        "sha256Verified": true,
+        "cBackupRemoved": true
+      },
+      {
+        "source": "C:\\Users\\41547\\AppData\\Local\\Temp\\telebot-knowledge-th5iCO",
+        "target": "D:\\files_data\\windborne\\dsh-runtime\\tmp\\telebot-knowledge-th5iCO",
+        "files": 7015,
+        "bytes": 789273672,
+        "sha256Verified": true,
+        "cBackupRemoved": true
+      }
+    ],
+    "cCompatibilityJunctions": true,
+    "originalUserConfigDataMoved": false
+  },
+  "resolvedIssues": [
+    {
+      "issue": "Installer post-check expected patch registration; official manager stores bundle selection in package.json dsh.profile.bundles.",
+      "resolution": "Check the official profile manifest; installed package and bundle registration verified."
+    },
+    {
+      "issue": "D runtime temp inherited no explicit current-user FullControl; official Windows Shell grantWrite failed with Win32 5.",
+      "resolution": "Grant only the existing owner inheritable FullControl on the dedicated temp directory; full sandbox escalation-denial regression passed."
+    }
+  ],
+  "retainedEvidence": {
+    "source": "tracking_outputs/archive/2026-10-30/2026-10-30-docs-consolidation.json",
+    "feishuAcp": 13,
+    "feishuWeb": 13,
+    "setup": 11,
+    "featuresAcp": 19,
+    "featuresWeb": 19,
+    "p0": 17,
+    "nativeCodex": 9,
+    "liveBitable": 9,
+    "approvedOutbound": 3,
+    "publicCallbackLastStatus": 502,
+    "previousRun": "tracking_outputs/archive/2026-10-31/scope-clarification.json",
+    "externalKnowledge": 6
+  },
+  "boundaries": {
+    "newLiveCalls": false,
+    "paidModels": false,
+    "productionCutover": false,
+    "legacyKbMigration": false,
+    "feishuKbIdentityBindingImplemented": false,
+    "p5p6p7Complete": false,
+    "legacyKbMigrationRequired": false,
+    "feishuKbIdentityBindingRequired": false
+  },
+  "artifacts": [
+    {
+      "name": "@telebot/core",
+      "filename": "telebot-core-0.1.0.tgz",
+      "sha256": "a1b893ea78a338524e64944caa2b7a0a8d6d69f1ca4b721de4861d635eb89371",
+      "fixture": false
+    },
+    {
+      "name": "@telebot/feishu",
+      "filename": "telebot-feishu-0.1.0.tgz",
+      "sha256": "7ca71e2a66f07110272f19941f78b6c14cb04761c1f94ca355418f08ef228033",
+      "fixture": false
+    },
+    {
+      "name": "@telebot/codex",
+      "filename": "telebot-codex-0.1.0.tgz",
+      "sha256": "cfa9d2132fd34969a231b57bcc6825dcb6dd832eb2ce2c05b9717f9863b108db",
+      "fixture": false
+    },
+    {
+      "name": "@telebot/adviser",
+      "filename": "telebot-adviser-0.1.0.tgz",
+      "sha256": "109fa6b6d02c1af9ba8925d1a75c16cc20a73f4a3dac673ee5d2f5c675ebe27b",
+      "fixture": false
+    },
+    {
+      "name": "@telebot/diagnostics",
+      "filename": "telebot-diagnostics-0.1.0.tgz",
+      "sha256": "f0e265e7625d13454f1c7c8ff45afd9d55c0a0ca7f74f94b5041d77ad340d080",
+      "fixture": true
+    }
+  ],
+  "sourceSha256": {
+    "tooling/install-knowledge.mjs": "873b1e5eab0132a622fa2f4f2049f1c1cbfcfd538bff33718504c7099cd0ef99",
+    "tooling/verify-knowledge.mjs": "9d4fd86eb868d3744979519d0267c01f6b9d9c7f06eeeff5f00f1dcd0725ade2",
+    "tooling/external-plugins.json": "d530c2cd30be6df32c52363e95a28ad08b52d424f9baeae1aaafc5b2759c98de",
+    "examples/use-d-drive-runtime.ps1": "abf08461e6655a8af77f827d54582bac9939f674ce4ce00fde95b53b0b395a82",
+    "plugins/feishu/src/business/domain/resources.ts": "461f95f1ba4bfde724060fe1331754763085218e4eecfcb29655e36d884e6854",
+    "tests/acceptance/production-business.test.mjs": "4271f1283e3e2df5d5b5588f9466ef5b3a59fefb2d94897325b563335e522b1a",
+    "docs/feishu-permissions.md": "8d96c144be045b67477b5a7e459cd070ac0364348fe74a32bd45614b00a26222",
+    "docs/codex-permissions.md": "4533666641fa9a970068aa30b1ea16bda3a8d1a89f25227256a07a8fb42c53b1"
+  },
+  "lastImplementationVerification": {
+    "source": "tracking_outputs/archive/2026-10-31/knowledge-d-migration.json",
+    "assessedAt": "2026-10-30T16:49:35.891Z",
+    "checks": {
+      "build": "passed",
+      "localTests": {
+        "passed": 54,
+        "failed": 0
+      },
+      "packWithFixtures": "passed",
+      "artifactCheck": "passed",
+      "harness": {
+        "status": "passed",
+        "checks": 11,
+        "report": ".runtime/verify-latest.json",
+        "reportSha256": "f107c5dcd3d47cac5917ec76293622be7f08af731d4ce00e858f886b7b983da2"
+      },
+      "knowledge": {
+        "status": "passed",
+        "checks": 6,
+        "report": ".runtime/verify-knowledge-latest.json",
+        "reportSha256": "adf4d770bdadf8c05cc6459a22d203f9f89128f66b92458ff82dc53d05ca4a3a"
+      }
+    }
+  },
+  "scopeDecisions": {
+    "legacyKnowledgeMigration": "cancelled_by_user",
+    "feishuKnowledgeSpaceBinding": "cancelled_by_user",
+    "extraCodexAccountSetup": "not_requested_reuse_existing_local_cli",
+    "codexBackend": "existing_local_codex_app_server",
+    "localCodexVersion": "0.160.0",
+    "opencliAccountSetup": "not_in_this_scope_optional_adviser_only",
+    "fullLegacyAutomation": "not_cancelled_hypothetical_native_option_explained",
+    "naturalLanguageScheduledExecutionFeishuLoop": "not_yet_verified_needs_thin_actor_and_delivery_bridge"
+  },
+  "callbackDiagnostics": {
+    "assessedAt": "2026-10-30T17:10:36.053Z",
+    "clientDate": "2026-10-31",
+    "method": "read_only_no_credentials",
+    "url": "https://feishu.windborne.cc/feishu/webhook",
+    "status": 502,
+    "server": "cloudflare",
+    "localConfigOrigin": "http://localhost:3000",
+    "localPort3000": "ECONNREFUSED",
+    "cloudflaredRunning": true,
+    "cloudflaredTokenManaged": false,
+    "existingWebProfileDependencies": [
+      "dsh-knowledge@0.5.2"
+    ],
+    "coreFeishuInstalledInUserWebProfile": false,
+    "productionCallbackChanged": false,
+    "liveMessagesSent": 0
+  },
+  "codexPermissionReference": {
+    "legacyCommit": "a8da478",
+    "runtimeChangedThisRun": false,
+    "currentResume": "read-only",
+    "controlledWritableResume": "pending_public_protocol_and_sandbox_verification"
+  },
+  "knownGaps": [
+    "calendar_time_range_query_does_not_support_generic_cursor_pagination"
+  ]
+}

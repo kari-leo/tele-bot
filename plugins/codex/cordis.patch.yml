@@ -1,0 +1,4 @@
+- insert:
+    - id: telebot-codex
+      name: '@telebot/codex'
+      disabled: true

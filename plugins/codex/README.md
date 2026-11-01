@@ -1,0 +1,7 @@
+# Telebot Codex plugin
+
+Independently installable bundle for official Harness `0.2.1-rc.5`, dependent on the single `@telebot/core` service. Disabled by default. Configure an absolute official Codex CLI entrypoint, allowed workspace roots, administrators and one private history owner. Runtime SQLite data stays under DSH_HOME unless explicitly configured elsewhere.
+
+The specialized native app-server JSONL connector supports exact tested CLI `0.160.0` and public experimental permission profiles. Inspect/plan enforce read-only; apply prepares a frozen 15-minute, actor/chat/session/cwd-bound, one-use grant. A 20-minute budget, cancellation, durable unknown outcomes and single-writer database ownership prevent blind resubmission. Verified current-run artifacts include SHA-256 and use a separate channel delivery ledger. The connector is not a generic shell executor or another Agent loop.
+
+Native history/list/read and confirmed read-only resume require the configured owner in private chat. Archived history is read-only; resumed threads recheck cwd and reset permissions. See [operations](../../docs/operations.md) for commands. `pnpm verify:codex` uses the actual CLI and isolated loopback model; Windows execution was tested with MXC, including harmless read, rejected write, authorized artifact write, cancellation and native history. No paid model or real user history is accessed. Other CLI versions/sandbox platforms require separate compatibility verification.

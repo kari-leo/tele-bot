@@ -1,0 +1,186 @@
+{
+  "assessedAt": "2026-10-31T00:46:56.727Z",
+  "clientDate": "2026-10-31",
+  "branch": "codex/telebot-plugin-rebuild",
+  "gitCommitted": false,
+  "officialHarness": "0.2.2-alpha.2",
+  "platform": "win32",
+  "summary": "Application-only Feishu; remove OAuth and env-import UI/API, retain manual config/admin/resource/confirmation checks, keep tunnel port 3000.",
+  "productionBundles": [
+    "@telebot/core",
+    "@telebot/feishu",
+    "@telebot/codex",
+    "@telebot/adviser"
+  ],
+  "currentRun": {
+    "kind": "application_identity_only",
+    "runtimeCodeChanged": true,
+    "codexRuntimeCodeChanged": false,
+    "checks": {
+      "build": "passed",
+      "localTests": {
+        "passed": 55,
+        "failed": 0
+      },
+      "packWithFixtures": "passed",
+      "artifactCheck": "passed",
+      "harness": {
+        "status": "passed",
+        "checks": 11,
+        "report": ".runtime/verify-latest.json",
+        "sha256": "14bdaa40a5561ce2b6213fcc55ecca3883c98db38b3ebd996dedb393441f3d00"
+      },
+      "feishuAcp": {
+        "status": "passed",
+        "checks": 13,
+        "report": ".runtime/verify-feishu-latest.json",
+        "sha256": "6752cae850b01e5d637f2ea944be3d675aea48d8efd29aee32648b6cc6876c99"
+      },
+      "feishuWeb": {
+        "status": "passed",
+        "checks": 13,
+        "report": ".runtime/verify-feishu-web-latest.json",
+        "sha256": "21cf229ff26014247002f96629e8a0132dc69798e9f118a3fdfa7c85b89e8209"
+      },
+      "featuresAcp": {
+        "status": "passed",
+        "checks": 20,
+        "report": ".runtime/verify-features-latest.json",
+        "sha256": "7c886823239cb409d03e08793574efb2e9ef57a851b6a4dce764f855a19cf98f"
+      },
+      "featuresWeb": {
+        "status": "passed",
+        "checks": 20,
+        "report": ".runtime/verify-features-web-latest.json",
+        "sha256": "d493c9d202eccc2a81cb5bd999d0e557f85e612b108a15d1abe17549944c3869"
+      },
+      "setup": {
+        "status": "passed",
+        "checks": 12,
+        "report": ".runtime/verify-feishu-setup-latest.json",
+        "sha256": "c29cce7ea8f091af72d4b12c52574033557ac5215169de281be3f8c6b2613e2f"
+      },
+      "browserSave": {
+        "status": "passed",
+        "checks": 3,
+        "report": ".runtime/verify-feishu-page-latest.json",
+        "sha256": "8067f9e320bfb87bd609b2f600a34eceebfcc495464da6483b02731ce6119e7b"
+      }
+    },
+    "docsAndResourceExamples": "validated",
+    "publicCallbackRechecked": false,
+    "productionCutover": false,
+    "localLinks": {
+      "files": 33,
+      "links": 138,
+      "broken": 0
+    },
+    "previewRecovery": "Closed-input preview was stopped within its isolated process tree; noninteractive lifecycle rerun passed. Future preview supports a finish-file latch."
+  },
+  "scopeDecisions": {
+    "legacyKnowledgeMigration": "cancelled_by_user",
+    "feishuKnowledgeSpaceBinding": "cancelled_by_user",
+    "extraCodexAccountSetup": "not_requested_reuse_existing_local_cli",
+    "codexBackend": "existing_local_codex_app_server",
+    "localCodexVersion": "0.160.0",
+    "opencliAccountSetup": "not_in_this_scope_optional_adviser_only",
+    "fullLegacyAutomation": "not_cancelled_hypothetical_native_option_explained",
+    "naturalLanguageScheduledExecutionFeishuLoop": "not_yet_verified_needs_thin_actor_and_delivery_bridge",
+    "feishuIdentity": "application_only",
+    "feishuOAuth": "removed_by_user",
+    "feishuConfiguration": "manual_only_no_scope_editor",
+    "publicCallbackPort": 3000,
+    "apiPermissions": "confirmed_open_by_user_not_enumerated_this_run"
+  },
+  "boundaries": {
+    "realFeishu": false,
+    "realMessagesSent": 0,
+    "paidModels": false,
+    "tunnelModified": false,
+    "userProfileModified": false,
+    "legacyCredentialsDeleted": false
+  },
+  "knowledge": {
+    "package": "dsh-knowledge",
+    "version": "0.5.2",
+    "profile": "web",
+    "installed": true,
+    "embeddingProvider": "none",
+    "nativeManagementUi": true,
+    "modelsDownloaded": false,
+    "legacyDataImported": false
+  },
+  "retainedEvidence": {
+    "source": "tracking_outputs/archive/2026-10-31/permissions-and-calendar-id.json",
+    "p0": 17,
+    "nativeCodex": 9,
+    "externalKnowledge": 6,
+    "liveBitable": 9,
+    "approvedOutbound": 3,
+    "dDriveMigration": {
+      "verified": true,
+      "root": "D:/files_data/windborne/dsh-runtime",
+      "detailsIn": "tracking_outputs/archive/2026-10-31/permissions-and-calendar-id.json"
+    },
+    "callbackDiagnostics": {
+      "source": "tracking_outputs/archive/2026-10-31/permissions-and-calendar-id.json",
+      "lastPublicStatus": 502,
+      "historical": true,
+      "recheckedThisRun": false
+    }
+  },
+  "codexPermissionReference": {
+    "legacyCommit": "a8da478",
+    "runtimeChangedThisRun": false,
+    "currentResume": "read-only",
+    "controlledWritableResume": "pending_public_protocol_and_sandbox_verification"
+  },
+  "knownGaps": [
+    "calendar_time_range_query_does_not_support_generic_cursor_pagination"
+  ],
+  "artifacts": [
+    {
+      "name": "@telebot/core",
+      "filename": "telebot-core-0.1.0.tgz",
+      "sha256": "a1b893ea78a338524e64944caa2b7a0a8d6d69f1ca4b721de4861d635eb89371",
+      "fixture": false
+    },
+    {
+      "name": "@telebot/feishu",
+      "filename": "telebot-feishu-0.1.0.tgz",
+      "sha256": "458c6e8ea41cb339a5cbbf801123ff4daf1c349baf38c454accd3c8bde9d1065",
+      "fixture": false
+    },
+    {
+      "name": "@telebot/codex",
+      "filename": "telebot-codex-0.1.0.tgz",
+      "sha256": "cfa9d2132fd34969a231b57bcc6825dcb6dd832eb2ce2c05b9717f9863b108db",
+      "fixture": false
+    },
+    {
+      "name": "@telebot/adviser",
+      "filename": "telebot-adviser-0.1.0.tgz",
+      "sha256": "109fa6b6d02c1af9ba8925d1a75c16cc20a73f4a3dac673ee5d2f5c675ebe27b",
+      "fixture": false
+    },
+    {
+      "name": "@telebot/diagnostics",
+      "filename": "telebot-diagnostics-0.1.0.tgz",
+      "sha256": "f0e265e7625d13454f1c7c8ff45afd9d55c0a0ca7f74f94b5041d77ad340d080",
+      "fixture": true
+    }
+  ],
+  "sourceSha256": {
+    "plugins/feishu/src/index.ts": "5f4e27030f39d52bc9798e8f8cacec36b03286717844a3030ac2fa1eae529c06",
+    "plugins/feishu/src/business/index.ts": "7780bf74195adcef297c78eca15cc96f91255ff57149ca19fe478c7b94647558",
+    "plugins/feishu/src/business/config.ts": "0903592b8cf8881987dcb23c5d137a43850262298841ccde9e46a9e7910c40cd",
+    "plugins/feishu/src/business/domain/resources.ts": "33bb7689e6528b0abaefb79fbaee93ca1e71bf332648a6199e5a824683b70c42",
+    "plugins/feishu/src/business/domain/authorization.ts": "fa2aa4f01195b4cc89d70c2f712b8ba9c40ee527e6e77e5321679a7ee7dd3863",
+    "plugins/feishu/src/setup/page.ts": "86280ccd6e5dd73e0368f496310b04e06e3bb2dc3366237922fe7bbbd7b7c431",
+    "tooling/build.mjs": "45eea3cac31a75d1e4823668d128949ea37cd80eec46d677dba8f4925edb8435",
+    "tooling/check-artifacts.mjs": "8726ff1a0034de349dbe2db81c79904e590219297914161a09e85d8abec4f131",
+    "tooling/verify-feishu-setup.mjs": "f37aa4842747783b0e638ed922f058f04258df57d653f5acba4bf7dae1b974de",
+    "tests/support/feature-probes.mjs": "441ed0bba498cd84295ea43b672cfc794d62228c7883787718237dd3ad6e6d22",
+    "tests/acceptance/production-business.test.mjs": "b8756df7ac8b4e8e918e214ac840cb574def09ecc2891c49d4af60b02bc6dbc2"
+  }
+}

@@ -1,0 +1,32 @@
+# Apply to an official Web-derived profile after installing core and feishu.
+# Credentials remain refs resolved by the official credentials provider.
+- id: webserver
+  config:
+    host: !!js process.env.FEISHU_WEBHOOK_HOST || '127.0.0.1'
+    # Read only this plugin's public, non-secret configuration on host startup.
+    # UI port changes take effect after restarting this official profile.
+    port: !!js >-
+      (() => { try { const fs = process.getBuiltinModule('node:fs'); const path = process.getBuiltinModule('node:path'); const home = process.env.DSH_HOME || path.join(process.getBuiltinModule('node:os').homedir(), '.dsh'); const directory = process.env.TELEBOT_FEISHU_CONFIG_DIRECTORY || path.join(home, 'plugins', 'telebot-feishu', 'config'); const value = JSON.parse(fs.readFileSync(path.join(directory, 'config.json'), 'utf8')).config.deploymentPort; if (Number.isSafeInteger(value) && value >= 1 && value <= 65535) return value; } catch {} return Number(process.env.FEISHU_WEBHOOK_PORT || 3000); })()
+
+- id: telebot-feishu
+  disabled: false
+  config:
+    configDirectory: !!js process.env.TELEBOT_FEISHU_CONFIG_DIRECTORY || ''
+    publicWebhookUrl: !!js process.env.FEISHU_PUBLIC_WEBHOOK_URL || ''
+    allowedChatIds: !!js "(process.env.TELEBOT_FEISHU_ALLOWED_CHAT_IDS || '').split(/[,; ]+/).filter(Boolean)"
+    appId: !!js process.env.FEISHU_APP_ID || ''
+    appSecretRef: FEISHU_APP_SECRET
+    verificationTokenRef: FEISHU_VERIFICATION_TOKEN
+    encryptKeyRef: FEISHU_ENCRYPT_KEY
+    adminUserIds: !!js "(process.env.FEISHU_ADMIN_USER_IDS || '').split(/[,; ]+/).filter(Boolean)"
+    webhookPath: !!js process.env.FEISHU_WEBHOOK_PATH || '/feishu/webhook'
+    workspace: !!js process.env.TELEBOT_WORKSPACE || ''
+    provider: !!js process.env.TELEBOT_PROVIDER || ''
+    model: !!js process.env.TELEBOT_MODEL || ''
+    # Empty selects the official profile's default preset (standard on Web).
+    agentPreset: ''
+    apiBaseUrl: !!js process.env.FEISHU_API_BASE_URL || 'https://open.feishu.cn'
+    queueLimit: 1000
+    maxConcurrentSessions: !!js Number(process.env.TELEBOT_MAX_CONCURRENT_SESSIONS || 4)
+    maxDeliveryAttempts: 5
+    # dataDirectory is omitted: defaults to DSH_HOME/plugins/telebot-feishu/<appId>.

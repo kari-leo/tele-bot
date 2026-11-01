@@ -1,0 +1,4 @@
+- insert:
+    - id: telebot-automation
+      name: '@telebot/automation'
+      disabled: true

@@ -1,1 +1,0 @@
-"""tele_bot package."""

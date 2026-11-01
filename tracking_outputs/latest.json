@@ -1,0 +1,327 @@
+{
+  "assessedAt": "2026-11-01T02:42:58.310Z",
+  "branch": "codex/compat-desktop-0.2.1-rc.5",
+  "workingTreeCommitted": true,
+  "targetRuntime": "0.2.1-rc.5",
+  "development": "P0-P8 code implemented and Windows isolated verification passed; eight bundles formally installed in Electron desktop, startup filesystem checks passed. UI/business and live Feishu acceptance remain pending.",
+  "scopeDecisions": {
+    "formalInstallation": "agent_authorized_install_and_commit_2026-11-01",
+    "windowsOnly": true,
+    "feishuIdentity": "application_only",
+    "oauth": "removed",
+    "legacyKnowledgeMigration": "cancelled",
+    "feishuKnowledgeSpaceBinding": "cancelled",
+    "codexAccount": "reuse_existing_local_cli",
+    "adviserAccount": "excluded",
+    "publicCallbackPort": 3000,
+    "nativeDesktopPermissions": "full_by_default_for_authenticated_desktop_entry_only",
+    "remoteIndependentPluginUpdate": "vision_only_do_not_implement",
+    "finalInstallationGuide": "enumerate_all_actually_feasible_methods_after_development_keep_D_drive"
+  },
+  "formalInstallation": {
+    "performed": true,
+    "desktopModified": false,
+    "installedDesktop": "0.2.1-rc.5",
+    "targetDesktop": "0.2.1-rc.5",
+    "guide": "docs/installation.md",
+    "versionEvidence": {
+      "checkedAt": "2026-10-31T16:21:56.919Z",
+      "source": "D:/daily_app/Deepseek Harness/resources/runtime/cli/bin/dsh.cmd --version",
+      "readOnly": true
+    },
+    "electronStartupAccepted": true,
+    "profileModified": true,
+    "home": "C:\\Users\\41547\\.dsh",
+    "profile": "C:\\Users\\41547\\.dsh\\profiles\\desktop",
+    "physicalProfile": "D:\\files_data\\windborne\\dsh-runtime\\profiles\\desktop",
+    "release": "D:\\files_data\\windborne\\dsh-runtime\\releases\\telebot-0.1.0-20261101",
+    "backup": "D:\\files_data\\windborne\\dsh-runtime\\backups\\desktop-2026-10-31T16-37-41-929Z",
+    "profileBackup": "C:/Users/41547/.dsh/backups/desktop-before-profile-junction-20261101",
+    "launcher": "D:\\files_data\\windborne\\dsh-runtime\\releases\\telebot-0.1.0-20261101\\start-desktop.ps1",
+    "startupEvidenceScope": "filesystem endpoints with living writer PIDs, initialized business databases; no model turns",
+    "uiAcceptance": false,
+    "uiAcceptanceBlock": "browser automatic approval service usage limit",
+    "adviserEnabled": false,
+    "knowledgeVersion": "0.5.2",
+    "feishuConfigured": false,
+    "feishuPortListening": false,
+    "paidModelCalls": false,
+    "realFeishuSent": false
+  },
+  "counts": {
+    "tests": 74,
+    "harness": 11,
+    "p0": 18,
+    "feishuAcp": 13,
+    "feishuWeb": 13,
+    "featuresAcp": 25,
+    "featuresWeb": 25,
+    "setup": 14,
+    "desktopPortSimulation": 14,
+    "knowledge": 6,
+    "browser": 4,
+    "nativeCodex": 16,
+    "nativeDesktop": 16,
+    "nativeBrowser": 3,
+    "formalInstallation": 5
+  },
+  "evidence": {
+    "harness": {
+      "status": "passed",
+      "passedChecks": 11,
+      "report": ".runtime/verify-latest.json",
+      "sha256": "64cb3666717d5f6f8251053073e3db388e643b0ae47dccfe5299c50e0423b322",
+      "retainedEarlierEvidence": false,
+      "releaseHashesMatch": true
+    },
+    "p0": {
+      "status": "passed",
+      "passedChecks": 18,
+      "report": ".runtime/verify-p0-latest.json",
+      "sha256": "58557395b0cc62180dd565c73d510460fab8c2bb40864b051ef6d2d3d4b7c17f",
+      "retainedEarlierEvidence": false,
+      "releaseHashesMatch": true
+    },
+    "feishuAcp": {
+      "status": "passed",
+      "passedChecks": 13,
+      "report": ".runtime/verify-feishu-latest.json",
+      "sha256": "cef220f769643e981e25e94b4ef1f7df3044bec9bd6f5a5de2151d285f15e2cf",
+      "retainedEarlierEvidence": false,
+      "releaseHashesMatch": true
+    },
+    "feishuWeb": {
+      "status": "passed",
+      "passedChecks": 13,
+      "report": ".runtime/verify-feishu-web-latest.json",
+      "sha256": "d11c53a538416b597b9747799987742c56aa6e70908d4276a40507c8ad245176",
+      "retainedEarlierEvidence": false,
+      "releaseHashesMatch": true
+    },
+    "featuresAcp": {
+      "status": "passed",
+      "passedChecks": 25,
+      "report": ".runtime/verify-features-latest.json",
+      "sha256": "5f72f0d091eb1ca4ae4c85c044fee5d67bccd0aafc002e279ed1159a5ed98290",
+      "retainedEarlierEvidence": false,
+      "releaseHashesMatch": true
+    },
+    "featuresWeb": {
+      "status": "passed",
+      "passedChecks": 25,
+      "report": ".runtime/verify-features-web-latest.json",
+      "sha256": "45780fa76dc29f7ebd4e66ea64445878a816a6ad56d99faffcff59be0eb20b46",
+      "retainedEarlierEvidence": false,
+      "releaseHashesMatch": true
+    },
+    "setup": {
+      "status": "passed",
+      "passedChecks": 14,
+      "report": ".runtime/verify-feishu-setup-latest.json",
+      "sha256": "957af628dc1759e1eb33d5452553d92f902441659d7178de60149d7b95168f7f",
+      "retainedEarlierEvidence": false,
+      "releaseHashesMatch": true
+    },
+    "desktopPortSimulation": {
+      "status": "passed",
+      "passedChecks": 14,
+      "report": ".runtime/verify-desktop-setup-latest.json",
+      "sha256": "dadb09e5d3380cd45167f17a1e8455d1f413f32bb7bc8a4f622e8992eee4c7d4",
+      "retainedEarlierEvidence": false,
+      "releaseHashesMatch": true
+    },
+    "knowledge": {
+      "status": "passed",
+      "passedChecks": 6,
+      "report": ".runtime/verify-knowledge-latest.json",
+      "sha256": "255943049eae0214abf2eb59e088692a5a41f363a515987337f37c6c839149e1",
+      "retainedEarlierEvidence": true
+    },
+    "browser": {
+      "status": "passed",
+      "passedChecks": 4,
+      "report": ".runtime/setup-browser-latest.json",
+      "sha256": "29cdc48fbfc7d1bb254897af3eee3d21bda374ac03f6ec2ed3d308e16eb31baa",
+      "retainedEarlierEvidence": true
+    },
+    "nativeCodex": {
+      "status": "passed",
+      "passedChecks": 16,
+      "report": ".runtime/verify-codex-latest.json",
+      "sha256": "6a0d31c8c8187480729ae1ebe9edfd7ca2f2039fec7f50ab39267abfb4e8cfb3",
+      "retainedEarlierEvidence": false,
+      "cli": "0.160.0",
+      "harnessIndependent": true
+    },
+    "nativeDesktop": {
+      "status": "passed",
+      "passedChecks": 16,
+      "report": ".runtime/verify-desktop-latest.json",
+      "sha256": "d974cc10fcfd912cfdbadf6371145484e7a13e809a704accb40c448f2cecbb81",
+      "retainedEarlierEvidence": false,
+      "releaseHashesMatch": true
+    },
+    "nativeBrowser": {
+      "status": "passed",
+      "passedChecks": 3,
+      "report": ".runtime/native-browser-latest.json",
+      "sha256": "325cc96a387691520f2fee0c8056f56a02b209b4c08a17483c0b89407d46bb53",
+      "retainedEarlierEvidence": false
+    },
+    "formalInstallation": {
+      "status": "passed",
+      "passedChecks": 5,
+      "report": ".runtime/formal-install-latest.json",
+      "sha256": "106f6d94c2619e63e7571fce1ff1501b08a3c520b179ddc2bbe250425ab4ebd0",
+      "scope": "installation and Electron startup filesystem evidence only"
+    }
+  },
+  "artifacts": [
+    {
+      "name": "@telebot/core",
+      "version": "0.1.0",
+      "filename": "telebot-core-0.1.0.tgz",
+      "sha256": "531a7b5362444791d69b655a4833970094b33fc374c31d275d095c1e50d0e7d0",
+      "fixture": false
+    },
+    {
+      "name": "@telebot/desktop",
+      "version": "0.1.0",
+      "filename": "telebot-desktop-0.1.0.tgz",
+      "sha256": "76bd5d1c2bae61fd7b10d9bdb6659bd15ec410c16cc3e2a47a7cbe7b5e7d4169",
+      "fixture": false
+    },
+    {
+      "name": "@telebot/feishu",
+      "version": "0.1.0",
+      "filename": "telebot-feishu-0.1.0.tgz",
+      "sha256": "cbadb1cea63660ed8c51cd35a507af5ed0a8c2619c75d910008f1761f7324379",
+      "fixture": false
+    },
+    {
+      "name": "@telebot/codex",
+      "version": "0.1.0",
+      "filename": "telebot-codex-0.1.0.tgz",
+      "sha256": "aaba7aa91d69591c91f3d6a9fd7df6c4b51f34c95cb3217367d717ad9cb3031d",
+      "fixture": false
+    },
+    {
+      "name": "@telebot/adviser",
+      "version": "0.1.0",
+      "filename": "telebot-adviser-0.1.0.tgz",
+      "sha256": "98ef7c927f2e96ad5570785a1e6b4de574d3270819f3786003d5e3636c943e37",
+      "fixture": false
+    },
+    {
+      "name": "@telebot/publishing",
+      "version": "0.1.0",
+      "filename": "telebot-publishing-0.1.0.tgz",
+      "sha256": "26b2ee2d56c37408581f47f0a4a7f8457623aba8db754647de631f6723be7678",
+      "fixture": false
+    },
+    {
+      "name": "@telebot/automation",
+      "version": "0.1.0",
+      "filename": "telebot-automation-0.1.0.tgz",
+      "sha256": "1a60c45b4a2bf477aa3be10e275883608eb5468d5829a953dd4a94e16c00f8a1",
+      "fixture": false
+    },
+    {
+      "name": "@telebot/diagnostics",
+      "version": "0.1.0",
+      "filename": "telebot-diagnostics-0.1.0.tgz",
+      "sha256": "3501bf05661fc883f4daafadf3e8519cf81115e0a6317e8240ed87547f1c7b1b",
+      "fixture": true
+    }
+  ],
+  "externalKnowledge": {
+    "package": "dsh-knowledge",
+    "version": "0.5.2",
+    "embeddingProvider": "none",
+    "legacyDataImported": false
+  },
+  "historicalLive": {
+    "bitableChecks": 9,
+    "approvedOutboundMessages": 3,
+    "newLiveSendsThisRun": 0,
+    "otherHistoryRead": false,
+    "callbackLastKnown": 502,
+    "callbackRecheckedThisRun": false
+  },
+  "limitations": [
+    "Packaged desktop CLI is rc.5; formal Electron startup and plugin installation remain user-managed and not performed",
+    "Real Feishu ingress/cards/media/resource ACL/notifications and scheduled delivery need tenant acceptance",
+    "Linux/macOS deferred by user",
+    "Windows Git local file transport may fail MSYS signal-pipe IPC under official sandbox; HTTP fixture passes without disabling sandbox",
+    "Real web provider credentials/search quality and real Git remotes not exercised",
+    "OpenCLI adviser account integration excluded; mock adapter verified",
+    "Production data migration/cutover/backup restore not performed"
+  ],
+  "cleanup": {
+    "status": "completed",
+    "reports": [
+      {
+        "report": ".runtime/p8-cleanup-initial.json",
+        "sha256": "1ebcba9330b538b2a8055a1bc4c0e96cb06b89311a0c1c1dff0cb94a492dec5f"
+      },
+      {
+        "report": ".runtime/p8-cleanup-latest.json",
+        "sha256": "ef6f984889aec9352e6f589a2009ba1c6f454fc9096d9c96cf59db38f9025327"
+      }
+    ],
+    "uniqueRemovedTemporaryDirectories": 15,
+    "userDataDeleted": false,
+    "protected": [
+      "formal desktop/profile/config/credentials",
+      "existing Codex account",
+      "workspace dependencies and release archives",
+      "D-drive PowerShell prerequisite"
+    ],
+    "note": "Own failed/preview directories and temporary official host only; runtime was recreated for final confirmation regression and removed again; disk deltas are not additive.",
+    "previousDetails": "tracking_outputs/archive/2026-10-31/cleanup-before-p8.json"
+  },
+  "entrypointAssessment": {
+    "assessedAt": "2026-10-31T16:15:58.146Z",
+    "businessTrustedActorSource": "feishu_channel_or_authenticated_native_owner_rpc",
+    "nativeDesktopBusinessUse": "core_desktop_and_each_of_codex_adviser_publishing_automation_verified_without_feishu",
+    "unifiedInstallationUi": "not_implemented_business_configuration_ui_and_official_manager_ui_available",
+    "distribution": "local_tgz_verified; official UI/CLI sources documented; no self-package registry/git publication",
+    "formalElectronAccepted": false,
+    "formalElectronStartupAccepted": true
+  },
+  "nextDevelopment": {
+    "nativeDesktopEntry": {
+      "phase": "P8",
+      "status": "implemented_windows_verified_formally_installed_startup_passed_ui_business_pending",
+      "defaultPermissions": "full",
+      "repeatedPluginOperationApproval": false,
+      "feishuPolicyUnchanged": true,
+      "hostOsAndAccountEnforcementPreserved": true
+    },
+    "independentBusinessPluginUpdate": {
+      "phase": "unscheduled_vision",
+      "status": "vision_only_do_not_implement",
+      "currentNonDisruptiveUpdateVerified": false,
+      "prototypePlanned": false,
+      "blocksCurrentDelivery": false
+    },
+    "finalInstallationMethods": {
+      "status": "documented_all_current_sources_conditions_and_minimal_compositions",
+      "scope": "all actually supported methods with D-drive layout, dependencies, prerequisites and validation boundaries",
+      "formalInstall": "agent_installed_on_latest_authorization"
+    }
+  },
+  "activeWork": {
+    "phase": "P8_implemented_windows_verified",
+    "localTests": 74,
+    "nativeDesktopChecks": 16,
+    "nativeCodexChecks": 16,
+    "formalInstallation": "installed_startup_filesystem_checks_passed",
+    "remoteUpdates": "vision_only_not_implemented",
+    "remaining": [
+      "formal UI and actual-account business acceptance (browser approval quota blocked UI check)",
+      "manual Feishu application configuration and real tenant checklist",
+      "Linux/macOS deferred"
+    ]
+  }
+}

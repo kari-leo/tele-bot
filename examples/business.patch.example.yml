@@ -1,0 +1,30 @@
+# Optional business bundles must already be installed using the official plugin manager.
+# Values in resourcesJson contain refs/metadata only. Never embed access/refresh tokens here.
+- insert:
+    - id: telebot-ask-user
+      name: '@deepseek-ai/dsh-tool-ask-user'
+      config:
+        mode: legacy
+
+# Feishu channel/business now share one bundle and its file/UI configuration.
+# Configure businessEnabled/resources through the Feishu setup UI;
+# do not add another partial telebot-feishu row.config override here.
+
+- id: telebot-codex
+  disabled: false
+  config:
+    cli: !!js process.env.TELEBOT_CODEX_CLI || ''
+    codexHome: !!js process.env.TELEBOT_CODEX_HOME || ''
+    allowedRoots: !!js "process.env.TELEBOT_WORKSPACE ? [process.env.TELEBOT_WORKSPACE] : []"
+    adminUserIds: !!js "(process.env.FEISHU_ADMIN_USER_IDS || '').split(/[,; ]+/).filter(Boolean)"
+    historyOwnerUserId: !!js process.env.TELEBOT_CODEX_HISTORY_OWNER || ''
+
+- id: telebot-adviser
+  # Optional OpenCLI adviser is independent of local Codex; leave disabled unless needed.
+  disabled: true
+  config:
+    cli: !!js process.env.TELEBOT_OPENCLI_CLI || ''
+    adminUserIds: !!js "(process.env.FEISHU_ADMIN_USER_IDS || '').split(/[,; ]+/).filter(Boolean)"
+    secretRefs: [FEISHU_APP_SECRET]
+    timeoutMs: 180000
+    cacheEntries: 16

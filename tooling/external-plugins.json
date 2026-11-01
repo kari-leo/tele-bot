@@ -1,0 +1,25 @@
+{
+  "knowledge": {
+    "package": "dsh-knowledge",
+    "version": "0.5.2",
+    "repository": "https://github.com/Soren-ABT/dsh-knowledge",
+    "integrity": "sha512-sM9gXGMI73jFJ/6cXfBWeFhExZS/yYnHSb1/e5qy/0C3kwb2snGn2+QOqRPAp8RTMvFnORVSA6BS4pkei8Pp8g==",
+    "license": "AGPL-3.0",
+    "defaultProfile": "web",
+    "defaultEmbeddingProvider": "none",
+    "builds": {
+      "esbuild": true,
+      "onnxruntime-node": true,
+      "protobufjs": true,
+      "sharp": true,
+      "tesseract.js": false
+    },
+    "tested": {
+      "dsh": "0.2.1-rc.5",
+      "platform": "win32",
+      "date": "2026-10-31",
+      "checks": 6,
+      "scope": "Official rc.5 Web/ACP, synthetic text ingest/lexical retrieval, restart and isolated uninstall; no real user library or paid model. Electron desktop installation is user-managed."
+    }
+  }
+}

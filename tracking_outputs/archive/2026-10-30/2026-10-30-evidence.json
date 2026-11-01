@@ -1,0 +1,281 @@
+{
+  "auditedAt": "2026-10-29T19:19:22.518Z",
+  "startedAt": "2026-10-29T19:02:16.112Z",
+  "branch": "codex/telebot-plugin-rebuild",
+  "recentCommits": [
+    "303f152 feat: add Codex history and unify Feishu admin workflows",
+    "85866b2 feat: 接入飞书多维表格工具并完善 Agent 执行能力",
+    "f51baf0 feat(knowledge): 接入飞书云端知识库并整理测试结构",
+    "3c63563 feat: RAG 知识库离线构建与在线检索",
+    "27e7874 feat: 增强 Agent 上下文、定时任务与受控内容发布",
+    "93940f8 feat: add scheduled task execution and proactive delivery",
+    "6072ba3 feat: add local knowledge base with Feishu and MCP integration",
+    "e831776 feat: add local knowledge base with Feishu and MCP integration"
+  ],
+  "sourceOfTruth": "Current source/tests/manifests plus executed commands; documents were corrected before implementation",
+  "added": [
+    "docs/p2-p4-local-progress.md",
+    "plugins/adviser/README.md",
+    "plugins/adviser/src/domain/adviser.ts",
+    "plugins/adviser/tsconfig.json",
+    "plugins/codex/README.md",
+    "plugins/codex/src/domain/coding.ts",
+    "plugins/codex/tsconfig.json",
+    "plugins/core/src/harness/commands.ts",
+    "plugins/feishu-tools/README.md",
+    "plugins/feishu-tools/src/domain/authorization.ts",
+    "plugins/feishu-tools/tsconfig.json",
+    "plugins/feishu/src/adapters/workspaces.ts",
+    "plugins/feishu/src/domain/commands.ts",
+    "tests/acceptance/commands.test.mjs",
+    "tests/acceptance/local-business.test.mjs"
+  ],
+  "modified": [
+    "HARNESS_DEVELOPMENT_PLAN.md",
+    "README.md",
+    "docs/compatibility.md",
+    "docs/feature-parity.md",
+    "docs/p0-progress.md",
+    "docs/p1-acceptance.md",
+    "docs/testing.md",
+    "plugins/core/README.md",
+    "plugins/core/package.json",
+    "plugins/core/src/contracts.ts",
+    "plugins/core/src/harness/conversations.ts",
+    "plugins/core/src/index.ts",
+    "plugins/feishu/README.md",
+    "plugins/feishu/src/adapters/sqlite.ts",
+    "plugins/feishu/src/domain/channel.ts",
+    "plugins/feishu/src/domain/types.ts",
+    "plugins/feishu/src/index.ts",
+    "pnpm-lock.yaml",
+    "tests/acceptance/feishu.test.mjs",
+    "tooling/build.mjs",
+    "tooling/compatibility.json",
+    "tooling/verify-feishu.mjs"
+  ],
+  "deletedThisRun": [],
+  "sourceHashes": {
+    "AGENTS.md": "0a59ebf35c850c956afedc99fd381a1e29efdc7135db88e9d732bc1913a4c8f2",
+    "docs/compatibility.md": "6d9c16995f08b690997cdfc6580a04f6299bff36fdb7e803431091dfa119c63b",
+    "docs/feature-parity.md": "65f4c84ddfbcc6f53d5c05c7202a2784e7bc13b95dc6c330e2a8cf2eaeb4221f",
+    "docs/installation.md": "8343c8d5afae581afda1c55409bdff4281c046f85c05f5ed3738798cca96205b",
+    "docs/operations.md": "0d6260be3e8657f3d0483a655c3ae0cf38edeb8dcb08ea2582a1b1babef1704d",
+    "docs/p0-progress.md": "c4a2806839ac2426a078ae032fd2534c2b62196e2fc09d35130daf485acbc9da",
+    "docs/p1-acceptance.md": "09d7b79f180a88fbe7c983832cca33d6156991916576742b4c01bae3f672159d",
+    "docs/p2-p4-local-progress.md": "d6a2a5b82eafd0786adaa0320c7292b3bd0f41fe53b6d436191504f2f6228ad6",
+    "docs/testing.md": "29cf524e94aeae458c48304b7d713202332f455239ffe236818b015e40ef8b5e",
+    "examples/feishu.patch.example.yml": "320967d297af6d8d9333110b76852f05a067995b8d4b5c13d58d78054a810c22",
+    "HARNESS_DEVELOPMENT_PLAN.md": "75e535308f6b9f703fb99b2b39508cbfdba4d8f1e6fc33dc5a1f2d7329d53efe",
+    "package.json": "4d8b1a14111e06991d5521c6ab61cdd15392a08e491bd5da68ba9be42044791c",
+    "plugins/adviser/README.md": "0cb1a4b919dd0c1f56652ea6bf49b3ff480e7d2b955e46125362d1e0a6029bb6",
+    "plugins/adviser/src/domain/adviser.ts": "7f7a01c1284fdab68d53e691bcb346798c1b531f028cb60ee04ce613485de06d",
+    "plugins/adviser/tsconfig.json": "7213f54d1a657ab1255c7634a667f96782c8100a54c42577519477b19b8e3d50",
+    "plugins/codex/README.md": "1c545d18c3a78d140f986a8ec81030052438acdacac8648975e8a5aad0f69a96",
+    "plugins/codex/src/domain/coding.ts": "1968508c4e66ccc12f6bc9f94027ad5f151ebdddfbd894ee5a358ac8a52a1b82",
+    "plugins/codex/tsconfig.json": "7213f54d1a657ab1255c7634a667f96782c8100a54c42577519477b19b8e3d50",
+    "plugins/core/cordis.patch.yml": "0bf03b44d6f9b9c986f4e4d9efc8e5223ffb7f6d76e6d0a2371c94448bd4ab1b",
+    "plugins/core/package.json": "7cb005eb852c971364cbeeb28439f2968041188d19917d3a068329e66f29abe9",
+    "plugins/core/README.md": "8f1c6869bda7d5736581dcfbb9741d5959691c3b1ead4f46fae1690816472082",
+    "plugins/core/src/contracts.ts": "dd96bf12df6a20a867ef8fe506624b7bd7048c78f6ccd20f17e1ebf09c183e89",
+    "plugins/core/src/harness/commands.ts": "a6baaa8960e3a481249cf4d2f8138ade67b0b4d6e8ccfdd7902bc37a7d774537",
+    "plugins/core/src/harness/conversations.ts": "ccf314c2be151984249e046fc8085cc451a973024f0ba65b033e1acfed172a37",
+    "plugins/core/src/index.ts": "f7a6d3288885fb258ff36437a2ef65f60483a814971d623741aeee1493761a97",
+    "plugins/core/tsconfig.json": "7213f54d1a657ab1255c7634a667f96782c8100a54c42577519477b19b8e3d50",
+    "plugins/feishu/cordis.patch.yml": "e7d8e73e149954e0b3a70a61e02328f464897030fb46fde458c9103218a56653",
+    "plugins/feishu/package.json": "6597748e653c2435bcb42e0e896752405e04b0e70bbb9d342ecf060a4354feaa",
+    "plugins/feishu/README.md": "c08b74c1306edb3880e7641512e22abddcc3853c492f09d4fbf894364dc0d948",
+    "plugins/feishu/src/adapters/feishu-api.ts": "7b54af6f9e1fb2c775c56c03343fb0351ecd9a933dd685c3eee61ca474798be7",
+    "plugins/feishu/src/adapters/sqlite.ts": "90b2bea081fce5e992d7b8ffb6f21897f1dd5952465248a0d5e72e6e6844f11e",
+    "plugins/feishu/src/adapters/webhook.ts": "d5ef71f277dd42799c4940c25ca709ff8f2a694004e0c7e7bbc72f35e3626ed1",
+    "plugins/feishu/src/adapters/workspaces.ts": "d453da64692ce8494d28cb23dc0d330cc91251baadcf65526f8c0b7d654a9535",
+    "plugins/feishu/src/config.ts": "46d18c56ddb92ef48c9a2061af68ec2f8f19cf512257dda9d94f707ce8afab00",
+    "plugins/feishu/src/domain/channel.ts": "e32a7fbef5089c9c5fdf7d4563cdac09c905bcfc5dc235f0f31d78b78f146418",
+    "plugins/feishu/src/domain/commands.ts": "73d844f753827107ca10f5daca5b1347e311fa75ba72df14ad21428abdbce14d",
+    "plugins/feishu/src/domain/events.ts": "ee08b0b2aad471ff286032af0be9b031154971272d0e69e17b032804a984a677",
+    "plugins/feishu/src/domain/types.ts": "b271d18892f9a79190b872cd2955975f67701ff49272f1090ab230e0050ffa0c",
+    "plugins/feishu/src/index.ts": "053b622a8c9dcec401ceda15f361340c5513f48a0fcf3e3932968972b6631714",
+    "plugins/feishu/tsconfig.json": "7213f54d1a657ab1255c7634a667f96782c8100a54c42577519477b19b8e3d50",
+    "plugins/feishu-tools/README.md": "ef453633a4459d649bba893a940e0d09474e83743d9c561f87fdefcdbcb3f9b5",
+    "plugins/feishu-tools/src/domain/authorization.ts": "f0497f3ce80bbe20a0134140cba7dd4d476915ad5fcbfa93b4f80ee6a46ab6e7",
+    "plugins/feishu-tools/tsconfig.json": "7213f54d1a657ab1255c7634a667f96782c8100a54c42577519477b19b8e3d50",
+    "pnpm-lock.yaml": "a4db5cd5c485ec5cbe5d16b776e84bbfd2d54afee4fdc38c4fb9061236528fd7",
+    "pnpm-workspace.yaml": "a74281e1677e6fd72a5550a024fd4273e151aaaaed6ccb99a0fb36d59fe2544c",
+    "README.md": "f6d69d33ccc737ec49000236af94c3064f8dfe1aad5612b7a909813fc63c294a",
+    "tests/acceptance/artifacts.test.mjs": "c4aeedd96c4fa3219c7f41efa5d610146eec60105d5a87de634af30ae36cbc11",
+    "tests/acceptance/commands.test.mjs": "466ed5b6a30b840f132acb66df76c01db512c553085b3492d09e3975258fea42",
+    "tests/acceptance/feishu.test.mjs": "6e09ce0a7753919ebcc5e840113e5ae3c66b1eca70fcee97852429532de5ec19",
+    "tests/acceptance/local-business.test.mjs": "c676252b21f26f5b14c800a0aa700a583e68422476242448dd77686fa4475669",
+    "tests/acceptance/verification-isolation.test.mjs": "08fee683f7c01b19dafe1b8d8ad3fcbb3af1a84d22c5914e1afebb4df8c186cc",
+    "tests/fixtures/diagnostics/cordis.patch.yml": "420465f795e4227d162c063c9715c5a1f905fef25a7ec4d7e732322308c7a8b0",
+    "tests/fixtures/diagnostics/package.json": "761319ae0496c008b0dcf23a6bc3e6dd1f9a82ca04cd8d6487b629dc463f6028",
+    "tests/fixtures/diagnostics/README.md": "168ff281b82071434a6126dc1a3b9d3dc8d2107e9757bcbc9d218f7d797334b5",
+    "tests/fixtures/diagnostics/src/index.ts": "1fd7872412426306dc79e58e6da827e54550411e946c8abf9f9f28408109ea80",
+    "tests/fixtures/diagnostics/src/prototypes.ts": "e99f1e1a8a8bfb821343131abe7eaa599c0426cede14761e8a73a942f88b4cee",
+    "tests/fixtures/diagnostics/tsconfig.json": "3c297d381737f1f869c3df5795f0fd85f234708c48020f36449c4456daf338c8",
+    "tests/support/acp-client.mjs": "209b169f3d35dd7d94a4bb3263913fca313258f754a62a7ff5060c4589685409",
+    "tests/support/codex-client.mjs": "ec3a0afa2149c6c08311b86542f061acc08f803f3cc2befdc790abe7df617f9a",
+    "tests/support/mock-feishu.mjs": "801960b54c8388e96233ce3ca0a66a2b5e3c89baed3b8b395907f0bd5e65d055",
+    "tests/support/mock-model.mjs": "48f95c6a112be70ad05db52f08c21bda90df3f977a74d5cb6ca1b9556ffede58",
+    "tests/support/p0-probes.mjs": "dc990689d7add3ca16f21454687253eab04400509a5db10aeb062a5dfd6871d5",
+    "tests/support/temp-dir.mjs": "443209f33b0812b0cbc7e927615294aed2a259f283ba069962750bf1588ab552",
+    "tooling/build.mjs": "cdaa800cd428174638190e4768ada0dbd8de4151a735fadfd4d24afe46bdc53a",
+    "tooling/check-artifacts.mjs": "61a0f792a516df003070920830f541b26d0073ebc25ea0fcff44b729b9861c09",
+    "tooling/common.mjs": "cfc7be7e8b7ee0dae7f6c63e2372d78cb695884646e1f40aec06d37f939183a6",
+    "tooling/compatibility.json": "ff0e7e75cb298e03ca202bbc3e46285a20fa29310caf13ade749d644ab635f6a",
+    "tooling/official-host.mjs": "603aac7a02819259fbb06c02eb8033670f22b07c1a8026103c4795bbee58424f",
+    "tooling/pack.mjs": "da5301c741cb3c11875b76d238d43db23d3b2f7915797e3c8145ff5a3f824a10",
+    "tooling/test.mjs": "77f0d59de346a1af1667b13bcad3a2c921e456b6ba354fd9afd4cb3a3af0480f",
+    "tooling/verify-codex.mjs": "b495c8a6237c327eecb16a7ce064a4c25af596523010e43448755fe7b751f4b7",
+    "tooling/verify-feishu.mjs": "507ea5851233ac66c96c5f7bedce417533e9c1b4d55f12782bdb9a6686a0e70d",
+    "tooling/verify-harness.mjs": "2d47f8269ba65dfae776eda26f300ebeaeee103ac33249afefe6d47d82cce8bf",
+    "tsconfig.plugin.json": "7448c352bf73511012e8b8c1a4ab4f8b902e451d0e721757a7471573c94c611a"
+  },
+  "actualChecks": {
+    "build": "passed",
+    "test": {
+      "passed": 30,
+      "failed": 0
+    },
+    "packWithFixtures": "passed",
+    "artifacts": "passed",
+    "officialHarness": {
+      "passed": 11
+    },
+    "feishuAcp": {
+      "passed": 13
+    },
+    "feishuWeb": {
+      "passed": 13
+    },
+    "codexLoopback": {
+      "passed": 4
+    }
+  },
+  "historicalP0": {
+    "executedThisRun": false,
+    "status": "failed",
+    "passedChecks": 11,
+    "error": "Internal error: turn failed: P0 injected checkpoint failure after inbox admission"
+  },
+  "productionBundles": [
+    "@telebot/core",
+    "@telebot/feishu"
+  ],
+  "sourceOnlyDomainProjects": [
+    "plugins/feishu-tools",
+    "plugins/codex",
+    "plugins/adviser"
+  ],
+  "phases": [
+    [
+      "P2",
+      "CommandAdapter",
+      "本地实现完成",
+      "官方list/find/execute映射和许可表；渠道不把未知命令送模型；单元测试通过",
+      "仅compact可供桥接，其真实宿主行为待专项验收",
+      "plugins/core/src/harness/commands.ts"
+    ],
+    [
+      "P2",
+      "/model",
+      "本地与官方组合通过",
+      "实际模型HTTP请求改变、chat隔离、重启持久化",
+      "图像能力与更多模型组合未验收",
+      "tooling/verify-feishu.mjs"
+    ],
+    [
+      "P2",
+      "/cd及原生Shell",
+      "本地与官方组合通过",
+      "新Session、允许根/junction拒绝、实际PowerShell cwd及重启保持",
+      "更多允许根配置、复杂进程清理与Linux/macOS未验收",
+      "plugins/feishu/src/adapters/workspaces.ts"
+    ],
+    [
+      "P2",
+      "审批与提问接口",
+      "未完成",
+      "",
+      "宿主answerer、原用户/chat/request/TTL/取消/重启绑定待实现；可以继续本地开发",
+      "docs/p2-p4-local-progress.md"
+    ],
+    [
+      "P2",
+      "附件双向本地实现",
+      "未完成",
+      "",
+      "格式/暂存/用户绑定/30MiB边界/重启/本轮产物与逐文件回执待实现；可以继续本地开发",
+      "plugins/feishu/src/domain/events.ts"
+    ],
+    [
+      "P2",
+      "普通schedule提醒",
+      "未完成",
+      "既有官方schedule仅有夹具证据",
+      "业务出站/恢复未接通；P0故障注入历史失败本轮未重跑",
+      "tests/fixtures/diagnostics/src/prototypes.ts"
+    ],
+    [
+      "P3",
+      "权限矩阵和分页",
+      "本地域完成",
+      "四类资源16组逻辑能力、Actor/token归属/有效期/资源/tenant显式授权；严格分页",
+      "不是实际Feishu OAuth scope/ACL或完整业务写入确认",
+      "plugins/feishu-tools/src/domain/authorization.ts"
+    ],
+    [
+      "P3",
+      "现有消息FeishuApi单元层",
+      "本轮扩展通过",
+      "错误分类、unknown不重试、token过期/并发合并/鉴权失败不写入",
+      "不代表文档/Bitable/日历/任务业务API已实现",
+      "tests/acceptance/feishu.test.mjs"
+    ],
+    [
+      "P3",
+      "业务API/OAuth/Bitable账本与独立包",
+      "未完成",
+      "",
+      "SDK/HTTP CRUD、冻结确认、幂等/unknown回读、scope/通知与独立bundle接线待实现",
+      "docs/p2-p4-local-progress.md"
+    ],
+    [
+      "P4",
+      "Codex本地授权/历史策略",
+      "本地域完成",
+      "inspect/plan只读声明、apply冻结SHA256与可信作用域、授权派发前消费、unknown不重放；本人私聊/归档/续聊目录策略",
+      "真正executor/强制超时终止/持久授权/产物/取消/独立bundle未接通",
+      "plugins/codex/src/domain/coding.ts"
+    ],
+    [
+      "P4",
+      "原生Codex协议原型",
+      "本轮4项通过",
+      "官方CLI0.160.0，隔离home/workspace，loopback；历史/重启续聊/归档",
+      "未证明真实文件写入拒绝、取消、产物或生产后端等价",
+      "tooling/verify-codex.mjs"
+    ],
+    [
+      "P4",
+      "Adviser本地服务",
+      "本地域完成",
+      "question/context/excerpts预脱敏、脱敏后hash、默认16条LRU/64会话/180秒、取消/失败降级及并发上限",
+      "规则过滤非完整秘密检测；实际provider/工具/独立bundle/生命周期未接通",
+      "plugins/adviser/src/domain/adviser.ts"
+    ],
+    [
+      "跨阶段",
+      "真实飞书/付费模型联调",
+      "按指令跳过",
+      "未导入密钥、未发送真实消息、未调用付费模型",
+      "真实webhook/卡片/附件/四类CRUD/OAuth/scope/ACL/通知/分页回读/部署及真实模型质量待授权环境联调",
+      "docs/p2-p4-local-progress.md"
+    ]
+  ],
+  "realFeishu": false,
+  "paidModels": false,
+  "realCredentialsImported": false,
+  "externalMessagesSent": false,
+  "caveat": "The scheduled audit and local advancement are complete; P2/P3/P4 are not complete stages. Local and live follow-ups are explicitly listed."
+}

@@ -1,0 +1,92 @@
+{
+  "candidate": "0.2.1-rc.5",
+  "officialPackage": "@deepseek-ai/dsh",
+  "previousVerifiedRuntime": "0.2.2-alpha.2",
+  "automation": {
+    "protocol": "ACP v1",
+    "sdk": "@agentclientprotocol/sdk",
+    "version": "1.4.0"
+  },
+  "hostPeers": {
+    "@deepseek-ai/dsh-permission-presets": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-attachment": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-user-approval": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-user-questions": "0.2.1-rc.5",
+    "@deepseek-ai/cordis": "4.0.5",
+    "@deepseek-ai/dsh-agent": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-commands": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-llm": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-session": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-session-persistence": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-host-webserver": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-home-paths": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-tools": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-agent-preset-registry": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-tool-web": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-schedule": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-agent-default-model": "0.2.1-rc.5",
+    "@deepseek-ai/schemastery": "3.18.5",
+    "@deepseek-ai/dsh-credentials": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-shell": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-fs": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-client-connection": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-api-session-controller": "0.2.1-rc.5"
+  },
+  "verifiedPlatforms": [
+    "win32"
+  ],
+  "verifiedDate": "2026-11-01",
+  "status": "Windows official rc.5 isolated ACP/Web/native RPC verified; formal Electron installation/startup filesystem checks passed, UI and live tenant acceptance pending",
+  "localVerification": {
+    "tests": 74,
+    "harness": 11,
+    "p0": 18,
+    "feishuAcp": 13,
+    "feishuWeb": 13,
+    "featuresAcp": 25,
+    "featuresWeb": 25,
+    "setup": 14,
+    "desktopPortSimulation": 14,
+    "knowledge": 6,
+    "browser": 4,
+    "nativeCodex": 16,
+    "nativeDesktop": 16,
+    "nativeBrowser": 3,
+    "formalInstallation": 5
+  },
+  "desktop": {
+    "installed": "0.2.1-rc.5",
+    "target": "0.2.1-rc.5",
+    "modified": false,
+    "scope": "Official Electron: seven Telebot bundles and knowledge installed; six configuration writers alive and four business databases initialized; no paid model or live tenant tests",
+    "versionEvidence": "Read-only packaged CLI --version on 2026-11-01",
+    "profileModified": true,
+    "formalPluginsInstalled": true,
+    "startupVerified": true,
+    "uiAcceptance": false
+  },
+  "limitations": [
+    "Formal Electron installation/startup verified from local files; UI and actual-account business acceptance pending; browser automatic approval quota blocked UI check",
+    "Real Feishu ingress/cards/media/resource ACL/notifications and scheduled delivery need tenant acceptance",
+    "Linux/macOS deferred by user",
+    "Windows Git local file transport may fail MSYS signal-pipe IPC under official sandbox; HTTP fixture passes without disabling sandbox",
+    "Real web provider credentials/search quality and real Git remotes not exercised",
+    "OpenCLI adviser account integration excluded; mock adapter verified",
+    "Production data migration/cutover/backup restore not performed"
+  ],
+  "scopeDecisions": {
+    "formalInstallation": "agent_authorized_install_and_commit_2026-11-01",
+    "windowsOnly": true,
+    "feishuIdentity": "application_only",
+    "oauth": "removed",
+    "legacyKnowledgeMigration": "cancelled",
+    "feishuKnowledgeSpaceBinding": "cancelled",
+    "codexAccount": "reuse_existing_local_cli",
+    "adviserAccount": "excluded",
+    "publicCallbackPort": 3000,
+    "nativeDesktopPermissions": "full_by_default_for_authenticated_desktop_entry_only",
+    "remoteIndependentPluginUpdate": "vision_only_do_not_implement",
+    "finalInstallationGuide": "enumerate_all_actually_feasible_methods_after_development_keep_D_drive"
+  },
+  "developmentPeers": "autoInstallPeers=false; upstream transitive development peer closure intentionally partial; formal host composition verified"
+}

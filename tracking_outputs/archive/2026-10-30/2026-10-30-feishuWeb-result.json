@@ -1,0 +1,28 @@
+{
+  "auditedAt": "2026-10-29T19:19:22.518Z",
+  "source": ".runtime/verify-feishu-web-latest.json",
+  "runtime": "0.2.2-alpha.2",
+  "platform": "win32",
+  "baseProfile": "web",
+  "realHarness": true,
+  "realFeishu": false,
+  "paidModels": false,
+  "checks": [
+    "packaged Feishu/core/diagnostics load on an external official ACP profile with native webServer",
+    "real webhook verifies challenge/source/app/admin and ignores bot messages before Agent admission",
+    "text executes an actual native tool and replies with its receipt; event/message redelivery cannot execute twice",
+    "webhook acknowledges while Agent is held; same-chat queue is serial and another thread runs independently",
+    "status and owned one-use callbacks bypass held work; forged actor/chat/message is refused and /stop cancels the native Agent",
+    "confirmed rate limit retries only delivery with the same UUID; lost send receipt becomes unknown without Agent rerun",
+    "restart preserves mapping/history and deduplication, never resends unknown delivery, and accepts only valid signed/encrypted input",
+    "P2 /model lists the native catalog and changes the next actual model request without model-assisted command parsing",
+    "P2 /cd creates a native workspace session, changes actual Shell cwd, rejects root escape and persists cwd/model through restart",
+    "forced process termination recovers durable pending work and interrupted native receipts without resubmitting running requests",
+    "forced termination during remote send preserves an unknown outcome instead of duplicating the message on restart",
+    "disabled bundle unregisters webhook and worker while the official carrier remains alive",
+    "official uninstall removes all bundles and preserves channel business data"
+  ],
+  "status": "passed",
+  "modelRequests": 16,
+  "deliveryAttempts": 23
+}

@@ -41,6 +41,11 @@ export async function startMockModel({ deliveryToolProbe = false } = {}) {
       id: 'telebot-keyless-completion', object: 'chat.completion.chunk', created: 1,
       model: body.model, choices: [{ index: 0, delta, finish_reason }],
     }) + '\n\n')
+    if(instruction==='THINKING_ONLY'){
+      emit({role:'assistant',reasoning_content:'PRIVATE_REASONING_FIXTURE'})
+      await new Promise(resolve=>setTimeout(resolve,1200))
+      emit({reasoning_content:'PRIVATE_REASONING_FIXTURE'})
+    }
     const firstCase = toolCases.get(instruction.split(':')[0])
     const nextCase = receipt && firstCase?.then && !messages.slice(testIndex + 1).some(message => message.role === 'assistant' && message.tool_calls?.some(call => call.function?.name === firstCase.then.name)) ? firstCase.then : undefined
     const toolCase = nextCase || firstCase

@@ -1,5 +1,5 @@
-import { schedulingRows } from '../tests/support/scheduling-composition.mjs'
-import { cleanupVerification } from './cleanup-verification.mjs'
+import { schedulingRows } from '../support/scheduling-composition.mjs'
+import { cleanupVerification } from '../../tooling/cleanup-verification.mjs'
 import assert from 'node:assert/strict'
 import { randomUUID, createHash, createCipheriv } from 'node:crypto'
 import { createServer } from 'node:net'
@@ -9,18 +9,21 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { methods } from '@agentclientprotocol/sdk'
-import { root, run } from './common.mjs'
-import { checkArtifacts } from './check-artifacts.mjs'
-import { officialHost, verificationEnvironment } from './official-host.mjs'
-import { startAcp, deadline } from '../tests/support/acp-client.mjs'
-import { startMockModel } from '../tests/support/mock-model.mjs'
-import { startMockFeishu } from '../tests/support/mock-feishu.mjs'
-import { eventually } from '../tests/support/temp-dir.mjs'
-import { prepareFeatureMocks, verifyFeatures } from '../tests/support/feature-probes.mjs'
+import { root, run } from '../../tooling/common.mjs'
+import { checkArtifacts } from '../../tooling/check-artifacts.mjs'
+import { officialHost, verificationEnvironment } from '../../tooling/official-host.mjs'
+import { startAcp, deadline } from '../support/acp-client.mjs'
+import { startMockModel } from '../support/mock-model.mjs'
+import { startMockFeishu } from '../support/mock-feishu.mjs'
+import { eventually } from '../support/temp-dir.mjs'
+import { prepareFeatureMocks, verifyFeatures } from '../support/feature-probes.mjs'
 
 const host = await officialHost()
 const webProfile = process.argv.includes('--web')
 const features = process.argv.includes('--features')
+const resourcesOnly = process.argv.includes('--resources')
+const progressOnly=process.argv.includes('--progress'),questionsOnly=process.argv.includes('--questions'),focused=resourcesOnly||progressOnly||questionsOnly
+if(resourcesOnly&&features)throw Error('Choose resource discovery or full composition')
 const work = await mkdtemp(path.join(tmpdir(), 'telebot-feishu-'))
 const home = path.join(work, 'home'), profile = 'telebot-feishu-verify'
 const workspace = path.join(work, 'workspace 中文')
@@ -30,7 +33,7 @@ const env = { ...verificationEnvironment(home), HOME: userHome, USERPROFILE: use
   FEISHU_APP_SECRET: 'loopback-app-secret', FEISHU_VERIFICATION_TOKEN: 'loopback-source-token', FEISHU_ENCRYPT_KEY: '',
   FEISHU_APP_ID: 'cli_test', FEISHU_ADMIN_USER_IDS: 'ou_alice,ou_bob', TELEBOT_WORKSPACE: workspace,
   TELEBOT_PROVIDER: 'telebot-verification', TELEBOT_MODEL: 'telebot-mock-a', TELEBOT_MAX_CONCURRENT_SESSIONS: '2' }
-const evidence = { runtime: host.version, platform: process.platform, baseProfile: webProfile ? 'web' : 'acp', realHarness: true, realFeishu: false, paidModels: false, checks: [] }
+const evidence = { runtime: host.version, platform: process.platform, baseProfile: webProfile ? 'web' : 'acp', scope:questionsOnly?'natural-questions-and-tasks':progressOnly?'editable-progress':resourcesOnly?'registered-resource-discovery':'channel', realHarness: true, realFeishu: false, paidModels: false, checks: [] }
 const check = name => { evidence.checks.push(name); console.log('PASS ' + name) }
 const filename = path.join(home, 'plugins/telebot-feishu/cli_test/channel.sqlite')
 function rows(sql, ...parameters) {
@@ -63,7 +66,10 @@ function message(id, text, { chat = 'oc_main', actor = 'ou_alice', thread = '' }
   return { schema: '2.0', header: { app_id: 'cli_test', event_id: 'event_' + id, event_type: 'im.message.receive_v1', token: env.FEISHU_VERIFICATION_TOKEN },
     event: { sender: { sender_type: 'user', sender_id: { open_id: actor } }, message: { message_id: 'om_' + id, chat_id: chat, thread_id: thread, message_type: 'text', content: JSON.stringify({ text }) } } }
 }
-const received = id => platform.sent.find(entry => entry.replyTo === 'om_' + id && !entry.body.content?.includes('"content":"执行进度"'))
+const received = id => {
+  const receipt=rows("SELECT remote_id FROM outbox WHERE reply_to=? AND state='sent' AND purpose IN ('message','reply') AND NOT(msg_type='interactive' AND COALESCE(json_extract(content,'$.header.title.content'),'') IN ('执行进度','需要你的回答','请求操作授权')) ORDER BY seq LIMIT 1",'om_'+id)[0]
+  return receipt?platform.sent.find(entry=>entry.messageId===receipt.remote_id):undefined
+}
 async function settled(id) { await eventually(() => received(id), 20000); return received(id) }
 async function open(label, isDisabled = false) {
   acp = await startAcp({ cli: host.cli, profile, patches: [...(webProfile ? [examplePatch] : []), patch, ...(isDisabled ? [disabled] : [])], cwd: work, env, log: path.join(work, label + '.log') })
@@ -80,11 +86,12 @@ async function configuration() {
     appId: 'cli_test', adminUserIds: ['ou_alice', 'ou_bob'], workspace, provider: 'telebot-verification', model: 'telebot-mock-a',
     apiBaseUrl: platform.origin, encryptKeyRef: encrypted ? 'FEISHU_ENCRYPT_KEY' : '',
     maxConcurrentSessions: 2, pollMs: 50, leaseMs: 10000, retryMs: 100, actionTtlMs: 60000,
-    businessEnabled: features && !featureDisabled,
+    streamProgress:progressOnly,
+    businessEnabled: !featureDisabled,
     business: { resourcesJson: JSON.stringify(features ? [
       { alias: 'test-table', kind: 'bitable', id: 'test-base', tableId: 'test-table', identity: 'tenant', tokenRef: 'FEISHU_APP_TENANT', expiresAt: 0, capabilities: ['bitable.read','bitable.create','bitable.update','bitable.delete'] },
       { alias: 'test-calendar', kind: 'calendar', id: 'fixture@group.calendar.feishu.cn', identity: 'tenant', tokenRef: 'FEISHU_APP_TENANT', expiresAt: 0, capabilities: ['calendar.read','calendar.create','calendar.update','calendar.delete'] },
-    ] : []) },
+    ] : [{alias:'test-table',kind:'bitable',id:'test-base',tableId:'test-table',identity:'tenant',tokenRef:'FEISHU_APP_TENANT',expiresAt:0,capabilities:['bitable.read']}]) },
   }
   await writeFile(patch, JSON.stringify([
     ...(webProfile ? [
@@ -97,6 +104,7 @@ async function configuration() {
       retryPolicy: { mode: 'normal', maxRetries: 0 }, models: ['telebot-mock-a', 'telebot-mock-b'].map(id => ({ id, contextWindow: 131072, maxTokens: 4096, input: ['text'] })) } } } },
     { id: 'acp', config: { provider: 'telebot-verification', model: 'telebot-mock-a' } },
     { id: 'telebot-feishu', disabled: false, config: feishuConfig },
+    ...(questionsOnly?[{insert:[{id:'verify-ask-user',name:'@deepseek-ai/dsh-tool-ask-user',config:{mode:'legacy'}}]},{id:'telebot-automation',disabled:false,config:{adminUserIds:['ou_alice'],allowedRoots:[],provider:'telebot-verification',model:'telebot-mock-a'}}]:[]),
     ...(features ? [
       {id:'telebot-diagnostics',config:{webProbes:true}},
       {id:'web',config:{fetchProvider:'telebot-fixture'}},
@@ -118,17 +126,18 @@ async function configuration() {
   } catch (error) { if (error.code !== 'ENOENT') throw error }
 }
 try {
-  const manifest = await checkArtifacts(); evidence.artifacts = manifest.packages
+  const manifest = await checkArtifacts()
+  const installed=manifest.packages.filter(entry=>features||['@telebot/core','@telebot/feishu','@telebot/diagnostics',...(questionsOnly?['@telebot/automation']:[])].includes(entry.name));evidence.artifacts=installed
   assert(!manifest.packages.some(entry => entry.name === '@telebot/feishu-tools'), 'Feishu business must ship in the single Feishu bundle')
   for (const name of ['@telebot/core', '@telebot/feishu', '@telebot/diagnostics']) assert(manifest.packages.some(entry => entry.name === name), 'Pack with --fixtures')
   await command(['--profile', profile, '--from-default-profile', webProfile ? 'web' : 'acp', '--dump-config'])
   const artifacts = path.join(work, 'artifacts'); await mkdir(artifacts)
-  for (const entry of manifest.packages) {
+  for (const entry of installed) {
     await cp(path.join(root, 'dist', entry.filename), path.join(artifacts, entry.filename))
     await command(['plugin', '--profile', profile, 'add', 'file:' + path.join(artifacts, entry.filename).replaceAll('\\', '/')])
   }
   await rename(artifacts, artifacts + '.unavailable')
-  model = await startMockModel(); platform = await startMockFeishu()
+  model = await startMockModel(); platform = await startMockFeishu(features?{}:{tables:[{table_id:'test-table',name:'Todo'},{table_id:'not-registered',name:'Unregistered table'}]})
   if (features) featureMocks = await prepareFeatureMocks(work, env)
   const reservation = createServer(); reservation.listen(0, '127.0.0.1'); await once(reservation, 'listening')
   port = reservation.address().port; await new Promise(resolve => reservation.close(resolve))
@@ -151,6 +160,68 @@ try {
   assert.equal(model.requests.length, 0)
   check('real webhook verifies challenge/source/app/admin and ignores bot messages before Agent admission')
 
+  if(progressOnly){
+  await post(message('thinking_progress','TELEBOT_TEST:THINKING_ONLY',{chat:'oc_progress'}));await settled('thinking_progress')
+  const publications=platform.attempts.filter(row=>row.replyTo==='om_thinking_progress'),creates=publications.filter(row=>row.method==='POST'),edits=publications.filter(row=>row.method==='PUT')
+  assert.equal(creates.length,1);assert(edits.length>=1&&edits.length<=6)
+  assert(publications.every(row=>row.body.msg_type==='post'&&JSON.parse(row.body.content).zh_cn.content[0][0].tag==='md'))
+  assert(edits.every(row=>row.messageId===creates[0].messageId))
+  assert(received('thinking_progress').body.content.includes('Keyless response complete.'))
+  assert(!JSON.stringify(platform.attempts).includes('PRIVATE_REASONING_FIXTURE'))
+  check('one Markdown placeholder is edited in place and becomes the final reply without duplicate cards or private reasoning')
+  }
+
+  if(!features&&!progressOnly&&!questionsOnly){
+    model.toolCases.set('TABLE_DISCOVERY',{name:'feishu_resources',arguments:{kind:'bitable'},then:{name:'feishu_bitable_inspect',arguments:{resource:'Todo',params_json:'{}'}}})
+    await post(message('table_discovery','TELEBOT_TEST:TABLE_DISCOVERY',{chat:'oc_tables'}));await settled('table_discovery')
+    const calls=model.requests.filter(row=>row.instruction==='TABLE_DISCOVERY')
+    assert(calls.some(row=>row.receipt?.includes('Todo')))
+    assert(calls.some(row=>row.receipt?.includes('baseName')))
+    assert(!calls.some(row=>row.receipt?.includes('Unregistered table')))
+    assert(calls.some(row=>row.receipt?.includes('field_name')))
+    assert(!received('table_discovery').body.content.includes('unknown_resource'))
+    check('model resolves legacy registered IDs to Todo through the installed inventory tool, excludes unregistered tables and inspects by name without filesystem scans')
+  }
+
+  if(questionsOnly){
+    const options={chat:'oc_natural_questions'},send=async(id,text)=>{const payload=message(id,text,options);payload.event.message.chat_type='p2p';assert.equal((await post(payload)).status,200);return payload},body=id=>JSON.parse(received(id).body.content).zh_cn.content[0][0].text
+    model.toolCases.set('NATURAL_QUESTION',{name:'ask_user_question',arguments:{questions:[{id:'city',question:'城市？',options:[{label:'济南',description:'测试城市'},{label:'北京',description:'另一个测试城市'}],multi_select:false}]}})
+    await send('natural_question','TELEBOT_TEST:NATURAL_QUESTION')
+    await eventually(()=>platform.sent.some(row=>row.replyTo==='om_natural_question'&&row.body.content.includes('需要你的回答')),15000)
+    await send('natural_city','济南');await settled('natural_city');await settled('natural_question')
+    assert(body('natural_city').includes('回答已提交'));assert(model.requests.some(row=>row.instruction==='NATURAL_QUESTION'&&row.receipt?.includes('济南')))
+    check('plain text answers its identity-bound pending question through the control lane without another model turn')
+    await send('blocked_question','TELEBOT_TEST:NATURAL_QUESTION')
+    await eventually(()=>platform.sent.some(row=>row.replyTo==='om_blocked_question'&&row.body.content.includes('需要你的回答')),15000)
+    await send('new_topic','TELEBOT_TEST:UNPREFIXED_NEW_TOPIC');await settled('new_topic')
+    assert.equal(rows("SELECT state FROM inbox WHERE message_id='om_blocked_question'")[0].state,'waiting')
+    const original=JSON.parse(rows("SELECT pinned_spec FROM inbox WHERE message_id='om_blocked_question'")[0].pinned_spec)
+    const continued=JSON.parse(rows("SELECT pinned_spec FROM inbox WHERE message_id='om_new_topic'")[0].pinned_spec)
+    assert.notEqual(original.id,continued.id);assert.equal(continued.parentSessionId,original.id)
+    const next=model.requests.find(row=>row.instruction==='UNPREFIXED_NEW_TOPIC');assert(next);assert(JSON.stringify(next.body.messages).includes('城市'))
+    await send('plain_greeting','你好');await settled('plain_greeting')
+    assert.equal(rows("SELECT state FROM inbox WHERE message_id='om_blocked_question'")[0].state,'waiting')
+    await send('late_city','北京');await settled('late_city');await settled('blocked_question')
+    assert(body('late_city').includes('回答已提交'));assert.equal(JSON.parse(rows("SELECT pinned_spec FROM inbox WHERE message_id='om_late_city'")[0].pinned_spec).id,original.id)
+    check('unprefixed requests and plain greetings continue in an official history-preserving fork while the old card remains answerable in its original session')
+    if(webProfile){
+      model.toolCases.set('RAW_SCHEDULE_DENY',{name:'schedule_create',arguments:{prompt:'must not arm the foreground',title:'must-not-create',after_seconds:3600}})
+      await send('raw_schedule_deny','TELEBOT_TEST:RAW_SCHEDULE_DENY');await settled('raw_schedule_deny')
+      assert(model.requests.some(row=>row.instruction==='RAW_SCHEDULE_DENY'&&row.receipt?.includes('feishu_schedule_requires_isolated_task')))
+    }
+    const task={title:'isolated natural task',prompt:'synthetic future work',mode:'auto',executor:'research',catchUp:'skip',rule:{kind:'once',first:new Date(Date.now()+3600000).toISOString(),timeZone:'Asia/Shanghai',interval:1}}
+    model.toolCases.set('NATURAL_TASK',{name:'telebot_schedule',arguments:{action:'create',input_json:JSON.stringify(task)}})
+    await send('natural_task','TELEBOT_TEST:NATURAL_TASK');await settled('natural_task');await send('task_confirm','同意');await settled('task_confirm')
+    await send('task_list','/schedule list');await settled('task_list');const created=JSON.parse(body('task_list'));assert.equal(created.length,1);assert.equal(created[0].authorized,false)
+    model.toolCases.set('NATURAL_AUTHORIZE',{name:'telebot_schedule',arguments:{action:'authorize',input_json:JSON.stringify({task_id:created[0].id})}})
+    await send('task_authorize','TELEBOT_TEST:NATURAL_AUTHORIZE');await settled('task_authorize');await send('grant_confirm','同意授权');await settled('grant_confirm')
+    await send('task_after','/schedule list');await settled('task_after');assert.equal(JSON.parse(body('task_after'))[0].authorized,true)
+    const taskCalls=model.requests.filter(row=>row.instruction==='NATURAL_TASK');assert(taskCalls.length)
+    await send('chat_with_future_task','新问题：现在请打个招呼');await settled('chat_with_future_task')
+    check('task creation and separate automatic authorization accept trusted natural confirmation; active future tasks leave chat responsive and raw same-session scheduling is denied before execution')
+  }
+
+  if(!focused){
   const token = randomUUID(), echo = message('echo', 'TELEBOT_TEST:ECHO:' + token)
   assert.equal((await post(echo)).status, 200)
   const reply = await settled('echo')
@@ -200,13 +271,13 @@ try {
 
   platform.behaviors.set('om_retry', 'rate-limit-once')
   await post(message('retry', 'TELEBOT_TEST:DELIVERY_RETRY')); await settled('retry')
-  const retries = platform.attempts.filter(entry => entry.replyTo === 'om_retry')
+  const retries = platform.attempts.filter(entry => entry.replyTo === 'om_retry'&&entry.body.msg_type==='post')
   assert.equal(retries.length, 2); assert.equal(retries[0].body.uuid, retries[1].body.uuid)
   assert.equal(model.requests.filter(entry => entry.instruction === 'DELIVERY_RETRY').length, 1)
   platform.behaviors.set('om_unknown', 'disconnect')
   await post(message('unknown', 'TELEBOT_TEST:DELIVERY_UNKNOWN'))
-  await eventually(() => rows("SELECT * FROM outbox WHERE reply_to='om_unknown' AND state='unknown'").length === 1, 15000)
-  assert.equal(platform.attempts.filter(entry => entry.replyTo === 'om_unknown').length, 1)
+  await eventually(() => rows("SELECT * FROM outbox WHERE reply_to='om_unknown' AND msg_type='post' AND state='unknown'").length === 1, 15000)
+  assert.equal(platform.attempts.filter(entry => entry.replyTo === 'om_unknown'&&entry.body.msg_type==='post').length, 1)
   check('confirmed rate limit retries only delivery with the same UUID; lost send receipt becomes unknown without Agent rerun')
 
   await stop(); const beforeRestart = model.requests.length, sendsBeforeRestart = platform.attempts.length
@@ -219,7 +290,7 @@ try {
   assert.equal(rows('SELECT id FROM sessions WHERE key=(SELECT session_key FROM inbox WHERE message_id=?)', 'om_resumed')[0].id, firstMapping)
   const resumed = model.requests.find(entry => entry.instruction === 'RESUMED_FEISHU')
   assert(JSON.stringify(resumed.body.messages).includes(token))
-  assert.equal(platform.attempts.filter(entry => entry.replyTo === 'om_unknown').length, 1)
+  assert.equal(platform.attempts.filter(entry => entry.replyTo === 'om_unknown'&&entry.body.msg_type==='post').length, 1)
   check('restart preserves mapping/history and deduplication, never resends unknown delivery, and accepts only valid signed/encrypted input')
 
   const controlsChat = { chat: 'oc_p2_controls' }
@@ -295,15 +366,16 @@ try {
   const heldReply = 'crash_send'
   platform.behaviors.set('om_' + heldReply, 'hold')
   await post(message(heldReply, 'TELEBOT_TEST:CRASH_DURING_SEND'))
-  await eventually(() => platform.attempts.some(entry => entry.replyTo === 'om_' + heldReply), 15000)
-  assert.equal(rows('SELECT state FROM outbox WHERE reply_to=?', 'om_' + heldReply)[0].state, 'sending')
+  await eventually(() => platform.attempts.some(entry => entry.replyTo === 'om_' + heldReply&&entry.body.msg_type==='post'), 15000)
+  assert.equal(rows("SELECT state FROM outbox WHERE reply_to=? AND msg_type='post'", 'om_' + heldReply)[0].state, 'sending')
   await acp.crash(); acp = undefined
   const sendLeaseExpiry = rows('SELECT expires FROM lease')[0].expires
   await new Promise(resolve => setTimeout(resolve, Math.max(0, sendLeaseExpiry - Date.now() + 100)))
   await open('after-send-crash')
-  assert.equal(rows('SELECT state FROM outbox WHERE reply_to=?', 'om_' + heldReply)[0].state, 'unknown')
-  assert.equal(platform.attempts.filter(entry => entry.replyTo === 'om_' + heldReply).length, 1)
+  assert.equal(rows("SELECT state FROM outbox WHERE reply_to=? AND msg_type='post'", 'om_' + heldReply)[0].state, 'unknown')
+  assert.equal(platform.attempts.filter(entry => entry.replyTo === 'om_' + heldReply&&entry.body.msg_type==='post').length, 1)
   check('forced termination during remote send preserves an unknown outcome instead of duplicating the message on restart')
+  }
 
   await stop()
   await open('disabled', true)
@@ -311,11 +383,11 @@ try {
   assert.equal(response.status, 404)
   await stop()
   check('disabled bundle unregisters webhook and worker while the official carrier remains alive')
-  for (const entry of [...manifest.packages].reverse().filter(entry => entry.name !== '@telebot/core')) await command(['plugin', '--profile', profile, 'remove', entry.name])
+  for (const entry of [...installed].reverse().filter(entry => entry.name !== '@telebot/core')) await command(['plugin', '--profile', profile, 'remove', entry.name])
   await command(['plugin', '--profile', profile, 'remove', '@telebot/core'])
   const pkg = JSON.parse(await readFile(path.join(home, 'profiles', profile, 'package.json'), 'utf8'))
   for (const name of ['@telebot/feishu', '@telebot/core', '@telebot/diagnostics']) assert(!pkg.dependencies?.[name])
-  assert(rows('SELECT * FROM sessions').length >= 2)
+  assert(rows('SELECT * FROM sessions').length >= (focused?1:2))
   check('official uninstall removes all bundles and preserves channel business data')
   evidence.status = 'passed'
 } catch (error) { evidence.status = 'failed'; evidence.error = error.message; throw error }
@@ -329,7 +401,7 @@ finally {
   const report = path.join(work, 'result.json')
   await writeFile(report, JSON.stringify(evidence, null, 2) + '\n')
   await mkdir(path.join(root, '.runtime'), { recursive: true })
-  await cp(report, path.join(root, features ? (webProfile ? '.runtime/verify-features-web-latest.json' : '.runtime/verify-features-latest.json') : (webProfile ? '.runtime/verify-feishu-web-latest.json' : '.runtime/verify-feishu-latest.json')))
+  await cp(report, path.join(root, questionsOnly ? (webProfile?'.runtime/verify-feishu-questions-web-latest.json':'.runtime/verify-feishu-questions-latest.json') : progressOnly ? (webProfile?'.runtime/verify-feishu-progress-web-latest.json':'.runtime/verify-feishu-progress-latest.json') : resourcesOnly ? (webProfile?'.runtime/verify-feishu-resources-web-latest.json':'.runtime/verify-feishu-resources-latest.json') : features ? (webProfile ? '.runtime/verify-features-web-latest.json' : '.runtime/verify-features-latest.json') : (webProfile ? '.runtime/verify-feishu-web-latest.json' : '.runtime/verify-feishu-latest.json')))
   console.log('Evidence: ' + report)
   await cleanupVerification(work, evidence.status === 'passed')
 }

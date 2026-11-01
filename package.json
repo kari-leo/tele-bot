@@ -13,17 +13,7 @@
     "check:artifacts": "node tooling/check-artifacts.mjs",
     "test": "node tooling/test.mjs",
     "install:knowledge": "node tooling/install-knowledge.mjs",
-    "verify:knowledge": "node tooling/verify-knowledge.mjs",
-    "verify:harness": "node tooling/verify-harness.mjs",
-    "verify:p0": "node tooling/verify-harness.mjs --p0",
-    "verify:codex": "node tooling/verify-codex.mjs",
-    "verify:feishu": "node tooling/verify-feishu.mjs",
-    "verify:features": "node tooling/verify-feishu.mjs --features",
-    "preflight:feishu": "node tooling/feishu-preflight.mjs",
-    "verify:bitable:live": "node tooling/verify-bitable-live.mjs",
-    "verify:feishu:setup": "node tooling/verify-feishu-setup.mjs",
-    "verify:feishu:live": "node tooling/verify-feishu-live.mjs",
-    "verify:desktop": "node tooling/verify-desktop.mjs"
+    "verify": "node tooling/verify.mjs"
   },
   "devDependencies": {
     "@agentclientprotocol/sdk": "1.4.0",

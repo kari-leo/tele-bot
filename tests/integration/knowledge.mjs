@@ -1,14 +1,14 @@
-import { cleanupVerification } from './cleanup-verification.mjs'
+import { cleanupVerification } from '../../tooling/cleanup-verification.mjs'
 import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { tmpdir } from 'node:os'
 import { createServer } from 'node:net'
 import { once } from 'node:events'
-import { root, run } from './common.mjs'
-import { officialHost, verificationEnvironment } from './official-host.mjs'
-import { startAcp } from '../tests/support/acp-client.mjs'
-import { eventually } from '../tests/support/temp-dir.mjs'
+import { root, run } from '../../tooling/common.mjs'
+import { officialHost, verificationEnvironment } from '../../tooling/official-host.mjs'
+import { startAcp } from '../support/acp-client.mjs'
+import { eventually } from '../support/temp-dir.mjs'
 
 const host = await officialHost()
 const tempRoot = process.env.TELEBOT_VERIFY_TEMP ?? tmpdir()
@@ -18,7 +18,7 @@ const work = await mkdtemp(path.join(tempRoot, 'telebot-knowledge-'))
 const home = path.join(work, 'home'), user = path.join(work, 'user'), profile = 'knowledge-check'
 await mkdir(home); await mkdir(user)
 const env = { ...verificationEnvironment(home), HOME: user, USERPROFILE: user, TELEBOT_DSH_INSTALL: host.installRoot }
-const { knowledge } = JSON.parse(await readFile(new URL('./external-plugins.json', import.meta.url), 'utf8'))
+const { knowledge } = JSON.parse(await readFile(new URL('../../tooling/external-plugins.json', import.meta.url), 'utf8'))
 const report = { assessedAt: new Date().toISOString(), runtime: host.version, knowledge: knowledge.version, realHarness: true, paidModels: false, importedUserData: false, checks: [], status: 'running' }
 const check = message => { report.checks.push(message); console.log('PASS ' + message) }
 const command = args => run(process.execPath, [host.cli, ...args], { cwd: work, env })

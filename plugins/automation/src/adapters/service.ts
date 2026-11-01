@@ -49,8 +49,10 @@ export class AutomationService {
   private async authorize(actor:TrustedActor){
     if(!desktopOwner(actor)&&!this.policy.adminUserIds.includes(actor.userId))throw new Error('automation_actor_not_authorized')
     const cwd=await realpath(actor.cwd);if(!(await stat(cwd)).isDirectory())throw new Error('automation_workspace_required')
-    if(desktopFull(actor))return
-    for(const root of desktopOwner(actor)?actor.allowedRoots??[]:this.policy.allowedRoots){const relative=path.relative(await realpath(root),cwd);if(relative===''||!relative.startsWith('..')&&!path.isAbsolute(relative))return}
+    // Authorized channel users have full directory access. A deliberately restricted
+    // native entry retains its own entry policy; legacy plugin roots are ignored.
+    if(desktopFull(actor)||!desktopOwner(actor))return
+    for(const root of actor.allowedRoots??[]){const relative=path.relative(await realpath(root),cwd);if(relative===''||!relative.startsWith('..')&&!path.isAbsolute(relative))return}
     throw new Error('automation_workspace_not_allowed')
   }
   private owned(actor:TrustedActor,id:string):Row{

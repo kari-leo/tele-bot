@@ -1,10 +1,24 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, realpath, rm, symlink } from 'node:fs/promises'
+import { mkdtemp, realpath, rm, symlink, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { root } from '../../tooling/common.mjs'
 import { officialHost, verificationEnvironment } from '../../tooling/official-host.mjs'
+import {modules, selectModules, selectTests} from '../../tooling/verification-catalog.mjs'
+import ts from 'typescript'
+
+test('module selection covers every local assertion while unrelated modules remain excluded and shared files run once',async()=>{
+  const all=selectTests()
+  assert.equal(new Set(all.map(row=>row.file)).size,all.length)
+  for(const spec of all){const source=await readFile(path.join(root,spec.file),'utf8'),ast=ts.createSourceFile(spec.file,source,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS),names=ast.statements.filter(node=>ts.isExpressionStatement(node)&&ts.isCallExpression(node.expression)&&node.expression.expression.getText(ast)==='test').map(node=>node.expression.arguments[0].text);assert(names.length,'No assertions: '+spec.file);for(const name of names)assert(!spec.pattern||new RegExp(spec.pattern).test(name),'Uncovered assertion: '+name)}
+  const feishu=selectTests(['feishu','feishu-business'])
+  assert(!feishu.some(row=>/publishing|automation|desktop\.test|skills-and-limits/.test(row.file)))
+  const shared=feishu.find(row=>row.file.endsWith('production-business.test.mjs'))
+  assert(new RegExp(shared.pattern).test('P2 attachment'));assert(new RegExp(shared.pattern).test('P3 resource'));assert(!new RegExp(shared.pattern).test('P4 OpenCLI'))
+  assert.throws(()=>selectModules(['typo']),/Unknown module/)
+  assert(modules.settings.tests.some(row=>row.file.endsWith('native-configuration-ui.test.mjs')))
+})
 
 test('official acceptance cannot silently use a source workspace, including a junction alias', async () => {
   await assert.rejects(officialHost(root), /outside this repository/)

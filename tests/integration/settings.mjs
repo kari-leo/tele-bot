@@ -1,20 +1,20 @@
-import { schedulingRows } from '../tests/support/scheduling-composition.mjs'
-import { cleanupVerification } from './cleanup-verification.mjs'
+import { schedulingRows } from '../support/scheduling-composition.mjs'
+import { cleanupVerification } from '../../tooling/cleanup-verification.mjs'
 import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { once } from 'node:events'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { root, run } from './common.mjs'
-import { officialHost, verificationEnvironment } from './official-host.mjs'
-import { checkArtifacts } from './check-artifacts.mjs'
-import { startAcp } from '../tests/support/acp-client.mjs'
-import { eventually } from '../tests/support/temp-dir.mjs'
-import { startMockFeishu } from '../tests/support/mock-feishu.mjs'
-import { startMockModel } from '../tests/support/mock-model.mjs'
-import { prepareFeatureMocks } from '../tests/support/feature-probes.mjs'
-import { saveThroughNativeSettings } from '../tests/support/native-settings-client.mjs'
+import { root, run } from '../../tooling/common.mjs'
+import { officialHost, verificationEnvironment } from '../../tooling/official-host.mjs'
+import { checkArtifacts } from '../../tooling/check-artifacts.mjs'
+import { startAcp } from '../support/acp-client.mjs'
+import { eventually } from '../support/temp-dir.mjs'
+import { startMockFeishu } from '../support/mock-feishu.mjs'
+import { startMockModel } from '../support/mock-model.mjs'
+import { prepareFeatureMocks } from '../support/feature-probes.mjs'
+import { saveThroughNativeSettings } from '../support/native-settings-client.mjs'
 
 const desktop = process.argv.includes('--desktop')
 const host = await officialHost(), work = await mkdtemp(path.join(tmpdir(), 'telebot-setup-'))
@@ -83,7 +83,8 @@ try {
     const saved=await apiFor(name,'POST',{revision:describe.revision,config});assert.equal(saved.status,200);assert(saved.body.active);
     const persisted=await readFile(path.join(ownDirectory,'config.json'),'utf8');
     assert.equal((await apiFor(name,'POST',{revision:describe.revision,config})).status,409);
-    const current=(await apiFor(name)).body,invalid=['codex','adviser'].includes(name)?{cli:'relative'}:{allowedRoots:['relative']};
+    const current=(await apiFor(name)).body,invalid=name==='automation'?{timeZone:'Invalid/Timezone'}:['codex','adviser'].includes(name)?{cli:'relative'}:{allowedRoots:['relative']};
+    if(name==='automation')assert(!describe.fields.some(field=>field.key==='allowedRoots'))
     assert.equal((await apiFor(name,'POST',{revision:current.revision,config:{...config,...invalid}})).status,400);
     assert.equal(await readFile(path.join(ownDirectory,'config.json'),'utf8'),persisted)
 

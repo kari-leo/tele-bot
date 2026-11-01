@@ -3,12 +3,13 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import { configuredPlugin } from './harness/configuration.js'
 import { ConfigurationPages } from './harness/configuration-ui.js'
 import { hostCapabilities, type CapabilitySnapshot } from './contracts.js'
-import { HarnessConversations } from './harness/conversations.js'
+import { HarnessConversations, feishuTaskGuard } from './harness/conversations.js'
 import type { FeatureHandler, FeatureRequest, TrustedActor, ActorProvider } from './contracts.js'
 import type { TaskExecutor, TaskExecution, DeliveryRequest, ConfirmationProvider } from './contracts.js'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type {} from '@deepseek-ai/dsh-user-questions'
-import { Interactions, type QuestionSink } from './interactions.js'
+import { Interactions, confirmationDecision, type QuestionSink } from './interactions.js'
+import { SessionId } from '@deepseek-ai/dsh-session/types'
 
 export type { CapabilitySnapshot, HostCapability } from './contracts.js'
 
@@ -32,7 +33,12 @@ export class TelebotCore extends Service {
   constructor(ctx: Context) { super(ctx, 'telebotCore') }
 
   /** Create a channel-owned adapter; the caller must dispose its Agent handles. */
-  conversations(): HarnessConversations { return new HarnessConversations(this.ctx, (actor, run, sink) => this.withActor(actor, run, sink), id => this.artifacts.get(id) ?? []) }
+  conversations(): HarnessConversations { return new HarnessConversations(this.ctx, (actor, run, sink) => this.withActor(actor, run, sink), id => this.artifacts.get(id) ?? [],async(scope,id)=>{
+    let actor:TrustedActor;try{actor=this.actor(id)}catch{return}
+    if(actor.origin==='feishu')await scope.plugin({name:'telebot-feishu-isolated-tasks',inject:['tools'],apply:(child:Context)=>{
+      child.tools.guard(feishuTaskGuard(id,()=>this.has('schedule')))
+    }}).await()
+  }) }
   recordArtifacts(session: string, artifacts: NonNullable<import('./contracts.js').ConversationResult['artifacts']>) {
     this.actor(session)
     const rows = this.artifacts.get(session) ?? []; rows.push(...artifacts); this.artifacts.set(session, rows)
@@ -68,7 +74,9 @@ export class TelebotCore extends Service {
   async question(sessionId: string, text: string, choices: string[], approval: boolean, signal?: AbortSignal) {
     const sink = this.questionSinks.get(sessionId)
     if (!sink) throw new Error('channel_question_sink_unavailable')
-    return this.interactions.ask(this.actor(sessionId), text, choices, approval, sink, signal)
+    const answer=await this.interactions.ask(this.actor(sessionId), text, choices, approval, sink, signal)
+    if(!answer){(this.ctx.get('agents') as Context['agents']|undefined)?.get(SessionId(sessionId))?.cancel({kind:'user'});throw new Error('question_expired_or_cancelled')}
+    return answer
   }
   registerFeature(name: string, handler: FeatureHandler): () => void {
     if (this.features.has(name)) throw new Error('feature_already_registered')
@@ -76,6 +84,20 @@ export class TelebotCore extends Service {
     return () => { if (this.features.get(name) === handler) this.features.delete(name) }
   }
   has(name: string) { return this.features.has(name) }
+  private routedConfirmations(actor:TrustedActor){
+    const sessions=actor.origin==='feishu'?[...new Set([actor.sessionId,...actor.relatedSessionIds??[]])]:[actor.sessionId]
+    return sessions.flatMap(sessionId=>[...this.confirmations].flatMap(([name,provider])=>provider.pending({...actor,sessionId}).map(row=>({...row,name,sessionId}))))
+  }
+  routeInput(actor:TrustedActor,text:string):import('./contracts.js').HumanInputRoute|undefined{
+    this.validateActor(actor)
+    const question=this.interactions.routeInput(actor,text)
+    if(question){if(question.kind==='answer'&&confirmationDecision(text)&&this.routedConfirmations(actor).length)return{kind:'notice',text:'同时有询问和业务操作等待确认。回答卡片请用“回答1：允许一次”或“回答1：拒绝”；业务操作请用“确认第1项”或“取消第1项”。'};return question}
+    const selected=/^(确认|同意|执行|取消|拒绝)(?:执行|授权)?第?([一二三四五六七八九十]|\d+)(?:个|项|项任务)?[。！!\s]*$/.exec(text.trim())
+    if(selected){const ordinal=Number(selected[2])||'一二三四五六七八九十'.indexOf(selected[2])+1,rows=this.routedConfirmations(actor),row=rows[ordinal-1];if(row)return{kind:'confirmation',text:(['取消','拒绝'].includes(selected[1])?'cancel':'confirm')+' '+row.name+' '+row.token,sessionId:row.sessionId};return{kind:'notice',text:'待确认列表已变化，请重新查看后选择。'}}
+    const decision=confirmationDecision(text)
+    if(decision){const rows=this.routedConfirmations(actor);if(!rows.length)return{kind:'notice',text:'当前没有待确认操作，请先查看操作预览。'};if(rows.length>1)return{kind:'notice',text:'有多个待确认操作，请回复“确认第1项”或“取消第1项”等明确选择：\n'+rows.map((row,index)=>(index+1)+'. '+row.label).join('\n')};return{kind:'confirmation',text:decision+' '+rows[0].name+' '+rows[0].token,sessionId:rows[0].sessionId}}
+  }
+  waitingSessions(){return this.interactions.waitingSessions()}
   registerTaskExecutor(name: string, handler: TaskExecutor) {
     if (this.taskExecutors.has(name)) throw new Error('task_executor_already_registered')
     this.taskExecutors.set(name, handler)
@@ -109,10 +131,10 @@ export class TelebotCore extends Service {
     this.confirmations.set(name, provider)
     return () => { if (this.confirmations.get(name) === provider) this.confirmations.delete(name) }
   }
-  async confirmLatest(actor: TrustedActor, cancel: boolean, signal: AbortSignal) {
-    const rows = [...this.confirmations].flatMap(([name, provider]) => provider.pending(actor).map(row => ({ ...row, name, provider })))
+  async confirmLatest(actor: TrustedActor, cancel: boolean, signal: AbortSignal, selected?:{name:string;token:string}) {
+    const all = [...this.confirmations].flatMap(([name, provider]) => provider.pending(actor).map(row => ({ ...row, name, provider }))),rows=selected?all.filter(row=>row.name===selected.name&&row.token===selected.token):all
     if (!rows.length) return { status: 'failed' as const, text: '' }
-    if (rows.length !== 1) return { status: 'failed' as const, text: '有多个待确认操作，请明确选择：\n' + rows.map(row => row.name + ' ' + row.token + '：' + row.label).join('\n') }
+    if (rows.length !== 1) return { status: 'failed' as const, text: '有多个待确认操作，请回复“确认第1项”或“取消第1项”等明确选择：\n' + rows.map((row,index) => (index+1)+'. '+row.label).join('\n') }
     const row = rows[0]
     return cancel ? row.provider.cancel(actor, row.token) : row.provider.confirm(actor, row.token, signal)
   }
@@ -134,7 +156,7 @@ export const name = 'telebot-core'
 export async function apply(ctx: Context): Promise<void> {
   new ConfigurationPages(ctx)
   const core = new TelebotCore(ctx)
-  core.registerFeature('confirm', request => core.confirmLatest(request.actor, request.text === 'cancel', request.signal))
+  core.registerFeature('confirm', async request => {const match=/^(confirm|cancel)(?:\s+(\S+)\s+(\S+))?$/.exec(request.text);if(!match)return{status:'failed',text:'请明确确认或取消当前待处理操作。'};return core.confirmLatest(request.actor,match[1]==='cancel',request.signal,match[2]?{name:match[2],token:match[3]}:undefined)})
   core.registerFeature('answer', async ({ actor, text }) => {
     const match = /^(\S+)\s+([\s\S]+)$/.exec(text)
     const accepted = Boolean(match && core.interactions.answer(actor, match[1], match[2]))

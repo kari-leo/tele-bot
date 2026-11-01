@@ -5,12 +5,14 @@
 日常从 D 盘交付目录启动（先退出已运行桌面）：
 
 ```powershell
-& 'D:\files_data\windborne\dsh-runtime\releases\telebot-0.1.0-native-json-fix-20261101\start-desktop.ps1'
+& 'D:\files_data\windborne\dsh-runtime\releases\telebot-0.1.0-card-continuation-20261101\start-desktop.ps1'
 ```
 
 脚本与配套环境脚本已复制到该目录，独立于源码；它只准备当前进程的 D 盘缓存/临时目录、稳定 PowerShell 7.6.9 和 Git 路径，然后启动官方程序。原桌面快捷方式仍能启动，但不保证继承这些环境变量。
 
 安装前备份：`D:/files_data/windborne/dsh-runtime/backups/desktop-2026-10-31T16-37-41-929Z`（18 个文件，327371 字节，已核对 SHA-256，不含依赖/缓存）；目录布局调整前的 profile 另保留在 `C:/Users/41547/.dsh/backups/desktop-before-profile-junction-20261101`。备份含原凭据，只在本机保留。验收结论见[状态](status.md)。不要混用 alpha.2 或 rc.3。
+
+渠道数据库现为 schema 3：在原位进度基础上持久绑定每条请求的会话，支持保留旧卡片并继续新对话；本轮升级前 v2 快照在 D 盘 backups/card-continuation-before-* 的 channel-*.sqlite。此前原位进度升级为 schema 2。升级前已用 SQLite 一致性备份保留 v1 快照，位置在 D 盘 backups/feishu-editable-before-* 下的 channel-*.sqlite；后续对话修复另有 feishu-dialogue-before-* 快照。需要回退到 schema 1 代码时必须停机并恢复对应升级前数据，不能仅降级插件；恢复会舍弃快照之后的记录，不自动执行。
 
 ## 1. 核对版本并退出桌面
 

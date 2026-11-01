@@ -1,30 +1,37 @@
-# 测试入口
+# 模块验证入口
 
-按改动选择组；默认 pnpm test 仍运行全部本地测试，不减少覆盖。唯一分组清单为 [tooling/test-suites.json](../tooling/test-suites.json)，测试文件保持原路径以免破坏引用。
+统一命令 `pnpm verify`，唯一清单为 [verification-catalog.mjs](../tooling/verification-catalog.mjs)。普通修改只选受影响模块，共享契约变更追加实际消费者；构建/打包依赖闭包不等于验证所有业务。
 
 ```powershell
-pnpm test --list
-pnpm test --suite feishu
-pnpm test --suite core --suite business
-pnpm test
+. ./examples/use-d-drive-runtime.ps1
+pnpm verify --list
+pnpm verify --module feishu --local
+pnpm verify --module feishu-business --module settings --local
+# 宿主接线变更，指定仓库外官方运行时后执行安装层：
+pnpm verify --module feishu --installed
+# 两层都执行：
+pnpm verify --module settings
 ```
 
-| 组 | 范围 |
-|---|---|
-| core | 产物闭包、原生命令/目录/模型、调度规则原型、验收隔离 |
-| feishu | webhook/身份/队列/会话/收发、配置/凭据持久化、原生设置接口与所有者身份安全 |
-| desktop | 原生 RPC 身份拒绝、持久所有者/投递、完整权限与飞书隔离、幂等 |
-| business | 四类飞书应用资源/冻结账本、交互附件、Codex/adviser、P5 发布/Skill、P6 规则/授权/恢复与投递 |
+| 模块 | 本地范围 | 默认安装层 |
+|---|---|---|
+| core | 宿主适配、流进度、归档/隔离规则 | 官方基础 |
+| settings | 文件、凭据、原生页面、Base 链接 | 普通/桌面端口两种配置生命周期 |
+| feishu | webhook、会话、进度、队列、命令、收发、附件 | ACP/Web 渠道；progress/questions 为同载体的短路径 |
+| feishu-business | 四类应用资源、表名、CRUD、冻结确认 | ACP/Web 资源发现短路径，不重复渠道故障测试 |
+| codex / adviser | 各自权限、进程、历史/Skill 或缓存/超时 | 真 Codex 后端改动追加 codex-native |
+| publishing / automation | 各自发布/调度规则、账本与恢复 | automation 选 questions 短路径；完整业务接线另选 composition[-web] |
+| desktop | 原生身份、完整权限和隔离 | 不依赖飞书的原生 RPC |
+| knowledge | 上游插件 | 上游安装/关键词/重启 |
 
-| 改动 | 追加的官方安装组合验证 |
-|---|---|
-| 任意生产改动/交付 | build、完整 test、pack:plugins --fixtures、check:artifacts、verify:harness |
-| 飞书渠道 | verify:feishu、verify:feishu --web |
-| 飞书配置/页面/生命周期 | verify:feishu:setup、verify:feishu:setup --desktop（模拟桌面根端口 0）；页面改动再在官方设置页做假配置浏览器填写/保存核对 |
-| 业务接线/附件/提醒/Codex/adviser 组合 | verify:features、verify:features --web |
-| 原生入口/桌面业务 | verify:desktop（四种不含飞书的最小组合；另测组合、冷恢复和后台回执） |
-| 高风险宿主/冷恢复 preset/调度原型 | verify:p0 |
-| 原生 Codex 后端/权限 | verify:codex（真实 CLI，模型仍为 loopback） |
-| 外部知识库版本/安装/目录迁移 | verify:knowledge（官方宿主、合成文本、关键词检索/重启） |
+内部检查归入 tests/integration/，按载体复用，不再各自提供顶层命令。基础/P0 共用 harness；渠道/完整业务共用 feishu；普通/桌面配置共用 settings；真实 Base/chat/预检共用 feishu-live。混合历史测试文件按测试名称过滤，多模块选中同一文件时合并过滤条件，只执行一次。catalog 回归保证没有遗漏断言。
 
-所有上述检查使用本机 mock 与隔离 home；DSH 宿主为仓库外官方发行。真实飞书工具不属于默认测试，需要明确的测试资源与写入/发送授权，绝不自动导入真实 env。命令和结果位置见 [docs/testing.md](../docs/testing.md)，验证事实见 [兼容记录](../docs/compatibility.md)。
+```powershell
+pnpm verify --gate p0
+pnpm verify --gate codex-native
+pnpm verify --gate composition-web
+# 仅正式发行/宿主升级，不自动包含真实平台或真实 Codex：
+pnpm verify --release
+```
+
+`pnpm test` 保留全部本地检查的手动入口；`pnpm test --module <模块>` 和旧 --suite 参数仍可选测。真实平台绝不进入默认检查，命令与报告见 [testing.md](../docs/testing.md)。页面视觉验收由用户完成。

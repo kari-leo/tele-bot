@@ -48,7 +48,7 @@ test('P2 interaction answers bind actor/chat/session/cwd, bypass model work, con
   let question
   const pending = broker.ask(actor, 'write file?', ['yes', 'no'], true, async value => { question = value }, controller.signal)
   await new Promise(resolve => setImmediate(resolve))
-  for (const changed of [{ ...actor, userId: 'bob' }, { ...actor, chatId: 'other' }, { ...actor, sessionId: 'other' }, { ...actor, cwd: '/other' }]) assert.equal(broker.answer(changed, question.token, 'yes'), false)
+  for (const changed of [{ ...actor,origin:'web' },{ ...actor, userId: 'bob' }, { ...actor, chatId: 'other' }, { ...actor, sessionId: 'other' }, { ...actor, cwd: '/other' }]) assert.equal(broker.answer(changed, question.token, 'yes'), false)
   assert.equal(broker.answer(actor, question.token, 'invented'), false)
   assert.equal(broker.answer(actor, question.token, 'yes'), true)
   assert.equal(broker.answer(actor, question.token, 'yes'), false)
@@ -57,6 +57,23 @@ test('P2 interaction answers bind actor/chat/session/cwd, bypass model work, con
   controller.abort(); assert.equal(await cancelled, '')
   assert.equal(broker.answer(actor, question.token, 'late'), false)
   assert.equal(new Interactions().answer(actor, question.token, 'after restart'), false)
+})
+
+test('P2 pending cards preserve new messages and route only unambiguous answers to their original owner',async()=>{
+  const broker=new Interactions();let card
+  const pending=broker.ask(actor,'允许写文件吗？',['允许一次','拒绝'],true,async value=>{card=value});await new Promise(setImmediate)
+  assert.equal(broker.routeInput(actor,'你好'),undefined);assert.equal(broker.routeInput(actor,'现在请查天气'),undefined)
+  assert.equal(broker.routeInput({...actor,userId:'other'},'同意授权'),undefined)
+  const yes=broker.routeInput(actor,'同意授权');assert.equal(yes.kind,'answer');assert(yes.text.endsWith(' 允许一次'))
+  assert.equal(broker.answer(actor,card.token,'允许一次'),true);assert.equal(await pending,'允许一次')
+  const city=broker.ask(actor,'城市？',[],false,async value=>{card=value});await new Promise(setImmediate)
+  const continued={...actor,sessionId:'continued'}
+  assert.equal(broker.routeInput({...continued,threadId:'other'},'回答：济南'),undefined)
+  assert.equal(broker.routeInput(continued,'回答：济南').sessionId,actor.sessionId)
+  assert.equal(broker.routeInput(actor,'你好'),undefined);assert.equal(broker.routeInput(actor,'今天几号？'),undefined)
+  assert.equal(broker.routeInput(actor,'回答：济南').kind,'answer')
+  broker.cancelActor({...actor,userId:'other'});assert.equal(broker.routeInput(actor,'回答：济南').kind,'answer')
+  broker.cancelActor(actor);assert.equal(await city,'');assert.equal(broker.answer(actor,card.token,'late'),false)
 })
 
 test('P2 durable attachment staging enforces owner/reference/size, survives restart and freezes outgoing hashes', async t => {

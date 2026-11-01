@@ -7,6 +7,7 @@ export const feishuFields: SettingField[] = [
   {key:'workspace',label:'Harness 工作目录',section:'应用与会话',help:'本机已存在的绝对目录。'},
   {key:'provider',label:'主模型 provider',section:'应用与会话',help:'与 model 同时留空使用 Harness 默认模型。'},
   {key:'model',label:'主模型 model',section:'应用与会话'},
+  {key:'streamProgress',label:'执行进度提示',type:'boolean',section:'应用与会话',help:'思考和工具处理阶段发送限频状态提示，不发送模型内部思考内容。'},
   {key:'appSecret',label:'App Secret',type:'password',secret:true,section:'凭据与来源校验',help:'留空保留已有凭据；由官方凭据服务保存。'},
   {key:'verificationToken',label:'Verification Token',type:'password',secret:true,section:'凭据与来源校验'},
   {key:'encryptKey',label:'Encrypt Key',type:'password',secret:true,section:'凭据与来源校验',help:'Verification Token 或 Encrypt Key 至少填写一种。'},

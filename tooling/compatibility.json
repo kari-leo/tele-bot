@@ -42,8 +42,8 @@
     "tests": 80,
     "harness": 11,
     "p0": 18,
-    "feishuAcp": 13,
-    "feishuWeb": 13,
+    "feishuAcp": 15,
+    "feishuWeb": 15,
     "featuresAcp": 25,
     "featuresWeb": 25,
     "setup": 15,
@@ -55,7 +55,20 @@
     "nativeBrowser": 3,
     "formalInstallation": 5,
     "nativeConfigurationComponents": 6,
-    "formalNativeSettings": 9
+    "formalNativeSettings": 14,
+    "catalogAssertions": 97,
+    "scopedLocal": 59,
+    "resourceFollowupLocal": 9,
+    "feishuResourcesAcp": 5,
+    "feishuResourcesWeb": 5,
+    "fullSuiteRerun": false,
+    "currentLocalModules": 55,
+    "progressAcp": 5,
+    "progressWeb": 5,
+    "questionsAcp": 7,
+    "questionsWeb": 7,
+    "additionalNativePermissions": 6,
+    "nativeSettings": 15
   },
   "desktop": {
     "installed": "0.2.1-rc.5",
@@ -69,7 +82,14 @@
     "uiAcceptance": false,
     "nativeConfigurationApiVerified": true,
     "visualAcceptance": "user_managed",
-    "nativeJsonSaveFixInstalled": true
+    "nativeJsonSaveFixInstalled": true,
+    "reasoningProgressInstalled": true,
+    "resourceInventoryInstalled": true,
+    "editableProgressInstalled": true,
+    "naturalInteractionInstalled": true,
+    "channelSchema": 3,
+    "nonblockingCardsInstalled": true,
+    "automationDirectoryWhitelist": false
   },
   "limitations": [
     "Native configuration module, owner API and React component interactions verified; desktop appearance left to user acceptance; actual-account business/live Feishu acceptance pending",
@@ -94,7 +114,8 @@
     "remoteIndependentPluginUpdate": "vision_only_do_not_implement",
     "finalInstallationGuide": "enumerate_all_actually_feasible_methods_after_development_keep_D_drive",
     "configurationUi": "official_dsh_client_settings_section_owner_connection_no_standalone_pages",
-    "visualAcceptance": "user_managed"
+    "visualAcceptance": "user_managed",
+    "automationWorkspace": "full_directory_access_for_authorized_users"
   },
   "developmentPeers": "autoInstallPeers=false; upstream transitive development peer closure intentionally partial; formal host composition verified"
 }

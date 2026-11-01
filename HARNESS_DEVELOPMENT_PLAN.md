@@ -59,6 +59,8 @@ tracking_outputs/ 脱敏 latest.json；历史报告位于 archive/
 
 P5 依赖 P2/P3，P6 依赖 P0、P4/P5，P7 依赖前序全部能力。真实联调按 docs/feishu-live-checklist.md 关闭，不把缺环境的项标成完成。原估算见归档快照；后续按明确范围重新估算，不以历史人日作为实测进度。
 
+P2 进度采用旧 Telebot 的单条可编辑 Markdown 消息，最终原位覆盖；不确定回执不重放旧进度。自然语言回答/单次授权走身份绑定的控制入口，不能排在等待自己的问题后；普通新消息无需前缀，使用官方带历史的会话分支继续，保留原询问和审批；明确答案回到原会话，完成结果作为后续上下文，不唤醒或重放新业务。询问过期/重启失效，无默认答案。自动化按用户决定默认完整目录访问，UI 移除目录白名单；管理员、任务确认与执行器规则继续生效。P6 自动化启用后，飞书新任务不得借原生工具挂回聊天会话；业务授权可由模型准备，须由真人按冻结令牌确认，重启不重放确认。
+
 2026-10-31 范围决定：不迁旧知识库、不做飞书空间绑定；不向用户索取 Codex/OpenCLI 新账户或密钥，Codex 直接复用本机原生能力。原 adviser 的 OpenCLI 是独立可选顾问，不是 Codex 依赖，本轮不配置。用户询问原生定时的轻量方案尚不等于取消完整 P6；当前已有 /remind 普通提醒，以及 telebot_schedule 自然语言提案→创建确认→auto 单独预授权或 confirm 按次确认→执行/产物投递接线；真实闭环仍需验收，见 docs/schedule-comparison.md。
 
 Codex 新增对齐要求：参考旧项目 commit a8da478 的 tools/codex_history.py 与 README，会话续聊可在重新确认后受控写入当前工作区；每轮重置权限，限制 writableRoots、禁用 Shell 网络和临时目录隐式写根、拒绝沙箱外审批，并检查归档/活动状态。该对齐现已通过固定 CLI 0.160.0 的实际沙箱验证：一次确认后的原生续聊仅当前 cwd 可写，关闭网络/隐式临时写根，拒绝提权；原生证据与宿主接线证据分别记录。具体边界见 docs/codex-permissions.md，不新增账户接入。
@@ -93,7 +95,7 @@ P3 核对补项已实现并本地回归：合法日历 ID 保留 @；start_time/
 
 ## 验证与正式完成
 
-基础门禁：pnpm build、pnpm test、pnpm pack:plugins --fixtures、pnpm check:artifacts、pnpm verify:harness。P1 再跑 verify:feishu 及 --web；变更能力按 tests/README.md 补充 P0/features/setup/Codex。外部官方安装通过 TELEBOT_DSH_INSTALL 指定；ACP v1 + 隔离 home + loopback mock，不使用付费模型。真实验证须在明确授权的应用/资源/写范围内，报告不含秘密。
+验证统一为 `pnpm verify --module <模块>`，唯一清单为 tooling/verification-catalog.mjs；普通修改只验证该模块，共享契约变更才追加受影响消费者。`--local` 仅本地，`--installed` 仅宿主接线，省略则两层均执行；同一次选择自动去重。完整发行/兼容升级才用 `pnpm verify --release`，保留 build、pack:plugins --fixtures 与归档闭包检查，不默认重跑其他业务。外部官方安装通过 TELEBOT_DSH_INSTALL 指定；ACP v1 + 隔离 home + loopback mock，不使用付费模型。真实验证统一为 `pnpm verify --live preflight|bitable|chat`，须在明确授权的应用/资源/写范围内，报告不含秘密。
 
 完成必须满足：精确版本/peer/服务身份、源码隔离后安装运行、R1–R5/旧能力逐项证据、上述配置体验、声明平台原生测试、升级/启停/卸载和备份恢复。代码、本地回归、真实部署、生产切流分别记录；不能只凭 mock 或编译通过宣称完整完成。
 

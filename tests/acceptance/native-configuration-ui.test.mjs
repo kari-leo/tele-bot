@@ -51,9 +51,14 @@ test('native Base links have an independent add/remove flow and retain other res
  await act(async()=>{await view.button('添加链接并读取数据表').props.onClick()})
  await act(async()=>{await view.root.root.findByType('form').props.onSubmit({preventDefault(){}})})
  assert.equal(JSON.parse(view.saved.business.baseLinksJson)[0].baseId,'fixture-base');assert.equal(JSON.parse(view.saved.business.resourcesJson).length,2)
+ assert.equal(JSON.parse(view.saved.business.resourcesJson).find(row=>row.kind==='bitable').name,'Fixture table')
+ await act(async()=>view.input('business.resourcesJson').props.onChange({target:{value:''}}))
+ await act(async()=>{await view.root.root.findByType('form').props.onSubmit({preventDefault(){}})})
+ assert.equal(JSON.parse(view.saved.business.resourcesJson).length,1)
+ assert.equal(JSON.parse(view.saved.business.resourcesJson)[0].name,'Fixture table')
  await act(async()=>view.button('移除此链接').props.onClick())
  await act(async()=>{await view.root.root.findByType('form').props.onSubmit({preventDefault(){}})})
- assert.deepEqual(JSON.parse(view.saved.business.baseLinksJson),[]);assert.equal(JSON.parse(view.saved.business.resourcesJson)[0].kind,'documents')
+ assert.deepEqual(JSON.parse(view.saved.business.baseLinksJson),[]);assert.deepEqual(JSON.parse(view.saved.business.resourcesJson),[])
 })
 
 test('native settings protect dirty edits when switching plugins and preserve them after a revision conflict',async t=>{

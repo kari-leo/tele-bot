@@ -43,7 +43,7 @@ export class FeishuApi implements DeliveryPort {
     let token: string
     try { token = await this.token() }
     catch { return { status: 'retry', code: 'feishu_auth_unavailable' } }
-    const suffix = message.replyTo ? `/open-apis/im/v1/messages/${encodeURIComponent(message.replyTo)}/reply` : '/open-apis/im/v1/messages?receive_id_type=chat_id'
+    const suffix = message.editMessageId ? `/open-apis/im/v1/messages/${encodeURIComponent(message.editMessageId)}` : message.replyTo ? `/open-apis/im/v1/messages/${encodeURIComponent(message.replyTo)}/reply` : '/open-apis/im/v1/messages?receive_id_type=chat_id'
     try {
       let content = message.content
       if (message.msgType === 'file') {
@@ -67,12 +67,12 @@ export class FeishuApi implements DeliveryPort {
         content = JSON.stringify({ file_key: key })
       }
       const response = await fetch(this.options.origin + suffix, {
-        method: 'POST', redirect: 'error', signal: AbortSignal.timeout(this.options.timeoutMs),
+        method: message.editMessageId?'PUT':'POST', redirect: 'error', signal: AbortSignal.timeout(this.options.timeoutMs),
         headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
-          ...(!message.replyTo ? { receive_id: message.chatId } : {}),
-          ...(message.replyTo && message.threadId ? { reply_in_thread: true } : {}),
-          msg_type: message.msgType, content, uuid: message.id,
+          ...(!message.editMessageId&&!message.replyTo ? { receive_id: message.chatId } : {}),
+          ...(!message.editMessageId&&message.replyTo && message.threadId ? { reply_in_thread: true } : {}),
+          msg_type: message.msgType, content,...(!message.editMessageId?{uuid:message.id}:{}),
         }),
       })
       if (response.status === 429) return { status: 'retry', code: 'feishu_rate_limited' }
@@ -84,7 +84,7 @@ export class FeishuApi implements DeliveryPort {
         return { status: 'retry', code: 'feishu_token_expired' }
       }
       if (result.code !== 0) return { status: 'failed', code: `feishu_code_${typeof result.code === 'number' ? result.code : 'invalid'}` }
-      const messageId = string(object(result.data).message_id)
+      const messageId = message.editMessageId??string(object(result.data).message_id)
       return messageId ? { status: 'sent', messageId } : { status: 'unknown', code: 'feishu_missing_receipt' }
     } catch { return { status: 'unknown', code: 'feishu_send_outcome_unknown' } }
   }

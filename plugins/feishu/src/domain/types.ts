@@ -7,9 +7,11 @@ export interface InputEvent {
   chatId: string
   threadId: string
   actor: Actor
-  kind: 'text' | 'status' | 'notice' | 'answer' | 'attachment'
+  kind: 'text' | 'status' | 'notice' | 'answer' | 'attachment' | 'confirmation'
   text: string
   actionToken?: string
+  /** Set only by the trusted interaction router, never decoded from webhook text. */
+  targetSessionId?: string
 }
 export interface InboxEntry extends InputEvent {
   id: string
@@ -27,6 +29,7 @@ export interface Outbound {
   content: string
   attempts: number
   uploadedFileKey?: string
+  editMessageId?: string
 }
 export interface ChannelSettings {
   appId: string
@@ -54,10 +57,16 @@ export type DeliveryResult =
 export interface DeliveryPort { send(message: Outbound,onUploaded?:(key:string)=>void): Promise<DeliveryResult> }
 export interface AcceptResult { accepted: boolean; duplicate?: boolean; rejected?: boolean; full?: boolean }
 export interface ChannelRepository {
+  actorFor?(event:InputEvent,settings:ChannelSettings):import('@telebot/core/contracts').TrustedActor|undefined
   accept(event: InputEvent, settings: ChannelSettings): AcceptResult
   heartbeat(leaseMs: number): boolean
   running(): InboxEntry[]
-  claim(excludedSessions: readonly string[], controlsOnly?: boolean): InboxEntry | undefined
+  claim(excludedSessions: readonly string[], controlsOnly?: boolean, waitingSessions?:readonly string[]): InboxEntry | undefined
+  waiting?(entry:InboxEntry):void
+  resumeQuestion?(entry:InboxEntry):void
+  continuation?(entry:InboxEntry):ConversationSpec
+  currentSpec?(sessionKey:string):ConversationSpec
+  commitContinuation?(entry:InboxEntry,spec:ConversationSpec):void
   finish(entry: InboxEntry, state: string, outputs: readonly Pick<Outbound, 'msgType' | 'content'>[]): void
   markMapped(id: string): void
   updateMapping(entry: InboxEntry, spec: ConversationSpec): void
@@ -69,6 +78,7 @@ export interface ChannelRepository {
   statusCard(entry: InboxEntry, text: string, ttlMs: number): string
   question?(entry: InboxEntry, question: ChannelQuestion): string
   enqueue?(entry: InboxEntry, outputs: readonly Pick<Outbound, 'msgType' | 'content'>[]): string[] | void
+  progress?(entry: InboxEntry, content: string): void
   deliveries?(ids: string[]): { id: string; state: string }[]
   release(): void
 }

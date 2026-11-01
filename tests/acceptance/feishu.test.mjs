@@ -11,6 +11,7 @@ import { parseEvent } from '../../plugins/feishu/lib/domain/events.js'
 import { SqliteChannelRepository } from '../../plugins/feishu/lib/adapters/sqlite.js'
 import { FeishuChannel } from '../../plugins/feishu/lib/domain/channel.js'
 import { FeishuApi, apiOrigin } from '../../plugins/feishu/lib/adapters/feishu-api.js'
+import { Interactions } from '../../plugins/core/lib/interactions.js'
 import { cleanup, eventually, temporaryDirectory } from '../support/temp-dir.mjs'
 
 const settings = {
@@ -167,6 +168,108 @@ test('P2 an optional unknown progress publication never blocks the authoritative
   store.finish(entry, 'completed', [{ msgType: 'post', content: '{}' }])
   const progress = store.claimDelivery(Date.now()); store.settleDelivery(progress, { status: 'unknown', code: 'lost_optional_progress' }, 0, 3)
   assert.equal(store.claimDelivery(Date.now()).msgType, 'post')
+})
+
+test('Feishu progress uses one editable Markdown post and replaces it with the final reply without duplicate phases',async t=>{
+  const {store,filename}=await repository(t),sent=[]
+  const agent=fakeAgent({run:async(_spec,input)=>{
+    input.progress('正在处理，请稍候...');await eventually(()=>sent.length===1)
+    input.progress('正在处理，请稍候...');input.progress('正在调用工具处理请求…')
+    await eventually(()=>sent.length>=2)
+    return {status:'completed',text:'**完成**\n\n|项目|结果|\n|---|---|\n|检查|通过|'}
+  }})
+  const channel=await start(t,store,agent,{send:async message=>{sent.push(message);return{status:'sent',messageId:message.editMessageId??'one-progress-message'}}},{...settings,streamProgress:true})
+  channel.accept(event('editable-progress'))
+  await eventually(()=>inspection(filename,"SELECT state FROM inbox WHERE message_id='om_editable-progress'")[0]?.state==='completed'&&sent.some(row=>row.content.includes('**完成**')))
+  assert.equal(sent.filter(row=>!row.editMessageId).length,1)
+  assert(sent.every(row=>row.msgType==='post'))
+  assert(sent.slice(1).every(row=>row.editMessageId==='one-progress-message'))
+  assert.equal(JSON.parse(sent.at(-1).content).zh_cn.content[0][0].tag,'md')
+})
+
+test('progress coalesces unsent phases, preserves retry payloads and lets a final reply supersede optional retries',async t=>{
+  const {store}=await repository(t);store.accept(event('coalesce'),settings);const entry=store.claim([])
+  store.progress(entry,'first');store.progress(entry,'latest')
+  const initial=store.claimDelivery(Date.now());assert.equal(initial.content,'latest')
+  store.settleDelivery(initial,{status:'retry',code:'limited'},Date.now()+60000,3)
+  store.progress(entry,'new phase')
+  store.finish(entry,'completed',[{msgType:'post',content:'final'}])
+  const final=store.claimDelivery(Date.now());assert.equal(final.content,'final');assert(!final.editMessageId)
+  store.settleDelivery(final,{status:'sent',messageId:'final'},0,3);assert.equal(store.claimDelivery(Date.now()+120000),undefined)
+  store.accept(event('in-flight-final'),settings);const next=store.claim([])
+  store.progress(next,'placeholder');const sending=store.claimDelivery(Date.now())
+  store.progress(next,'phase');store.finish(next,'completed',[{msgType:'post',content:'final after in-flight create'}])
+  assert.equal(store.claimDelivery(Date.now()),undefined)
+  store.settleDelivery(sending,{status:'sent',messageId:'in-flight-placeholder'},0,3)
+  assert.equal(store.claimDelivery(Date.now()).editMessageId,'in-flight-placeholder')
+})
+
+test('a lost progress edit receipt or process restart never replays it or allows a late phase to overwrite the final reply',async t=>{
+  const {store}=await repository(t);store.accept(event('lost-edit'),settings);const entry=store.claim([])
+  store.progress(entry,'first');const initial=store.claimDelivery(Date.now());store.settleDelivery(initial,{status:'sent',messageId:'placeholder'},0,3)
+  store.progress(entry,'phase');const edit=store.claimDelivery(Date.now());assert.equal(edit.editMessageId,'placeholder')
+  store.recoverDeliveries();store.progress(entry,'late phase')
+  store.finish(entry,'completed',[{msgType:'post',content:'final'}]);const final=store.claimDelivery(Date.now())
+  assert.equal(final.content,'final');assert(!final.editMessageId)
+  assert.equal(store.status(entry.sessionKey).unknown,0)
+})
+
+test('Feishu edits the known Markdown post with PUT and accepts a success receipt without a new message ID',async t=>{
+  const calls=[],server=createServer(async(req,res)=>{let raw='';for await(const chunk of req)raw+=chunk;calls.push({method:req.method,url:req.url,body:JSON.parse(raw)});res.setHeader('Content-Type','application/json');res.end(JSON.stringify(req.url.includes('/auth/')?{code:0,tenant_access_token:'fixture',expire:3600}:{code:0,data:{}}))})
+  server.listen(0,'127.0.0.1');await once(server,'listening');cleanup(t,()=>new Promise(resolve=>{server.closeAllConnections();server.close(resolve)}))
+  const api=new FeishuApi({appId:'fixture',secret:async()=>'fixture',origin:`http://127.0.0.1:${server.address().port}`,timeoutMs:1000})
+  const result=await api.send({id:'update',chatId:'chat',replyTo:'input',threadId:'thread',msgType:'post',content:'{"zh_cn":{"content":[[{"tag":"md","text":"**完成**"}]]}}',attempts:1,editMessageId:'known-message'})
+  assert.deepEqual(result,{status:'sent',messageId:'known-message'});assert.equal(calls[1].method,'PUT');assert.equal(calls[1].url,'/open-apis/im/v1/messages/known-message');assert(!('uuid'in calls[1].body));assert(!('reply_in_thread'in calls[1].body))
+})
+
+test('channel schema 1 upgrades non-destructively to pinned-session schema 3 while retaining queued messages',async t=>{
+  const {store,filename}=await repository(t);store.accept(event('migration'),settings);store.release()
+  const old=new DatabaseSync(filename);old.exec('ALTER TABLE outbox DROP COLUMN purpose; ALTER TABLE outbox DROP COLUMN edit_id; ALTER TABLE inbox DROP COLUMN pinned_spec; PRAGMA user_version=1');old.close()
+  const restored=new SqliteChannelRepository(filename,settings.appId,settings.leaseMs);cleanup(t,()=>restored.release())
+  assert.equal(restored.claim([]).messageId,'om_migration');assert.equal(inspection(filename,'PRAGMA user_version')[0].user_version,3)
+})
+
+test('a natural-language answer bypasses the occupied conversation and is consumed by its own pending question',async t=>{
+  const {store,filename}=await repository(t),broker=new Interactions(),calls=[];let waiting=false,current
+  const agent=fakeAgent({run:async(spec,input)=>{calls.push(input.text);current={userId:'ou_alice',chatId:'oc_chat',sessionId:spec.id,cwd:spec.cwd,origin:'feishu'};const answer=await broker.ask(current,'天气要查哪个城市？',[],false,async()=>{waiting=true});return{status:'completed',text:answer}},cancel(){if(current)broker.cancelSession(current.sessionId)}})
+  const channel=new FeishuChannel({repository:store,agent,delivery:{send:async()=>({status:'sent',messageId:'sent'})},features:{routeInput:(actor,text)=>broker.routeInput(actor,text),cancelQuestions:actor=>broker.cancelActor(actor),invoke:async(_name,{actor,text})=>{const split=text.indexOf(' ');const accepted=broker.answer(actor,text.slice(0,split),text.slice(split+1));return{status:accepted?'completed':'failed',text:accepted?'回答已提交。':'回答已失效。'}}}},settings)
+  channel.start();cleanup(t,()=>channel.stop());channel.accept(event('ask-city'));await eventually(()=>waiting)
+  channel.accept(event('city-answer',{text:'回答：济南'}))
+  await eventually(()=>inspection(filename,"SELECT state FROM inbox WHERE message_id='om_city-answer'")[0]?.state==='completed',500)
+  assert.deepEqual(calls,['ask-city'])
+})
+
+test('restart never replays an interrupted natural confirmation against a later pending operation',async t=>{
+  const {store,filename}=await repository(t);store.accept(event('interrupted-confirmation',{kind:'confirmation',text:'confirm schedule frozen-token'}),settings);store.claim([])
+  let invoked=0
+  const channel=new FeishuChannel({repository:store,agent:fakeAgent(),delivery:{send:async()=>({status:'sent',messageId:'sent'})},features:{invoke:async()=>{invoked++;return{status:'completed',text:'must-not-repeat'}}}},settings)
+  channel.start();cleanup(t,()=>channel.stop());await eventually(()=>inspection(filename,"SELECT state FROM inbox WHERE message_id='om_interrupted-confirmation'")[0]?.state==='unknown')
+  assert.equal(invoked,0)
+})
+
+test('unanswered cards keep their original session while plain new messages continue, and late answers return to the original request',async t=>{
+  const {store,filename}=await repository(t),broker=new Interactions(),calls=[],prepared=[],contexts=[];let original,card
+  const agent=fakeAgent({prepare:async(spec,actor)=>{assert.equal(actor.sessionId,spec.id);prepared.push(spec)},context:async(spec,id,text)=>contexts.push({spec,id,text}),
+    run:async(spec,input)=>{calls.push({spec,text:input.text});if(input.text!=='ask-city')return{status:'completed',text:'new topic done'}
+      original=input.actor;const answer=await broker.ask(original,'城市？',['济南','北京'],false,async question=>{card=question;await input.question(question)})
+      return{status:'completed',text:'original answer: '+answer}},cancel:id=>broker.cancelSession(id)})
+  const channel=new FeishuChannel({repository:store,agent,delivery:{send:async message=>({status:'sent',messageId:'sent-'+message.id})},features:{waitingSessions:()=>broker.waitingSessions(),routeInput:(actor,text)=>broker.routeInput(actor,text),invoke:async(_name,{actor,text})=>{const split=text.indexOf(' '),accepted=broker.answer(actor,text.slice(0,split),text.slice(split+1));return{status:accepted?'completed':'failed',text:accepted?'回答已提交。':'回答失效。'}}}}, {...settings,maxConcurrentSessions:1})
+  channel.start();cleanup(t,()=>channel.stop());channel.accept(event('ask-city'));await eventually(()=>card&&inspection(filename,"SELECT state FROM inbox WHERE message_id='om_ask-city'")[0]?.state==='waiting')
+  channel.accept(event('unprefixed',{text:'你好'}));await eventually(()=>inspection(filename,"SELECT state FROM inbox WHERE message_id='om_unprefixed'")[0]?.state==='completed')
+  assert.equal(prepared.length,1);assert.equal(prepared[0].parentSessionId,original.sessionId)
+  assert.equal(inspection(filename,"SELECT state FROM inbox WHERE message_id='om_ask-city'")[0].state,'waiting')
+  assert.deepEqual(broker.waitingSessions(),[original.sessionId]);assert.notEqual(calls[1].spec.id,original.sessionId)
+  channel.accept(event('another',{text:'随便再聊两句'}));await eventually(()=>calls.length===3);assert.equal(calls[2].spec.id,calls[1].spec.id)
+  channel.accept(event('late-answer',{text:'济南'}));await eventually(()=>inspection(filename,"SELECT state FROM inbox WHERE message_id='om_ask-city'")[0]?.state==='completed')
+  assert.equal(inspection(filename,"SELECT json_extract(pinned_spec,'$.id') AS id FROM inbox WHERE message_id='om_late-answer'")[0].id,original.sessionId)
+  assert.equal(calls.length,3);await eventually(()=>contexts.length===1);assert.equal(contexts[0].spec.id,calls[1].spec.id);assert.match(contexts[0].text,/济南/)
+})
+
+test('restarting a waiting question invalidates it without replaying a tool or blocking the next ordinary request',async t=>{
+  const {store,filename}=await repository(t);store.accept(event('waiting-question'),settings);const entry=store.claim([]);store.waiting(entry)
+  let recovered=0,runs=0;const channel=new FeishuChannel({repository:store,agent:fakeAgent({recover:async()=>{recovered++;return{status:'completed',text:'must not run'}},run:async()=>{runs++;return{status:'completed',text:'new'}}}),delivery:{send:async()=>({status:'sent',messageId:'sent'})}},settings)
+  channel.start();cleanup(t,()=>channel.stop());await eventually(()=>inspection(filename,"SELECT state FROM inbox WHERE message_id='om_waiting-question'")[0]?.state==='cancelled')
+  channel.accept(event('after-restart'));await eventually(()=>runs===1);assert.equal(recovered,0)
 })
 
 test('a recovered execution uses its receipt without resubmitting; queued input remains processable', async t => {

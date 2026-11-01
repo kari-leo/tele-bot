@@ -3,15 +3,22 @@ import assert from 'node:assert/strict'
 import path from 'node:path'
 import { AutomationService } from '../../plugins/automation/lib/adapters/service.js'
 import { nextOccurrence, dueOccurrences, validateTask } from '../../plugins/automation/lib/domain/rules.js'
+import {scheduleToolInput} from '../../plugins/automation/lib/domain/tool-input.js'
 import { temporaryDirectory, cleanup, eventually } from '../support/temp-dir.mjs'
 
 const first='2026-11-02T01:00:00.000Z'
+test('task authorization tools prepare only an exact task identifier and cannot inject confirmation or change grant scope',()=>{
+  assert.equal(scheduleToolInput('authorize','{"task_id":"task-1"}'),'task-1')
+  assert.equal(scheduleToolInput('delete','{"id":"task-1"}'),'task-1')
+  assert.throws(()=>scheduleToolInput('authorize','{"task_id":"task-1","allowAll":true}'),/exact_task_id/)
+  assert.throws(()=>scheduleToolInput('authorize','{"task_id":"task-1 confirm other"}'),/exact_task_id/)
+})
 const input=(overrides={})=>({title:'合成任务',prompt:'Generate a synthetic report.',mode:'auto',executor:'research',catchUp:'skip',rule:{kind:'once',first,timeZone:'Asia/Shanghai',interval:1},...overrides})
 async function fixture(t){
   const directory=await temporaryDirectory(t),actor={userId:'alice',chatId:'test',threadId:'topic',sessionId:'source',sourceId:'durable',cwd:directory,privateChat:true,origin:'feishu'},wakes=[],receipts=new Map(),delivered=new Map();let now=Date.parse(first)-1000,count=0,failDelivery=false,failExecution=false
   const schedule={async catalog(){return wakes.map(row=>({...row}))},async create(sessionId,planned){const row={id:'wake-'+wakes.length,sessionId,scheduledAt:planned,status:'active',fingerprint:'immutable-'+sessionId};wakes.push(row);return{...row}},async history(row){return receipts.get(row.id)??[]},async delete(row){const i=wakes.findIndex(item=>item.id===row.id);if(i>=0)wakes.splice(i,1)}}
   const port={available:()=>true,async execute(){count++;if(failExecution)throw new Error('simulated_process_receipt_loss');return{status:'completed',text:'verified result'}},async deliver(id,actor,result){if(failDelivery)throw new Error('offline');assert.equal(actor.userId,'alice');if(delivered.has(id))assert.deepEqual(delivered.get(id),result);delivered.set(id,result);return[id]}}
-  const config={adminUserIds:['alice'],allowedRoots:[directory],graceMs:300000,executionTimeoutMs:1000},file=path.join(directory,'automation.sqlite')
+  const config={adminUserIds:['alice'],allowedRoots:[],graceMs:300000,executionTimeoutMs:1000},file=path.join(directory,'automation.sqlite')
   let service=new AutomationService(file,config,schedule,port,()=>now);cleanup(t,()=>service.close())
   const command=(text,who=actor)=>service.command(who,text,AbortSignal.timeout(5000))
   const create=async value=>{const proposal=JSON.parse((await command('create '+JSON.stringify(value))).text);await command('confirm '+proposal.token);return JSON.parse((await command('list')).text).at(-1).id}
@@ -29,6 +36,14 @@ test('P6 timezone rules preserve intervals/count/until, Monday=0 and DST gap/ove
   assert.equal(nextOccurrence({kind:'daily',first:'2026-10-31T05:30:00Z',timeZone:'America/New_York',interval:1},'2026-10-31T05:30:00Z',1),'2026-11-01T05:30:00.000Z')
   const due=dueOccurrences({...daily,interval:1},first,0,Date.parse('2026-11-05T01:00:00Z'));assert.equal(due.due.length,3);assert.equal(due.next,undefined)
   assert.throws(()=>validateTask(input({rule:{...weekly,weekdays:[7]}})),/weekdays/)
+})
+test('P6 authorized Feishu users need no directory whitelist; legacy roots are ignored while identity and restricted native entry checks remain',async t=>{
+  const f=await fixture(t),other=await temporaryDirectory(t)
+  f.config.allowedRoots=['nonexistent-legacy-root']
+  const preview=JSON.parse((await f.command('create '+JSON.stringify(input()),{...f.actor,cwd:other})).text);assert(preview.token)
+  await assert.rejects(f.command('list',{...f.actor,userId:'stranger'}),/actor_not_authorized/)
+  await assert.rejects(f.command('list',{...f.actor,cwd:path.join(other,'missing')}),/ENOENT/)
+  await assert.rejects(f.command('list',{...f.actor,origin:'web',permissions:'restricted',allowedRoots:[]}),/workspace_not_allowed/)
 })
 test('P6 separate auto preauthorization, trusted receipt, cross-user denial and restart fencing permit exactly one execution',async t=>{
   const f=await fixture(t),id=await f.create(input());assert.equal(f.wakes.length,0)

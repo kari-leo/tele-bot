@@ -31,7 +31,7 @@ pnpm install:knowledge --home 'C:/Users/41547/.dsh' --profile web --runtime-root
 ```powershell
 $env:TELEBOT_RUNTIME_ROOT = 'D:/files_data/windborne/dsh-runtime'
 $env:TELEBOT_VERIFY_TEMP = 'D:/files_data/windborne/dsh-runtime/tmp'
-pnpm verify:knowledge
+pnpm verify --module knowledge
 ```
 
 验证使用独立 home 与合成文本，通过实际官方 Web/ACP 组合检查安装、HTTP 导入/分块、关键词检索、重启持久化、卸载；不修改用户库。结果见 .runtime/verify-knowledge-latest.json 和 [当前状态](status.md)。

@@ -1,16 +1,18 @@
 import type { ApiGrant, ResourceKind, TrustedActor } from './authorization.js'
 import { authorizeApi, collectPages } from './authorization.js'
 
-export interface Resource { alias: string; kind: ResourceKind; id: string; tableId?: string; format?: 'docx' | 'wiki' | 'sheets' | 'drive'; ranges?: string[]; identity: 'tenant'; tokenRef: 'FEISHU_APP_TENANT'; expiresAt: number; capabilities: string[] }
+export interface Resource { alias: string; name?: string; baseName?: string; kind: ResourceKind; id: string; tableId?: string; format?: 'docx' | 'wiki' | 'sheets' | 'drive'; ranges?: string[]; identity: 'tenant'; tokenRef: 'FEISHU_APP_TENANT'; expiresAt: number; capabilities: string[] }
 export interface Operation { resource: string; action: 'inspect' | 'query' | 'create' | 'update' | 'delete'; params: Record<string, any>; frozenResource?: string }
 export interface ApiPort { request(method: string, route: string, body?: unknown, signal?: AbortSignal, write?: boolean): Promise<Record<string, any>> }
 export function validateResources(resources: unknown): asserts resources is Resource[] {
   if (!Array.isArray(resources) || resources.length > 500) throw new Error('resource_array_required')
-  const keys = new Set(['alias','kind','id','tableId','format','ranges','identity','tokenRef','expiresAt','capabilities'])
+  const keys = new Set(['alias','name','baseName','kind','id','tableId','format','ranges','identity','tokenRef','expiresAt','capabilities'])
   for (const row of resources) {
     if (!row || typeof row !== 'object' || Object.keys(row).some(key => !keys.has(key))) throw new Error('resource_metadata_only_no_literal_credentials')
     if (typeof row.alias !== 'string' || !row.alias.trim() || row.alias.length > 128 || !['documents','bitable','calendar','tasks'].includes(row.kind)) throw new Error('invalid_resource_configuration')
     if (row.identity !== 'tenant' || row.tokenRef !== 'FEISHU_APP_TENANT') throw new Error('application_identity_required')
+    if (row.name !== undefined && (typeof row.name !== 'string' || !row.name.trim() || row.name.length > 256)) throw new Error('invalid_resource_name')
+    if (row.baseName !== undefined && (typeof row.baseName !== 'string' || !row.baseName.trim() || row.baseName.length > 256)) throw new Error('invalid_resource_name')
     const resourceId = row.kind === 'calendar' ? /^[\w.@:-]{1,256}$/ : /^[\w.:-]{1,256}$/
     if (typeof row.id !== 'string' || !resourceId.test(row.id) || (row.tableId !== undefined && (typeof row.tableId !== 'string' || !/^[\w.:-]{1,256}$/.test(row.tableId)))) throw new Error('invalid_resource_identifier')
     if (!Number.isFinite(row.expiresAt) || !Array.isArray(row.capabilities) || row.capabilities.some((value: unknown) => typeof value !== 'string')) throw new Error('invalid_resource_grant')
@@ -39,7 +41,9 @@ export class Resources {
       reference = url.pathname.match(/\/(?:base|docx|wiki|sheets)\/([\w-]+)/)?.[1] ?? ''
       table = url.searchParams.get('table') ?? undefined
     }
-    const matches = this.resources.filter(row => row.alias === reference || (row.id === reference && (!table || row.tableId === table)))
+    const exact = this.resources.filter(row => row.alias === reference || (row.id === reference && (!table || row.tableId === table)))
+    const named=this.resources.filter(row=>row.name?.trim().toLowerCase()===reference.trim().toLowerCase())
+    const matches = exact.length ? exact : named.length ? named : this.resources.filter(row => row.baseName?.trim().toLowerCase() === reference.trim().toLowerCase())
     if (matches.length !== 1) throw new Error(matches.length ? 'ambiguous_resource' : 'unknown_resource')
     return matches[0]
   }

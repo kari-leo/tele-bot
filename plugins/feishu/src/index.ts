@@ -104,7 +104,11 @@ async function configure(ctx: Context, store: Configuration, directory: string, 
       if (action === 'add') {
         const app = new FeishuApi({ appId: config.appId, secret: () => credentials.read(config.appSecretRef), origin: apiOrigin(config.apiBaseUrl), timeoutMs: config.apiTimeoutMs })
         const discovered = await discoverBase(value, new FeishuHttp(config.apiBaseUrl, async () => (await app.tenantGrant()).token, config.apiTimeoutMs))
-        for (const table of discovered.tables) if (!next.some(row => row.kind === 'bitable' && row.id === link.baseId && row.tableId === table.table_id)) next.push({ alias: 'base-' + table.table_id, kind: 'bitable', id: link.baseId, tableId: table.table_id, identity: 'tenant', tokenRef: 'FEISHU_APP_TENANT', expiresAt: 0, capabilities: ['bitable.read', 'bitable.create', 'bitable.update', 'bitable.delete'] })
+        for (const table of discovered.tables) {
+          const existing=next.find(row=>row.kind==='bitable'&&row.id===link.baseId&&row.tableId===table.table_id)
+          if(existing)existing.name=table.name
+          else next.push({ alias: 'base-' + table.table_id, name:table.name, kind: 'bitable', id: link.baseId, tableId: table.table_id, identity: 'tenant', tokenRef: 'FEISHU_APP_TENANT', expiresAt: 0, capabilities: ['bitable.read', 'bitable.create', 'bitable.update', 'bitable.delete'] })
+        }
         nextLinks.push(link)
       }
       new Resources(next, config.adminUserIds, () => { throw new Error('validation_only') })

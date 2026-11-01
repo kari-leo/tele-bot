@@ -25,7 +25,7 @@
 
 ```powershell
 $env:TELEBOT_DSH_INSTALL = 'D:/path/to/external-official-install'
-pnpm preflight:feishu --reference 'D:/path/outside/repo/local.env' --workspace 'D:/test-workspace'
+pnpm verify --live preflight --reference 'D:/path/outside/repo/local.env' --workspace 'D:/test-workspace'
 ```
 
 只输出字段存在性、官方版本和准备状态；不打印密钥、不发 API、不启动服务。退出码 2 表示配置未准备好。通过预检仍不能代替以下联调。

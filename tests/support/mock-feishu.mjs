@@ -2,8 +2,8 @@ import { createServer } from 'node:http'
 import { once } from 'node:events'
 
 /** Loopback platform boundary: no real tenant, credentials, messages or API calls. */
-export async function startMockFeishu({ appId = 'cli_test', appSecret = 'loopback-app-secret' } = {}) {
-  const attempts = [], sent = [], behaviors = new Map(), resources = new Map(), uploads = [], records = new Map(), calendarEvents = new Map()
+export async function startMockFeishu({ appId = 'cli_test', appSecret = 'loopback-app-secret', tables=[{table_id:'test-table',name:'Isolated table'}] } = {}) {
+  const attempts = [], sent = [], edits=[], messages=new Map(), behaviors = new Map(), resources = new Map(), uploads = [], records = new Map(), calendarEvents = new Map()
   let tokenRequests = 0
   const server = createServer(async (request, response) => {
     if (request.method === 'GET' && request.url.includes('/resources/')) {
@@ -38,7 +38,8 @@ export async function startMockFeishu({ appId = 'cli_test', appSecret = 'loopbac
     }
     if (request.url.includes('/bitable/')) {
       let data
-      if (/\/tables\?/.test(request.url)) data = { items: [{ table_id: 'test-table', name: 'Isolated table' }], has_more: false }
+      if (/\/apps\/[^/?]+$/.test(request.url)) data={app:{name:'Todo'}}
+      else if (/\/tables\?/.test(request.url)) data = { items: tables, has_more: false }
       else if (request.url.includes('/fields')) data = { items: [{ field_name: 'name', type: 1 }], has_more: false }
       else if (request.url.includes('/search')) data = { items: [...records].map(([record_id, fields]) => ({ record_id, fields })), has_more: false }
       else if (request.url.includes('/batch_create')) data = { records: body.records.map((row, i) => { const record_id = 'rec_' + (records.size + 1); records.set(record_id, row.fields); return { record_id, fields: row.fields } }) }
@@ -48,18 +49,22 @@ export async function startMockFeishu({ appId = 'cli_test', appSecret = 'loopbac
       response.end(JSON.stringify({ code: 0, data })); return
     }
     const replyTo = request.url.match(/\/messages\/([^/]+)\/reply$/)?.[1]
-    const entry = { url: request.url, replyTo, body, messageId: 'om_reply_' + (attempts.length + 1) }
+    const editing=request.method==='PUT',editId=editing?request.url.match(/\/messages\/([^/?]+)$/)?.[1]:undefined
+    const target=editId?messages.get(editId):undefined
+    const entry = { method:request.method,url: request.url, replyTo:target?.replyTo??replyTo, body, messageId:editId??'om_reply_' + (attempts.length + 1) }
     attempts.push(entry)
-    const behavior = behaviors.get(replyTo)
+    const optionalProgress=body.msg_type==='interactive'&&JSON.parse(body.content).header?.title?.content==='执行进度'
+    const behavior = optionalProgress ? undefined : behaviors.get(replyTo)
     if (behavior === 'rate-limit-once') { behaviors.delete(replyTo); response.writeHead(429).end('{}'); return }
     if (behavior === 'disconnect') { request.socket.destroy(); return }
     if (behavior === 'hold') { return }
-    sent.push(entry)
+    if(editing){if(!target){response.writeHead(404).end(JSON.stringify({code:230001}));return}target.body=structuredClone(body);edits.push(entry);response.end(JSON.stringify({code:0,data:{}}));return}
+    const published={...entry,body:structuredClone(body)};sent.push(published);messages.set(entry.messageId,published)
     response.end(JSON.stringify({ code: 0, data: { message_id: entry.messageId } }))
   })
   server.listen(0, '127.0.0.1'); await once(server, 'listening')
   return {
-    attempts, sent, behaviors, resources, uploads, records, calendarEvents, get tokenRequests() { return tokenRequests },
+    attempts, sent, edits, behaviors, resources, uploads, records, calendarEvents, get tokenRequests() { return tokenRequests },
     origin: 'http://127.0.0.1:' + server.address().port,
     async close() { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)) },
   }

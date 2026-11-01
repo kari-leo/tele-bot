@@ -2,12 +2,16 @@ import { createRequire } from 'node:module'
 import { realpath, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { root, packages, fixtures, run } from './common.mjs'
+import { parseArgs } from 'node:util'
+import { modules, selectModules } from './verification-catalog.mjs'
 
 const require = createRequire(import.meta.url)
 const tsc = require.resolve('typescript/bin/tsc')
 // Domain implementations are compiled/tested before their installable wiring exists.
 // Do not put these projects in the release package list until that wiring is verified.
-for (const directory of [...packages, ...fixtures]) {
+const {values}=parseArgs({options:{module:{type:'string',multiple:true}}})
+const wanted=values.module?new Set(selectModules(values.module).flatMap(name=>modules[name].packages).map(name=>'plugins/'+name)):undefined
+for (const directory of [...packages, ...fixtures].filter(directory=>!wanted||wanted.has(directory))) {
   const project = path.resolve(root, directory), output = path.join(project, 'lib')
   const realRoot = await realpath(root)
   const realOutput = await realpath(output).catch(error => { if (error.code !== 'ENOENT') throw error; return undefined })

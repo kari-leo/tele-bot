@@ -2,7 +2,7 @@
 
 官方 schedule 是唯一计时器。插件以公开 catalog/history 的结构化回执关联专用的只收唤醒 Session，再通过唯一业务派发者执行；不解析提醒正文，不新增扫描线程。
 
-Harness 桌面“设置 → Telebot 插件 → 自动化配置”中配置管理员、允许目录、时区、迟到容忍及最长 1200 秒执行限额。任务 `input`：`{title,prompt,mode:remind|auto|confirm,executor:research|codex_apply,catchUp:skip|run_once|ask,rule:{kind:once|daily|weekly,first:带偏移的ISO时间,timeZone,interval:1,weekdays:[0],count,until}}`。weekday 为旧规则周一=0；日期间隔按时区日历计算，DST 空洞跳过、重叠取较早时刻。
+Harness 桌面“设置 → Telebot 插件 → 自动化配置”中配置管理员、时区、迟到容忍及最长 1200 秒执行限额。授权用户默认可使用任意实际存在的工作目录，旧 `allowedRoots` 仅兼容读取、不生效；显式受限的原生入口仍遵循入口限制。目录权限不代替具体任务确认及执行器规则。任务 `input`：`{title,prompt,mode:remind|auto|confirm,executor:research|codex_apply,catchUp:skip|run_once|ask,rule:{kind:once|daily|weekly,first:带偏移的ISO时间,timeZone,interval:1,weekdays:[0],count,until}}`。weekday 为旧规则周一=0；日期间隔按时区日历计算，DST 空洞跳过、重叠取较早时刻。
 
 `/schedule create <input JSON>`、`update {id,input}`、`delete <id>`、`batch [{action,input,id}]` 先冻结 15 分钟变更提案；`confirm <token>` 消费一次。auto 还需独立 `authorize <id>` 及本人确认。confirm 每次生成 execution ID，经 `execute|reject <ID>` 一次性授权。list/get/history/status 查询不走模型。任务修改撤销旧执行授权和待执行项；配置策略变化暂停任务重新授权。
 

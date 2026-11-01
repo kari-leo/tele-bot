@@ -1,7 +1,7 @@
 {
-  "assessedAt": "2026-11-01T07:42:45.589Z",
+  "assessedAt": "2026-11-01T12:38:08.023Z",
   "branch": "codex/compat-desktop-0.2.1-rc.5",
-  "workingTreeCommitted": true,
+  "workingTreeCommitted": false,
   "targetRuntime": "0.2.1-rc.5",
   "development": "P0-P8 implemented; native Harness configuration settings installed and verified on official Windows rc.5; visual acceptance is user-managed. Live Feishu and other platforms retain their documented boundaries.",
   "scopeDecisions": {
@@ -18,7 +18,9 @@
     "remoteIndependentPluginUpdate": "vision_only_do_not_implement",
     "finalInstallationGuide": "enumerate_all_actually_feasible_methods_after_development_keep_D_drive",
     "configurationUi": "official_dsh_client_settings_section_owner_connection_no_standalone_pages",
-    "visualAcceptance": "user_managed_by_explicit_request"
+    "visualAcceptance": "user_managed_by_explicit_request",
+    "automationWorkspace": "full_directory_access_for_authorized_users_no_plugin_root_whitelist",
+    "pendingCards": "nonblocking_official_history_fork_keep_original_question_until_answer_timeout_or_restart"
   },
   "formalInstallation": {
     "performed": true,
@@ -36,15 +38,15 @@
     "home": "C:\\Users\\41547\\.dsh",
     "profile": "C:\\Users\\41547\\.dsh\\profiles\\desktop",
     "physicalProfile": "D:\\files_data\\windborne\\dsh-runtime\\profiles\\desktop",
-    "release": "D:/files_data/windborne/dsh-runtime/releases/telebot-0.1.0-native-json-fix-20261101",
-    "backup": "D:/files_data/windborne/dsh-runtime/backups/native-json-before-2026-11-01T07-34-47-386Z",
+    "release": "D:/files_data/windborne/dsh-runtime/releases/telebot-0.1.0-card-continuation-20261101",
+    "backup": "D:/files_data/windborne/dsh-runtime/backups/card-continuation-before-2026-11-01T12-34-58-067Z",
     "profileBackup": "C:/Users/41547/.dsh/backups/desktop-before-profile-junction-20261101",
-    "launcher": "D:\\files_data\\windborne\\dsh-runtime\\releases\\telebot-0.1.0-native-json-fix-20261101\\start-desktop.ps1",
+    "launcher": "D:\\files_data\\windborne\\dsh-runtime\\releases\\telebot-0.1.0-card-continuation-20261101\\start-desktop.ps1",
     "startupEvidenceScope": "filesystem endpoints with living writer PIDs, initialized business databases; no model turns",
     "uiAcceptance": false,
     "adviserEnabled": false,
     "knowledgeVersion": "0.5.2",
-    "feishuConfigured": false,
+    "feishuConfigured": true,
     "paidModelCalls": false,
     "realFeishuSent": false,
     "configurationUi": "Harness Settings → Telebot 插件",
@@ -60,14 +62,30 @@
     "visualAcceptance": "user_managed",
     "independentSetupPages": false,
     "setupCapabilityTokens": false,
-    "nativeJsonSaveFixInstalled": true
+    "nativeJsonSaveFixInstalled": true,
+    "reasoningProgressInstalled": true,
+    "resourceInventoryInstalled": true,
+    "registeredBases": 2,
+    "registeredTables": 3,
+    "configurationPreserved": true,
+    "editableProgressInstalled": true,
+    "naturalInteractionInstalled": true,
+    "channelSchema": 3,
+    "schema1MigrationSnapshots": [
+      "D:\\files_data\\windborne\\dsh-runtime\\backups\\feishu-editable-before-2026-11-01T09-31-50-814Z\\channel-0.sqlite"
+    ],
+    "nonblockingCardsInstalled": true,
+    "automationDirectoryWhitelist": false,
+    "schema2MigrationSnapshots": [
+      "D:\\files_data\\windborne\\dsh-runtime\\backups\\card-continuation-before-2026-11-01T12-34-58-067Z\\channel-0.sqlite"
+    ]
   },
   "counts": {
     "tests": 80,
     "harness": 11,
     "p0": 18,
-    "feishuAcp": 13,
-    "feishuWeb": 13,
+    "feishuAcp": 15,
+    "feishuWeb": 15,
     "featuresAcp": 25,
     "featuresWeb": 25,
     "setup": 15,
@@ -79,16 +97,28 @@
     "nativeBrowser": 3,
     "formalInstallation": 5,
     "nativeConfigurationComponents": 6,
-    "formalNativeSettings": 9
+    "formalNativeSettings": 14,
+    "catalogAssertions": 97,
+    "scopedLocal": 59,
+    "resourceFollowupLocal": 9,
+    "feishuResourcesAcp": 5,
+    "feishuResourcesWeb": 5,
+    "currentLocalModules": 55,
+    "progressAcp": 5,
+    "progressWeb": 5,
+    "questionsAcp": 7,
+    "questionsWeb": 7,
+    "additionalNativePermissions": 6,
+    "nativeSettings": 15
   },
   "evidence": {
     "harness": {
       "status": "passed",
       "passedChecks": 11,
       "report": ".runtime/verify-latest.json",
-      "sha256": "d937c7ed43d9edede345eff4add8d5cd8d5bf2a03224d533fd94f74130d9d0a7",
-      "retainedEarlierEvidence": false,
-      "releaseHashesMatch": true
+      "sha256": "aed22765033a77cf9546621e460d52ea4ec69d0128f667c817f16beee594f5fa",
+      "retainedEarlierEvidence": true,
+      "releaseHashesMatch": false
     },
     "p0": {
       "status": "passed",
@@ -100,17 +130,17 @@
     },
     "feishuAcp": {
       "status": "passed",
-      "passedChecks": 13,
+      "passedChecks": 15,
       "report": ".runtime/verify-feishu-latest.json",
-      "sha256": "649f5be82adadc3e911b282e63b07df993ac30be85b28029df75d618a6266b58",
+      "sha256": "fc793abd66e971b4137c6e2b396196b38f57a3722a927210c1488f3079546d3a",
       "retainedEarlierEvidence": true,
       "releaseHashesMatch": false
     },
     "feishuWeb": {
       "status": "passed",
-      "passedChecks": 13,
+      "passedChecks": 15,
       "report": ".runtime/verify-feishu-web-latest.json",
-      "sha256": "67c0745ee00a76eac5b8b5bde178b661ab3f9801df1871dcda963e81111ed1a8",
+      "sha256": "deb2f052b2e721d830394c31c4b96a8c95c89c2bf1ebac446665b8400694d951",
       "retainedEarlierEvidence": true,
       "releaseHashesMatch": false
     },
@@ -134,17 +164,17 @@
       "status": "passed",
       "passedChecks": 15,
       "report": ".runtime/verify-feishu-setup-latest.json",
-      "sha256": "da574706956ca1f986e02e5aa26e84d1ae56ae16d18fc8f97f43415094e849eb",
-      "retainedEarlierEvidence": false,
-      "releaseHashesMatch": true
+      "sha256": "fdf9fd810ea2f3e25a9a19798ee0ec32860412ca4a23656fe65b619a0eeabded",
+      "retainedEarlierEvidence": true,
+      "releaseHashesMatch": false
     },
     "desktopPortSimulation": {
       "status": "passed",
       "passedChecks": 15,
       "report": ".runtime/verify-desktop-setup-latest.json",
-      "sha256": "cc9fedfeeb58f1f3c42bef4ea09e61b0feabb0feedfff62c12cea70aad12ce76",
-      "retainedEarlierEvidence": false,
-      "releaseHashesMatch": true
+      "sha256": "6b11ea146c1805dd0cefe7bbd8516611d480414e0c078efc4422faf7c0250ae8",
+      "retainedEarlierEvidence": true,
+      "releaseHashesMatch": false
     },
     "knowledge": {
       "status": "passed",
@@ -204,14 +234,14 @@
       "passedChecks": 6,
       "report": ".runtime/native-json-components-latest.json",
       "sha256": "a4796325ede482ef2d4c22889d401e4c493ca9158a22d51fcd0dc3d030ca35fd",
-      "retainedEarlierEvidence": false,
-      "releaseHashesMatch": true
+      "retainedEarlierEvidence": true,
+      "releaseHashesMatch": false
     },
     "formalNativeSettings": {
       "status": "passed",
-      "passedChecks": 9,
+      "passedChecks": 14,
       "report": ".runtime/formal-native-settings-latest.json",
-      "sha256": "04b05290516ed26a09be037f30185f1c97ca4ebef0bcc40b42e36b1d91b95f58",
+      "sha256": "33d81fa2c9fc420aac425a8c322df8730dc5bd851a19ad0ab305998a8b6a0709",
       "retainedEarlierEvidence": false,
       "releaseHashesMatch": true
     },
@@ -223,6 +253,78 @@
       "retainedEarlierEvidence": true,
       "releaseHashesMatch": false,
       "appliesToCurrentArtifacts": false
+    },
+    "scopedModules": {
+      "status": "passed",
+      "passedChecks": 59,
+      "report": ".runtime/scoped-modules-latest.json",
+      "sha256": "cd673b5fbec75ffb8ee3e32fbc2c2be6e5e6b590df1c685b04496cba21a62c8d",
+      "retainedEarlierEvidence": true,
+      "releaseHashesMatch": false
+    },
+    "feishuResourcesAcp": {
+      "status": "passed",
+      "passedChecks": 5,
+      "report": ".runtime/verify-feishu-resources-latest.json",
+      "sha256": "5e10af6f518f5ff5a1bbef8b03ff3d0ea4ebce8a0262479a6a33028b882c92fb",
+      "retainedEarlierEvidence": true,
+      "releaseHashesMatch": false
+    },
+    "feishuResourcesWeb": {
+      "status": "passed",
+      "passedChecks": 5,
+      "report": ".runtime/verify-feishu-resources-web-latest.json",
+      "sha256": "0b212f86bcfb6253fdd73f97d82b30e970cfbe062958731623c82b730cf2323f",
+      "retainedEarlierEvidence": true,
+      "releaseHashesMatch": false
+    },
+    "dialogueModules": {
+      "status": "passed",
+      "passedChecks": 55,
+      "report": ".runtime/card-continuation-modules-latest.json",
+      "sha256": "46baa1b2485bcb75ab38f416d880678bf19b3ad6e3fab9c8a32720ccd74517f3",
+      "retainedEarlierEvidence": false,
+      "releaseHashesMatch": false
+    },
+    "progressAcp": {
+      "status": "passed",
+      "passedChecks": 5,
+      "report": ".runtime/verify-feishu-progress-latest.json",
+      "sha256": "53be74abd7be501db869dace331d44d79fed13f656ecffea596108eb2102ff7b",
+      "retainedEarlierEvidence": true,
+      "releaseHashesMatch": false
+    },
+    "progressWeb": {
+      "status": "passed",
+      "passedChecks": 5,
+      "report": ".runtime/verify-feishu-progress-web-latest.json",
+      "sha256": "a65607bebc8d89c00c3e247d9a2e1e7e1b18a10e39b74fb8b8ecdfad5b34f84a",
+      "retainedEarlierEvidence": true,
+      "releaseHashesMatch": false
+    },
+    "questionsAcp": {
+      "status": "passed",
+      "passedChecks": 7,
+      "report": ".runtime/verify-feishu-questions-latest.json",
+      "sha256": "85c60328c09372f8af21f73be7a6df1977c5e9bbcb0f768af2dd3702413dac48",
+      "retainedEarlierEvidence": false,
+      "releaseHashesMatch": true
+    },
+    "questionsWeb": {
+      "status": "passed",
+      "passedChecks": 7,
+      "report": ".runtime/verify-feishu-questions-web-latest.json",
+      "sha256": "844fd7c40aa30e10509f57aceb6ad07672ec4e0d2f10ef2f3161ad5e30db963b",
+      "retainedEarlierEvidence": false,
+      "releaseHashesMatch": true
+    },
+    "nativeSettings": {
+      "status": "passed",
+      "passedChecks": 15,
+      "report": ".runtime/verify-desktop-setup-latest.json",
+      "sha256": "a281895a219ca9e04d17d31c90bcaf4804ea6a0ea3801c2da54a0a7ec2f99100",
+      "retainedEarlierEvidence": false,
+      "releaseHashesMatch": true
     }
   },
   "artifacts": [
@@ -230,7 +332,7 @@
       "name": "@telebot/core",
       "version": "0.1.0",
       "filename": "telebot-core-0.1.0.tgz",
-      "sha256": "336f0b97235420e2a830b13cc929c6e02b78a5c974d97d025ea5fe0701088fef",
+      "sha256": "f66f26dc37e64a9a444b1d4dd7da3c226321d7cae2e718d84c834545f272d38e",
       "fixture": false
     },
     {
@@ -244,7 +346,7 @@
       "name": "@telebot/feishu",
       "version": "0.1.0",
       "filename": "telebot-feishu-0.1.0.tgz",
-      "sha256": "d22ce0f654de899af897e0999262b9d6eab8644078e171e10bc7ba1c46f61a6c",
+      "sha256": "e62e04d0b4ec9b4213d87754fb98a62523e0f6a84bfd7dce262c999f91d68351",
       "fixture": false
     },
     {
@@ -272,7 +374,7 @@
       "name": "@telebot/automation",
       "version": "0.1.0",
       "filename": "telebot-automation-0.1.0.tgz",
-      "sha256": "e1fdd7c2280402d05eb9ce97dd9586547f7d93aead9fd26d844c84bdee7fd3c5",
+      "sha256": "6a0f4a14d69e07829863af7ddadf2d368a3aa547dcfd7b47f9378264951a4768",
       "fixture": false
     },
     {
@@ -298,7 +400,7 @@
     "callbackRecheckedThisRun": false
   },
   "limitations": [
-    "Packaged desktop CLI is rc.5; formal Electron startup and plugin installation remain user-managed and not performed",
+    "Formal official desktop installation/startup verified; visual acceptance remains user-managed",
     "Real Feishu ingress/cards/media/resource ACL/notifications and scheduled delivery need tenant acceptance",
     "Linux/macOS deferred by user",
     "Windows Git local file transport may fail MSYS signal-pipe IPC under official sandbox; HTTP fixture passes without disabling sandbox",
@@ -343,6 +445,24 @@
       "userDataDeleted": false,
       "releaseArchivesPreserved": true,
       "removedTemporaryBytes": 724833246
+    },
+    "feishuScoped": {
+      "report": ".runtime/feishu-scoped-cleanup.json",
+      "sha256": "234eff7ad83fcdb64bae7ddac3afc512c40f8e5854705240d4dd1ecbfa7d87e0",
+      "directoriesRemoved": 4,
+      "userDataDeleted": false
+    },
+    "dialogue": {
+      "report": ".runtime/dialogue-cleanup.json",
+      "sha256": "5693b01a24161350b878438c84babc0c0ee20a79517395eec40ebb3fd49fa4a6",
+      "directoriesRemoved": 7,
+      "userDataDeleted": false
+    },
+    "cardContinuation": {
+      "report": ".runtime/card-continuation-cleanup.json",
+      "sha256": "7e02ae35a6d8a0377bd55109969e3d5fd75b09bed60ea3deb0acd6a2aa6be3c5",
+      "directoriesRemoved": 3,
+      "userDataDeleted": false
     }
   },
   "entrypointAssessment": {
@@ -379,18 +499,19 @@
     }
   },
   "activeWork": {
-    "phase": "native_configuration_blank_json_save_fixed",
-    "localTests": 80,
-    "nativeConfigurationComponentChecks": 6,
-    "nativeDesktopChecks": 16,
-    "formalInstallation": "updated_with_native_configuration_settings",
-    "visualAcceptance": "user_managed",
-    "remoteUpdates": "vision_only_not_implemented",
-    "remaining": [
-      "user visual acceptance in Harness Settings → Telebot 插件",
-      "manual application configuration and real Feishu checklist",
-      "Linux/macOS deferred"
-    ]
+    "phase": "nonblocking_cards_installed",
+    "localModules": 55,
+    "additionalNativePermissions": 6,
+    "catalogAssertions": 97,
+    "fullSuiteRerun": false,
+    "questionsAcpWeb": [
+      7,
+      7
+    ],
+    "nativeSettings": 15,
+    "formalChecks": 14,
+    "automationWorkspace": "full_directory_access_no_plugin_root_whitelist",
+    "remaining": "User visual/live conversation acceptance; existing live-service/platform boundaries remain"
   },
   "configurationSaveFix": {
     "status": "fixed_and_installed",
@@ -401,5 +522,34 @@
     "invalidResponse": "HTTP status and reread guidance; no automatic retry",
     "fullClientToOfficialApiToFileVerified": true,
     "realFeishuSent": false
+  },
+  "verificationPolicy": {
+    "entry": "pnpm verify --module <name>",
+    "catalog": "tooling/verification-catalog.mjs",
+    "scope": "changed module plus affected shared-contract consumers",
+    "fullRelease": "pnpm verify --release",
+    "live": "pnpm verify --live preflight|bitable|chat",
+    "localFullSuiteRerun": false
+  },
+  "feishuConversationFix": {
+    "status": "fixed_and_installed",
+    "progress": "one editable Markdown post, deduplicated phases, final replaces placeholder; uncertain edits never replay or overwrite final",
+    "questions": "ordinary unprefixed messages continue in an official history-preserving fork while the original card stays pending; clear answers target the original owner/session/thread/cwd; expires after 5 minutes or restart without default execution",
+    "confirmations": "freeze provider/token/session at admission across continuations; ambiguity between permission and business confirmations requires explicit selection",
+    "tasks": "prepare explicit task-specific auto grant; trusted human confirms; per-session dynamic guard stops foreground schedule creation when automation available",
+    "nativeFullPermissions": "retained; additional 6 native permission tests passed",
+    "configurationPreserved": "2 Bases and 3 registered tables unchanged",
+    "workspace": "authorized users need no automation directory whitelist; native restricted entry and executor policies remain",
+    "paidModelCalls": false,
+    "realMessagesSent": false
+  },
+  "initializationObservation": {
+    "failedColdParallelAttempts": 2,
+    "stage": "ACP initialize before any model request or feature assertion",
+    "diagnostic": ".runtime/card-init-probe.json",
+    "diagnosticSha256": "0bbfa4bf9255b0362ec62d41b9aed430577efd8011bc4e5a3227c20a64338b7f",
+    "sameProfileRawProbeMs": 2565,
+    "sequentialAcpAndWeb": "passed",
+    "rootCause": "not proven; do not report initialization timeout as a plugin assertion failure or feature pass"
   }
 }

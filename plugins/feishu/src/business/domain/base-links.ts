@@ -20,7 +20,7 @@ export function validateBaseLinks(value: unknown): asserts value is BaseLink[] {
 export function linkedBases(resources: readonly Resource[], links: readonly BaseLink[]) {
   const ids = [...new Set([...links.map(row => row.baseId), ...resources.filter(row => row.kind === 'bitable').map(row => row.id)])]
   return ids.map(baseId => ({ baseId, url: links.find(row => row.baseId === baseId)?.url ?? 'https://feishu.cn/base/' + baseId,
-    tables: resources.filter(row => row.kind === 'bitable' && row.id === baseId).map(row => ({ id: row.tableId, alias: row.alias })) }))
+    tables: resources.filter(row => row.kind === 'bitable' && row.id === baseId).map(row => ({ id: row.tableId, alias: row.alias, ...(row.name?{name:row.name}:{}) })) }))
 }
 /** Only an explicit human management request is admitted as a direct command. */
 export function baseManagementCommand(text: string): string | undefined {

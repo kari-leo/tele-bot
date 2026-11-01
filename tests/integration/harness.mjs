@@ -1,5 +1,5 @@
-import { schedulingRows } from '../tests/support/scheduling-composition.mjs'
-import { cleanupVerification } from './cleanup-verification.mjs'
+import { schedulingRows } from '../support/scheduling-composition.mjs'
+import { cleanupVerification } from '../../tooling/cleanup-verification.mjs'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { randomUUID } from 'node:crypto'
@@ -7,12 +7,12 @@ import { access, cp, mkdir, mkdtemp, readFile, realpath, rename, writeFile } fro
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { methods } from '@agentclientprotocol/sdk'
-import { root, run } from './common.mjs'
-import { checkArtifacts } from './check-artifacts.mjs'
-import { officialHost, verificationEnvironment } from './official-host.mjs'
-import { deadline, startAcp } from '../tests/support/acp-client.mjs'
-import { startMockModel } from '../tests/support/mock-model.mjs'
-import { verifyP0 } from '../tests/support/p0-probes.mjs'
+import { root, run } from '../../tooling/common.mjs'
+import { checkArtifacts } from '../../tooling/check-artifacts.mjs'
+import { officialHost, verificationEnvironment } from '../../tooling/official-host.mjs'
+import { deadline, startAcp } from '../support/acp-client.mjs'
+import { startMockModel } from '../support/mock-model.mjs'
+import { verifyP0 } from '../support/p0-probes.mjs'
 
 const host = await officialHost()
 const p0 = process.argv.includes('--p0')

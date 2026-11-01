@@ -15,8 +15,10 @@ export interface ConversationSpec {
   preset?: string
   /** Only trusted dedicated tasks set this restriction, never model parameters. */
   allowedTools?: readonly string[]
+  /** Trusted channel continuation through an unanswered tool, using the official fork seed. */
+  parentSessionId?: string
 }
-export interface TrustedActor { userId: string; chatId: string; sessionId: string; cwd: string; privateChat: boolean; origin: 'feishu' | 'web'; permissions?: 'full' | 'restricted'; nativeRequestId?: string; allowedRoots?: readonly string[]; startedAt?: number; sourceId?: string; threadId?: string }
+export interface TrustedActor { userId: string; chatId: string; sessionId: string; cwd: string; privateChat: boolean; origin: 'feishu' | 'web'; permissions?: 'full' | 'restricted'; nativeRequestId?: string; allowedRoots?: readonly string[]; startedAt?: number; sourceId?: string; threadId?: string; relatedSessionIds?: readonly string[] }
 export function desktopOwner(actor: TrustedActor): boolean { return actor.origin === 'web' && (actor.permissions === 'full' || actor.permissions === 'restricted') }
 /** Only trusted entry adapters supply this DTO; tool schemas never accept it. */
 export function desktopFull(actor: TrustedActor): boolean { return actor.origin === 'web' && actor.permissions === 'full' }
@@ -30,7 +32,8 @@ export interface PendingConfirmation { token: string; label: string }
 export interface ConfirmationProvider { pending(actor: TrustedActor): PendingConfirmation[]; confirm(actor: TrustedActor, token: string, signal: AbortSignal): Promise<ConversationResult>; cancel(actor: TrustedActor, token: string): Promise<ConversationResult> }
 export interface FeatureRequest { id?: string; actor: TrustedActor; text: string; signal: AbortSignal }
 export type FeatureHandler = (request: FeatureRequest) => Promise<ConversationResult>
-export interface FeaturePort { invoke(name: string, request: FeatureRequest): Promise<ConversationResult>; has?(name: string): boolean }
+export interface HumanInputRoute { kind: 'answer'|'notice'|'confirmation'; text:string; sessionId?:string }
+export interface FeaturePort { invoke(name: string, request: FeatureRequest): Promise<ConversationResult>; has?(name: string): boolean; routeInput?(actor:TrustedActor,text:string):HumanInputRoute|undefined; waitingSessions?():readonly string[] }
 export interface IncomingFile { name: string; kind: 'file' | 'image'; data: Uint8Array; mediaType?: string }
 export interface ConversationInput { id: string; text: string; actor?: TrustedActor; question?: import('./interactions.js').QuestionSink; attachments?: IncomingFile[]; progress?: (text: string) => void }
 export interface ConversationResult {
@@ -50,6 +53,8 @@ export interface CommandPort {
   permission?(spec: ConversationSpec, preset?: string): Promise<string>
 }
 export interface ConversationPort {
+  prepare?(spec:ConversationSpec,actor:TrustedActor):Promise<void>
+  context?(spec:ConversationSpec,id:string,text:string):Promise<void>
   run(spec: ConversationSpec, input: ConversationInput): Promise<ConversationResult>
   recover(spec: ConversationSpec, input: ConversationInput): Promise<ConversationResult>
   cancel(id: string): void

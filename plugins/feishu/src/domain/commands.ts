@@ -18,7 +18,10 @@ export async function channelCommand(ports: ChannelPorts, entry: InboxEntry): Pr
   }
   if (!ports.commands) return { status: 'failed', text: '当前部署未提供宿主命令适配。' }
   if (name === 'permission') return { status: 'completed', text: ports.commands.permission ? await ports.commands.permission(entry.spec, argument || undefined) : '当前宿主未提供权限预设。' }
-  if (name === 'setting') return { status: 'completed', text: JSON.stringify({ ...ports.agent.status(entry.spec.id), cwd: entry.spec.cwd, globalSettingsMutableFromChannel: false }) }
+  if (name === 'setting') {
+    const live=ports.agent.status(entry.spec.id)
+    return { status:'completed',text:`**当前会话设置**\n\n模型：${live.provider??entry.spec.provider??'宿主默认'}/${live.model??entry.spec.model??''}\n工作目录：${entry.spec.cwd}\n状态：${live.active?'正在处理':'空闲'}\n全局设置请在 Harness 设置页面修改。` }
+  }
   if (['new', 'reset'].includes(name)) {
     if (!ports.workspace || ports.repository.status(entry.sessionKey).pending) return { status: 'failed', text: '请先处理排队消息，再新建会话。' }
     const current = ports.agent.status(entry.spec.id)

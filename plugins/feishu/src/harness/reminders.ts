@@ -11,6 +11,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { randomUUID } from 'node:crypto'
 import type { ChannelRepository, InboxEntry } from '../domain/types.js'
 import {receiptPreset} from '@telebot/core/presets'
+import { renderPluginResult } from '@telebot/core/presentation'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 
 export class Reminders {
@@ -54,7 +55,7 @@ export class Reminders {
     const text = entry.text.slice('/remind'.length).trim(), [action, ...rest] = text.split(/\s+/)
     if (action === 'list') {
       const rows = this.db.prepare("SELECT id,text,state,entry FROM reminders WHERE state!='deleted'").all() as any[]
-      return JSON.stringify(rows.filter(row => this.owned(entry, JSON.parse(row.entry))).map(({ id, text, state }) => ({ id, text, scheduleState: state,
+      return renderPluginResult(rows.filter(row => this.owned(entry, JSON.parse(row.entry))).map(({ id, text, state }) => ({ id, text, scheduleState: state,
         deliveries: (this.db.prepare('SELECT id,state,outbox_ids FROM deliveries').all() as any[]).filter(row => JSON.parse(row.id)[0] === id).map(row => ({ occurrence: JSON.parse(row.id)[1], state: row.state,
           outbox: row.outbox_ids ? this.channel.deliveries?.(JSON.parse(row.outbox_ids)) ?? [] : [] })),
       })))
@@ -66,7 +67,7 @@ export class Reminders {
       this.db.prepare("UPDATE reminders SET state='deleted' WHERE id=?").run(id)
       return '提醒已删除，业务投递历史保留。'
     }
-    if (action !== 'create') return '/remind create {"text":"提醒内容","after_seconds":60}；/remind list；/remind delete <id>'
+    if (action !== 'create') return '请说明提醒内容和时间；/remind list 查看提醒，/remind delete <编号> 删除提醒。'
     const request = JSON.parse(rest.join(' ')), textValue = String(request.text ?? '').trim()
     if (!textValue || textValue.length > 10000) throw new Error('reminder_text_required')
     const session = randomUUID(), stored = { ...entry, reminderSession: session }
@@ -76,7 +77,7 @@ export class Reminders {
     this.db.prepare('INSERT INTO reminders VALUES(?,?,?,?,?)').run(record.id, session, JSON.stringify(stored), textValue, 'active')
     // A create might already be due after persistence; do not wait for another change event.
     await this.reconcile()
-    return JSON.stringify({ id: record.id, text: textValue, scheduledAt: record.scheduledAt, status: 'scheduled' })
+    return `**提醒已安排**\n\n内容：${textValue}\n计划时间：${record.scheduledAt}\n提醒编号：${record.id}`
   }
   private owned(entry: InboxEntry, original: InboxEntry) { return entry.chatId === original.chatId && entry.threadId === original.threadId && entry.actor.ids.some(id => original.actor.ids.includes(id)) }
   private async reconcile() {

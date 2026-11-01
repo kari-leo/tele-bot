@@ -108,7 +108,7 @@ export class AutomationService {
       if(new Set(mutations.map(item=>item.id)).size!==mutations.length)throw new Error('duplicate_task_mutation')
       const proposed=this.proposal(actor,{mutations});return desktopFull(actor)?this.confirm(actor,JSON.parse(proposed.text).token,signal):proposed
     }
-    return{status:'completed',text:'/schedule create <任务 JSON>；update {"id":"…","input":{…}}；delete <id>；batch [{"action":"create","input":{…}}]；confirm|cancel <令牌>；authorize <id> 单独预授权 auto；execute|reject <执行ID>；list/get/history/status/retry-delivery。first 必须带时区，weekdays 沿用周一=0。'}
+    return{status:'completed',text:'请直接描述任务、执行时间和是否自动执行，我会先给出预览。也可使用 /schedule list 查看任务；get/history <任务编号> 查看详情或记录；confirm/cancel <令牌> 确认或取消；authorize <任务编号> 单独申请自动执行授权；execute/reject <执行编号> 决定本次执行。'}
   }
   private proposal(actor:TrustedActor,payload:unknown){const token=this.nativeOperation?.id??randomUUID();if(this.nativeOperation)payload={...(payload as object),nativeRequestDigest:this.nativeOperation.digest};this.db.prepare("INSERT INTO proposals VALUES(?,?,?,?,'pending',NULL)").run(token,binding(actor),JSON.stringify(payload),this.now()+900000);return{status:'completed' as const,text:JSON.stringify({status:'confirmation_required',token,payload,confirm:'/schedule confirm '+token,expiresAt:this.now()+900000})}}
   private async confirm(actor:TrustedActor,token:string,signal:AbortSignal):Promise<ConversationResult>{

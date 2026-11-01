@@ -12,6 +12,9 @@ import { SqliteChannelRepository } from '../../plugins/feishu/lib/adapters/sqlit
 import { FeishuChannel } from '../../plugins/feishu/lib/domain/channel.js'
 import { FeishuApi, apiOrigin } from '../../plugins/feishu/lib/adapters/feishu-api.js'
 import { Interactions } from '../../plugins/core/lib/interactions.js'
+import { TelebotCore } from '../../plugins/core/lib/index.js'
+import { createRequire } from 'node:module'
+import { pathToFileURL } from 'node:url'
 import { cleanup, eventually, temporaryDirectory } from '../support/temp-dir.mjs'
 
 const settings = {
@@ -38,6 +41,69 @@ function fakeAgent(overrides = {}) {
   return { run: async () => ({ status: 'completed', text: 'done' }), recover: async () => ({ status: 'unknown', text: 'uncertain' }),
     cancel() {}, status: () => ({ active: false }), dispose: async () => {}, ...overrides }
 }
+
+test('confirmation completion enters original and continued chat context without invoking another model turn',async t=>{
+  const {store,filename}=await repository(t),contexts=[]
+  store.accept(event('seed'),{...settings,provider:'fixture',model:'selected-model'})
+  const original=store.claim([])
+  store.markMapped(original.spec.id);store.finish(original,'completed',[])
+  store.updateMapping(original,{...original.spec,id:'continued',allowCreate:false})
+  let calls=0,runs=0
+  const require=createRequire(new URL('../../plugins/core/package.json',import.meta.url)),{Context}=await import(pathToFileURL(require.resolve('@deepseek-ai/cordis')).href),ctx=new Context(),core=new TelebotCore(ctx)
+  const interpretations=[]
+  ctx.provide('llm',{async *stream(options){interpretations.push(options);yield{type:'text-delta',index:0,text:JSON.stringify({decision:'confirm',selection:1})};yield{type:'finish',reason:{kind:'stop'}}}})
+  core.registerConfirmations('bitable',{pending:actor=>actor.userId==='ou_alice'&&actor.sessionId===original.spec.id?[{token:'frozen',label:'修改备注'}]:[],confirm:async()=>{calls++;return{status:'completed',text:'已完成修改，并已回读核验。'}},cancel:async()=>({status:'cancelled',text:'已取消。'})})
+  core.registerFeature('confirm',async({actor,text,signal})=>{assert.equal(text,'confirm bitable frozen');return core.confirmLatest(actor,false,signal,{name:'bitable',token:'frozen'})})
+  const agent=fakeAgent({run:async()=>{runs++;return{status:'completed',text:'ordinary reply'}},context:async(spec,id,text)=>contexts.push({session:spec.id,id,text})})
+  const channel=new FeishuChannel({repository:store,agent,delivery:{send:async()=>({status:'sent',messageId:'sent'})},features:core},{...settings,provider:'fixture',model:'selected-model'})
+  channel.start();cleanup(t,()=>channel.stop())
+  channel.accept(event('confirmed',{text:'好的，请修改把'}))
+  channel.accept(event('confirmed',{text:'好的，请修改把'}))
+  await eventually(()=>inspection(filename,"SELECT state FROM inbox WHERE message_id='om_confirmed'")[0]?.state==='completed')
+  await eventually(()=>contexts.length>=1)
+  assert.equal(calls,1);assert.equal(runs,0);assert(contexts.some(row=>row.session===original.spec.id&&row.text.includes('已完成修改')))
+  assert.equal(interpretations.length,1)
+  const current=store.currentSpec(inspection(filename,"SELECT session_key FROM inbox WHERE message_id='om_confirmed'")[0].session_key)
+  assert(contexts.some(row=>row.session===current.id))
+})
+
+test('semantic replies answer an occupied approval in its original session without creating a chat fork',async t=>{
+  const {store,filename}=await repository(t),require=createRequire(new URL('../../plugins/core/package.json',import.meta.url)),{Context}=await import(pathToFileURL(require.resolve('@deepseek-ai/cordis')).href),ctx=new Context(),core=new TelebotCore(ctx)
+  ctx.provide('llm',{async *stream(){yield{type:'text-delta',index:0,text:'{"decision":"confirm","selection":1}'};yield{type:'finish',reason:{kind:'stop'}}}})
+  core.registerFeature('answer',async({actor,text})=>{const split=text.indexOf(' '),accepted=core.interactions.answer(actor,text.slice(0,split),text.slice(split+1));return{status:accepted?'completed':'failed',text:accepted?'回答已提交。':'回答已失效。'}})
+  let waiting=false,runs=0,forks=0
+  const agent=fakeAgent({prepare:async()=>{forks++},run:async(spec,input)=>{runs++;const answer=await core.interactions.ask(input.actor,'是否允许本次修改？',['允许一次','拒绝'],true,async question=>{waiting=true;await input.question(question)});return{status:'completed',text:answer}},cancel:id=>core.interactions.cancelSession(id)})
+  const channel=new FeishuChannel({repository:store,agent,features:core,delivery:{send:async()=>({status:'sent',messageId:'sent'})}},{...settings,provider:'fixture',model:'selected-model',maxConcurrentSessions:1})
+  channel.start();cleanup(t,()=>channel.stop())
+  channel.accept(event('ask-approval'));await eventually(()=>waiting)
+  channel.accept(event('semantic-answer',{text:'好的，请修改把'}))
+  await eventually(()=>inspection(filename,"SELECT state FROM inbox WHERE message_id='om_ask-approval'")[0]?.state==='completed')
+  assert.equal(runs,1);assert.equal(forks,0)
+})
+
+test('a semantic non-answer returns to the ordinary serial queue while an active request remains running',async t=>{
+  const {store,filename}=await repository(t),require=createRequire(new URL('../../plugins/core/package.json',import.meta.url)),{Context}=await import(pathToFileURL(require.resolve('@deepseek-ai/cordis')).href),ctx=new Context(),core=new TelebotCore(ctx),runs=[]
+  ctx.provide('llm',{async *stream(){yield{type:'text-delta',index:0,text:'{"decision":"other","selection":null}'};yield{type:'finish',reason:{kind:'stop'}}}})
+  let release
+  const active=new Promise(resolve=>{release=resolve});cleanup(t,()=>release())
+  const agent=fakeAgent({run:async(_spec,input)=>{runs.push(input.text);if(input.text==='long-request')await active;return{status:'completed',text:'done'}}})
+  const channel=new FeishuChannel({repository:store,agent,features:core,delivery:{send:async()=>({status:'sent',messageId:'sent'})}},{...settings,provider:'fixture',model:'selected-model',maxConcurrentSessions:1})
+  channel.start();cleanup(t,()=>channel.stop());channel.accept(event('long',{text:'long-request'}));await eventually(()=>runs.length===1)
+  core.registerConfirmations('bitable',{pending:()=>[{token:'frozen',label:'修改备注'}],confirm:async()=>{throw Error('Must not confirm')},cancel:async()=>{throw Error('Must not cancel')}})
+  channel.accept(event('new-topic',{text:'明天是什么天气'}))
+  await eventually(()=>inspection(filename,"SELECT kind FROM inbox WHERE message_id='om_new-topic'")[0]?.kind==='text')
+  assert.deepEqual(runs,['long-request'])
+  release();await eventually(()=>runs.length===2)
+  assert.deepEqual(runs,['long-request','明天是什么天气'])
+})
+
+test('restart invalidates interrupted semantic interpretation without replaying a model or confirming an operation',async t=>{
+  const {store,filename}=await repository(t);store.accept(event('interrupted-interpretation',{kind:'interpretation',text:'expired-ticket'}),settings);store.claim([])
+  let calls=0
+  const channel=new FeishuChannel({repository:store,agent:fakeAgent(),features:{invoke:async()=>{throw Error('Must not invoke')},resolveInput:async()=>{calls++;return{kind:'confirmation',text:'confirm bitable frozen'}}},delivery:{send:async()=>({status:'sent',messageId:'sent'})}},settings)
+  channel.start();cleanup(t,()=>channel.stop());await eventually(()=>inspection(filename,"SELECT state FROM inbox WHERE message_id='om_interrupted-interpretation'")[0]?.state==='cancelled')
+  assert.equal(calls,0)
+})
 async function start(t, store, agent, delivery, config = settings) {
   const channel = new FeishuChannel({ repository: store, agent, delivery }, config)
   channel.start()

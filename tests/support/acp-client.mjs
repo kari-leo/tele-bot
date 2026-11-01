@@ -58,7 +58,7 @@ export async function startAcp({ cli, profile, patches, cwd, env, log, args = []
       protocolVersion: PROTOCOL_VERSION,
       clientInfo: { name: 'telebot-keyless-acceptance', version: '0.1.0' },
       clientCapabilities: {},
-    })
+    },120000)
     return {
       initialized, updates, permissions, request, stop,
       async crash() {

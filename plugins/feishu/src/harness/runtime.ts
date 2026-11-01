@@ -1,6 +1,7 @@
 /** Thin official Harness plugin wiring; channel code depends only on local DTOs and ports. */
 import type { Context } from '@deepseek-ai/cordis'
 import { TelebotCore } from '@telebot/core'
+import { renderPluginResult } from '@telebot/core/presentation'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
@@ -57,7 +58,8 @@ export async function startChannel(ctx: Context, config: Config, sharedDelivery?
   const unregisterDelivery = ctx.telebotCore.registerDelivery('feishu', async request => {
     if (!config.adminUserIds.includes(request.actor.userId) || (config.allowedChatIds.length && !config.allowedChatIds.includes(request.actor.chatId))) throw new Error('delivery_actor_not_authorized')
     const source = repository.source(request.actor), outputs: { msgType: 'post' | 'file'; content: string }[] = []
-    for (let offset = 0; offset < request.result.text.length; offset += 6000) outputs.push({ msgType:'post',content:JSON.stringify({zh_cn:{content:[[{tag:'text',text:request.result.text.slice(offset,offset+6000)}]]}}) })
+    const text=renderPluginResult(request.result.text)
+    for (let offset = 0; offset < text.length; offset += 6000) outputs.push({ msgType:'post',content:JSON.stringify({zh_cn:{content:[[{tag:'md',text:text.slice(offset,offset+6000)}]]}}) })
     for (const artifact of request.result.artifacts ?? []) {
       const content = await files.outbound(source, artifact.path)
       if (JSON.parse(content).sha256 !== artifact.sha256) throw new Error('delivery_artifact_changed')

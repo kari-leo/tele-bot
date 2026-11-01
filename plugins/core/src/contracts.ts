@@ -32,8 +32,8 @@ export interface PendingConfirmation { token: string; label: string }
 export interface ConfirmationProvider { pending(actor: TrustedActor): PendingConfirmation[]; confirm(actor: TrustedActor, token: string, signal: AbortSignal): Promise<ConversationResult>; cancel(actor: TrustedActor, token: string): Promise<ConversationResult> }
 export interface FeatureRequest { id?: string; actor: TrustedActor; text: string; signal: AbortSignal }
 export type FeatureHandler = (request: FeatureRequest) => Promise<ConversationResult>
-export interface HumanInputRoute { kind: 'answer'|'notice'|'confirmation'; text:string; sessionId?:string }
-export interface FeaturePort { invoke(name: string, request: FeatureRequest): Promise<ConversationResult>; has?(name: string): boolean; routeInput?(actor:TrustedActor,text:string):HumanInputRoute|undefined; waitingSessions?():readonly string[] }
+export interface HumanInputRoute { kind: 'text'|'answer'|'notice'|'confirmation'|'interpretation'; text:string; sessionId?:string }
+export interface FeaturePort { invoke(name: string, request: FeatureRequest): Promise<ConversationResult>; has?(name: string): boolean; routeInput?(actor:TrustedActor,text:string,semantic?:boolean):HumanInputRoute|undefined; releaseInput?(ticket:string):void; resolveInput?(actor:TrustedActor,ticket:string,spec:ConversationSpec,signal:AbortSignal):Promise<HumanInputRoute>; waitingSessions?():readonly string[] }
 export interface IncomingFile { name: string; kind: 'file' | 'image'; data: Uint8Array; mediaType?: string }
 export interface ConversationInput { id: string; text: string; actor?: TrustedActor; question?: import('./interactions.js').QuestionSink; attachments?: IncomingFile[]; progress?: (text: string) => void }
 export interface ConversationResult {

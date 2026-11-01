@@ -8,8 +8,13 @@ import type { FeatureHandler, FeatureRequest, TrustedActor, ActorProvider } from
 import type { TaskExecutor, TaskExecution, DeliveryRequest, ConfirmationProvider } from './contracts.js'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type {} from '@deepseek-ai/dsh-user-questions'
-import { Interactions, confirmationDecision, type QuestionSink } from './interactions.js'
+import { Interactions, confirmationIntent, type QuestionSink } from './interactions.js'
 import { SessionId } from '@deepseek-ai/dsh-session/types'
+import { presentResult } from './presentation.js'
+import {randomUUID} from 'node:crypto'
+import {interpretConfirmation} from './harness/confirmation-intent.js'
+
+interface IntentCandidate {kind:'business'|'approval';token:string;label:string;sessionId:string;name?:string}
 
 export type { CapabilitySnapshot, HostCapability } from './contracts.js'
 
@@ -28,6 +33,7 @@ export class TelebotCore extends Service {
   private readonly deliverySinks = new Map<string, (request: DeliveryRequest) => Promise<unknown>>()
   private readonly deliveryInspection = new Map<string, {status(actor:TrustedActor,receipt:unknown):unknown;retry(actor:TrustedActor,receipt:unknown):unknown}>()
   private readonly confirmations = new Map<string, ConfirmationProvider>()
+  private readonly inputIntents=new Map<string,{actor:TrustedActor;reply:string;candidates:IntentCandidate[];expires:number}>()
   private readonly deliveryReady = new Set<() => void>()
   private readonly artifacts = new Map<string, NonNullable<import('./contracts.js').ConversationResult['artifacts']>[number][]>()
   constructor(ctx: Context) { super(ctx, 'telebotCore') }
@@ -88,14 +94,47 @@ export class TelebotCore extends Service {
     const sessions=actor.origin==='feishu'?[...new Set([actor.sessionId,...actor.relatedSessionIds??[]])]:[actor.sessionId]
     return sessions.flatMap(sessionId=>[...this.confirmations].flatMap(([name,provider])=>provider.pending({...actor,sessionId}).map(row=>({...row,name,sessionId}))))
   }
-  routeInput(actor:TrustedActor,text:string):import('./contracts.js').HumanInputRoute|undefined{
+  routeInput(actor:TrustedActor,text:string,semantic=false):import('./contracts.js').HumanInputRoute|undefined{
     this.validateActor(actor)
     const question=this.interactions.routeInput(actor,text)
-    if(question){if(question.kind==='answer'&&confirmationDecision(text)&&this.routedConfirmations(actor).length)return{kind:'notice',text:'同时有询问和业务操作等待确认。回答卡片请用“回答1：允许一次”或“回答1：拒绝”；业务操作请用“确认第1项”或“取消第1项”。'};return question}
+    if(question){if(question.kind==='answer'&&confirmationIntent(text)&&this.routedConfirmations(actor).length)return{kind:'notice',text:'同时有询问和业务操作等待确认。回答卡片请用“回答1：允许一次”或“回答1：拒绝”；业务操作请用“确认第1项”或“取消第1项”。'};return question}
     const selected=/^(确认|同意|执行|取消|拒绝)(?:执行|授权)?第?([一二三四五六七八九十]|\d+)(?:个|项|项任务)?[。！!\s]*$/.exec(text.trim())
     if(selected){const ordinal=Number(selected[2])||'一二三四五六七八九十'.indexOf(selected[2])+1,rows=this.routedConfirmations(actor),row=rows[ordinal-1];if(row)return{kind:'confirmation',text:(['取消','拒绝'].includes(selected[1])?'cancel':'confirm')+' '+row.name+' '+row.token,sessionId:row.sessionId};return{kind:'notice',text:'待确认列表已变化，请重新查看后选择。'}}
-    const decision=confirmationDecision(text)
-    if(decision){const rows=this.routedConfirmations(actor);if(!rows.length)return{kind:'notice',text:'当前没有待确认操作，请先查看操作预览。'};if(rows.length>1)return{kind:'notice',text:'有多个待确认操作，请回复“确认第1项”或“取消第1项”等明确选择：\n'+rows.map((row,index)=>(index+1)+'. '+row.label).join('\n')};return{kind:'confirmation',text:decision+' '+rows[0].name+' '+rows[0].token,sessionId:rows[0].sessionId}}
+    const intent=confirmationIntent(text)
+    if(intent){
+      const rows=this.routedConfirmations(actor)
+      if(!rows.length)return{kind:'notice',text:'当前没有待确认操作，请先查看操作预览。'}
+      if(rows.length>1)return{kind:'notice',text:'有多个待确认操作，请回复“确认第1项”或“取消第1项”等明确选择：\n'+rows.map((row,index)=>(index+1)+'. '+row.label).join('\n')}
+      const row=rows[0]
+      return{kind:'confirmation',text:intent.decision+' '+row.name+' '+row.token,sessionId:row.sessionId}
+    }
+    if(semantic&&text.length<=10000){
+      const candidates:IntentCandidate[]=[...this.interactions.approvals(actor).map(row=>({...row,kind:'approval' as const})),...this.routedConfirmations(actor).map(row=>({...row,kind:'business' as const}))]
+      if(!candidates.length)return
+      for(const [id,row]of this.inputIntents)if(row.expires<=Date.now())this.inputIntents.delete(id)
+      if(this.inputIntents.size>=100||candidates.length>32)return{kind:'notice',text:'待处理确认较多，请明确选择一个待确认事项。'}
+      const ticket=randomUUID()
+      this.inputIntents.set(ticket,{actor:Object.freeze({...actor}),reply:text,candidates,expires:Date.now()+120000})
+      return{kind:'interpretation',text:ticket,sessionId:actor.sessionId}
+    }
+  }
+  releaseInput(ticket:string){this.inputIntents.delete(ticket)}
+  async resolveInput(actor:TrustedActor,ticket:string,spec:import('./contracts.js').ConversationSpec,signal:AbortSignal):Promise<import('./contracts.js').HumanInputRoute>{
+    this.validateActor(actor)
+    const request=this.inputIntents.get(ticket)
+    if(!request||request.expires<=Date.now())return{kind:'notice',text:'这次确认解析已失效，没有执行操作。请重新回复你的意图。'}
+    if(!['origin','userId','chatId','sessionId','cwd'].every(key=>request.actor[key as keyof TrustedActor]===actor[key as keyof TrustedActor])||(request.actor.threadId??'')!==(actor.threadId??''))return{kind:'notice',text:'这次确认不属于当前用户或会话。'}
+    if(spec.id!==actor.sessionId||spec.cwd!==actor.cwd)return{kind:'notice',text:'这次确认的会话或目录已变化，没有执行操作。'}
+    this.inputIntents.delete(ticket)
+    let decision:Awaited<ReturnType<typeof interpretConfirmation>>
+    try{decision=await interpretConfirmation(this.ctx,spec,request.reply,request.candidates,signal);signal.throwIfAborted()}catch{return{kind:'notice',text:'本次自然语言确认解析暂时未完成，操作尚未执行。可以重新表达你的意图，或使用预览中的备用命令。'}}
+    if(decision.decision==='other'||decision.decision==='change')return{kind:'text',text:request.reply}
+    if(decision.decision==='ambiguous')return{kind:'notice',text:'尚未执行：请说明你指的是哪一个待确认事项：\n'+request.candidates.map((row,index)=>`${index+1}. ${row.label}`).join('\n')}
+    const row=request.candidates[decision.selection!-1]
+    const original={...request.actor,sessionId:row.sessionId}
+    if(row.kind==='approval')return this.interactions.routeApproval(original,row.token,decision.decision)??{kind:'notice',text:'这项权限询问已失效，没有执行操作。'}
+    if(!this.confirmations.get(row.name!)?.pending(original).some(current=>current.token===row.token))return{kind:'notice',text:'这项操作预览已失效或已处理，没有自动确认其他操作。'}
+    return{kind:'confirmation',text:decision.decision+' '+row.name+' '+row.token,sessionId:row.sessionId}
   }
   waitingSessions(){return this.interactions.waitingSessions()}
   registerTaskExecutor(name: string, handler: TaskExecutor) {
@@ -104,11 +143,11 @@ export class TelebotCore extends Service {
     return () => { if (this.taskExecutors.get(name) === handler) this.taskExecutors.delete(name) }
   }
   taskExecutorAvailable(name: string) { return this.taskExecutors.has(name) }
-  executeTask(name: string, request: TaskExecution) {
+  async executeTask(name: string, request: TaskExecution) {
     this.validateActor(request.actor)
     const executor = this.taskExecutors.get(name)
     if (!executor) throw new Error('task_executor_unavailable')
-    return executor(Object.freeze({ ...request, actor: Object.freeze({ ...request.actor }) }))
+    return presentResult(await executor(Object.freeze({ ...request, actor: Object.freeze({ ...request.actor }) })))
   }
   registerDelivery(origin: string, handler: (request: DeliveryRequest) => Promise<unknown>,inspection?:{status(actor:TrustedActor,receipt:unknown):unknown;retry(actor:TrustedActor,receipt:unknown):unknown}) {
     if (this.deliverySinks.has(origin)) throw new Error('delivery_sink_already_registered')
@@ -136,13 +175,13 @@ export class TelebotCore extends Service {
     if (!rows.length) return { status: 'failed' as const, text: '' }
     if (rows.length !== 1) return { status: 'failed' as const, text: '有多个待确认操作，请回复“确认第1项”或“取消第1项”等明确选择：\n' + rows.map((row,index) => (index+1)+'. '+row.label).join('\n') }
     const row = rows[0]
-    return cancel ? row.provider.cancel(actor, row.token) : row.provider.confirm(actor, row.token, signal)
+    return presentResult(await (cancel ? row.provider.cancel(actor, row.token) : row.provider.confirm(actor, row.token, signal)))
   }
   async invoke(name: string, request: FeatureRequest) {
     this.validateActor(request.actor)
     const handler = this.features.get(name)
     if (!handler) return { status: 'failed' as const, text: '当前功能未安装或未启用。' }
-    return handler(request)
+    return presentResult(await handler(request))
   }
 
   capabilities(): CapabilitySnapshot {

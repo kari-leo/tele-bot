@@ -14,7 +14,9 @@ import type {} from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { HarnessModels } from './models.js'
+import {confirmationPolicy} from './confirmation-intent.js'
 declare module '@deepseek-ai/dsh-llm' { interface MessageSourceMap { 'telebot-continuation':{kind:'telebot-continuation'} } }
+declare module '@deepseek-ai/dsh-llm' { interface MessageSourceMap { 'telebot-channel-policy':{kind:'telebot-channel-policy';revision:string} } }
 
 /** Correlate an identified user message to its own committed turn, never another turn's success. */
 export function feishuTaskGuard(sessionId:string,available:()=>boolean){
@@ -45,6 +47,8 @@ export class HarnessConversations implements ConversationPort {
   private readonly inFlight = new Map<string, { cancelled: boolean }>()
   private closed = false
   private readonly selections=new HarnessModels()
+  private readonly feishuSessions=new Set<string>()
+  private readonly guided=new WeakSet<Agent>()
   constructor(private readonly ctx: Context, private readonly actorScope?: <T>(actor: TrustedActor, run: () => Promise<T>, sink?: QuestionSink) => Promise<T>, private readonly artifacts?: (id: string) => NonNullable<ConversationResult['artifacts']>,private readonly configure?:(scope:Context,id:string)=>Promise<void>) { this.commands = new HarnessCommands(ctx, spec => this.open(spec),['compact'],this.selections) }
 
   private async flush(agent: Agent): Promise<void> {
@@ -127,6 +131,7 @@ export class HarnessConversations implements ConversationPort {
   }
 
   async run(spec: ConversationSpec, input: ConversationInput): Promise<ConversationResult> {
+    if(input.actor?.origin==='feishu')this.feishuSessions.add(spec.id)
     if (input.actor && this.actorScope) return this.actorScope(input.actor, () => this.run(spec, { ...input, actor: undefined }), input.question)
     const activity = { cancelled: false }
     let progress = '', lastProgress = 0, publications = 0, observing = false, lastText = ''
@@ -147,6 +152,10 @@ export class HarnessConversations implements ConversationPort {
       const agent = await this.open(spec)
       await agent.whenIdle()
       if (activity.cancelled || this.closed) return { status: 'cancelled', text: '本轮已停止。' }
+      if(this.feishuSessions.has(spec.id)&&!this.guided.has(agent)){
+        agent.inject(freezeMessage({id:MessageId('telebot-channel-policy:semantic-confirmation-20261101'),role:'user',source:{kind:'telebot-channel-policy',revision:'semantic-confirmation-20261101'},content:[{type:'text',text:confirmationPolicy+' 这段渠道说明本身不代表用户批准任何操作。'}]}))
+        this.guided.add(agent)
+      }
       const events = agent.session.snapshotEvents()
       const alreadyAccepted = events.some(event =>
         (event.type === 'user/message' && event.data.id === input.id) ||
@@ -201,6 +210,7 @@ export class HarnessConversations implements ConversationPort {
     this.closed = true
     const results = await Promise.allSettled([...this.handles.values()].map(async pending => { await (await pending).dispose() }))
     this.handles.clear()
+    this.feishuSessions.clear()
     const failures = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
     if (failures.length) throw new AggregateError(failures.map(result => result.reason), 'harness_agent_disposal_failed')
   }

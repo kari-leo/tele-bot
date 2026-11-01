@@ -1,3 +1,4 @@
+import { renderPluginResult } from '@telebot/core/presentation'
 import { desktopOwner, desktopFull } from '@telebot/core/contracts'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -28,7 +29,7 @@ async function start(ctx: Context, config: Config, onBusy: (busy: () => boolean)
   ctx.tools.register(defineTool({
     name: 'ask_adviser', description: 'Get a stateless second opinion. Unavailable means continue independently; do not claim advice was obtained or repeat internal errors.',
     parameters: { question: { type: 'string', required: true }, context: { type: 'string' }, excerpts: { type: 'array', items: { type: 'string' } } },
-    output: { schema: { type: 'object', properties: { json: { type: 'string', required: true } }, additionalProperties: false }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
+    output: { schema: { type: 'object', properties: { json: { type: 'string', required: true } }, additionalProperties: false }, render: (_args, value) => [{ type: 'text', text: renderPluginResult(value.json) }] },
     async execute(args, exec) {
       if (!exec.agent) throw new Error('trusted_agent_required')
       const actor = ctx.telebotCore.actor(exec.agent.session.id)

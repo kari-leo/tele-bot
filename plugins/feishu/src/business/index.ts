@@ -1,3 +1,4 @@
+import { renderPluginResult } from '@telebot/core/presentation'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
@@ -77,17 +78,17 @@ export async function apply(ctx: Context, config: Config, access: { tenantGrant(
       result = await invoke(actor, operation, signal)
       if (!config.confirmAll && ['create', 'update'].includes(operation.action) && operation.params.records?.length === 1 && result && typeof result === 'object' && 'token' in result) result = await ledger.confirm(service, actor, String(result.token), signal)
     }
-    return { status: 'completed', text: JSON.stringify(result) }
+    return { status: 'completed', text: renderPluginResult(JSON.stringify(result)) }
   })
   const unregister = ctx.telebotCore.registerFeature('feishu', handler)
   const unregisterBitable = ctx.telebotCore.registerFeature('bitable', handler)
-  const unregisterConfirm = ctx.telebotCore.registerConfirmations('bitable', { pending: actor => ledger.pending(actor).map(row => ({ token: row.token, label: row.operation })), confirm: (actor, token, signal) => handler({ actor, text: 'confirm ' + token, signal }), cancel: (actor, token) => handler({ actor, text: 'cancel ' + token, signal: lifetime.signal }) })
+  const unregisterConfirm = ctx.telebotCore.registerConfirmations('bitable', { pending: actor => ledger.pending(actor).map(row => ({ token: row.token, label: renderPluginResult(JSON.parse(row.operation)) })), confirm: (actor, token, signal) => handler({ actor, text: 'confirm ' + token, signal }), cancel: (actor, token) => handler({ actor, text: 'cancel ' + token, signal: lifetime.signal }) })
   ctx.effect(() => async () => { unregister(); unregisterBitable(); unregisterConfirm(); lifetime.abort(); await Promise.allSettled([...jobs]); ledger.close() })
   ctx.tools.register(defineTool({
     name: 'feishu_resources',
     description: 'List ONLY resources explicitly connected to this Feishu plugin, including table names and exact aliases. Call this FIRST for natural-language requests such as "操作 todo 表格"; use its alias with feishu_bitable_inspect/query. Does not scan local files or enumerate tenant resources. Empty means no links registered in plugin settings; platform API permissions alone do not register resources. Ask for a Base link in that case. Writes still require a frozen preview and trusted user confirmation; table/schema editing is not supported.',
     parameters: { kind: { type: 'string', enum: ['bitable','documents','calendar','tasks'] } },
-    output: { schema: { type: 'object', properties: { json: { type: 'string', required: true } }, additionalProperties: false }, render: (_args, value) => [{ type:'text', text:value.json }] },
+    output: { schema: { type: 'object', properties: { json: { type: 'string', required: true } }, additionalProperties: false }, render: (_args, value) => [{ type:'text', text:renderPluginResult(value.json) }] },
     async execute(args, exec) { return track(async()=>{
       if (!exec.agent) throw new Error('trusted_agent_required')
       const actor=ctx.telebotCore.actor(exec.agent.session.id),signal=AbortSignal.any([exec.signal,lifetime.signal])
@@ -117,9 +118,9 @@ export async function apply(ctx: Context, config: Config, access: { tenantGrant(
     }) },
   }))
   const tool = (toolName: string, fixedAction?: Operation['action'], kind?: Resource['kind']) => ctx.tools.register(defineTool({
-    name: toolName, description: 'Feishu configured resource operation. FIRST use feishu_resources to discover exact aliases and table names; never guess a resource from a natural-language name. Inspect before record operations. No schema/field editing. Writes produce a frozen preview; only a trusted user command may confirm. Application identity only.',
+    name: toolName, description: 'Feishu configured resource operation. FIRST use feishu_resources to discover exact aliases and table names; never guess a resource from a natural-language name. Inspect before record operations. No schema/field editing. Writes return a frozen preview with status "confirmation_required" — that is a normal pause awaiting the user, NOT a failure. Relay the returned preview (baseline → new values) to the user and tell them to reply 「确认」/「取消」 or send /bitable confirm <token> / /bitable cancel <token>. Application identity only.',
     parameters: { resource: { type: 'string', required: true }, action: { type: 'string', enum: ['inspect', 'query', 'create', 'update', 'delete'] }, params_json: { type: 'string', required: true } },
-    output: { schema: { type: 'object', properties: { json: { type: 'string', required: true } }, additionalProperties: false }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
+    output: { schema: { type: 'object', properties: { json: { type: 'string', required: true } }, additionalProperties: false }, render: (_args, value) => [{ type: 'text', text: renderPluginResult(value.json) }] },
     async execute(args, exec) { return track(async () => {
       if (!exec.agent) throw new Error('trusted_agent_required')
       const actor = ctx.telebotCore.actor(exec.agent.session.id)

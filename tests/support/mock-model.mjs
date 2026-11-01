@@ -10,6 +10,7 @@ function text(content) {
 export async function startMockModel({ deliveryToolProbe = false } = {}) {
   const requests = []
   const toolCases = new Map()
+  const intentReplies=new Map()
   const waiters = new Set()
   const heldResponses = new Set()
   const server = createServer(async (request, response) => {
@@ -22,7 +23,9 @@ export async function startMockModel({ deliveryToolProbe = false } = {}) {
     let testIndex = messages.findLastIndex(message => message.role === 'user' && text(message.content).startsWith('TELEBOT_TEST:'))
     const deliveryIndex = deliveryToolProbe ? messages.findLastIndex(message => message.role === 'user' && text(message.content).includes('TELEBOT_TEST:NATIVE_UNTRUSTED_DELIVERY')) : -1
     if(deliveryIndex>testIndex)testIndex=deliveryIndex
-    const instruction = deliveryIndex===testIndex&&deliveryIndex>=0 ? 'NATIVE_UNTRUSTED_DELIVERY' : testIndex < 0 ? '' : text(messages[testIndex].content).slice('TELEBOT_TEST:'.length)
+    const semantic=messages.some(message=>message.role==='system'&&text(message.content).includes('TELEBOT_CONFIRMATION_INTENT_V1'))
+    const intentInput=semantic?JSON.parse(text(messages.findLast(message=>message.role==='user').content)):undefined
+    const instruction = semantic?'CONFIRMATION_INTENT':deliveryIndex===testIndex&&deliveryIndex>=0 ? 'NATIVE_UNTRUSTED_DELIVERY' : testIndex < 0 ? '' : text(messages[testIndex].content).slice('TELEBOT_TEST:'.length)
     const names = (body.tools ?? []).map(tool => tool.function?.name)
     const tool = messages.slice(testIndex + 1).findLast(message => message.role === 'tool')
     const receipt = tool ? text(tool.content) : undefined
@@ -49,7 +52,9 @@ export async function startMockModel({ deliveryToolProbe = false } = {}) {
     const firstCase = toolCases.get(instruction.split(':')[0])
     const nextCase = receipt && firstCase?.then && !messages.slice(testIndex + 1).some(message => message.role === 'assistant' && message.tool_calls?.some(call => call.function?.name === firstCase.then.name)) ? firstCase.then : undefined
     const toolCase = nextCase || firstCase
-    if ((!receipt || nextCase) && toolCase && names.includes(toolCase.name)) {
+    if(semantic){
+      emit({role:'assistant',content:JSON.stringify(intentReplies.get(intentInput.reply)??{decision:'other',selection:null})});emit({},'stop')
+    }else if ((!receipt || nextCase) && toolCase && names.includes(toolCase.name)) {
       emit({ role: 'assistant', tool_calls: [{ index: 0, id: nextCase ? 'probe-next-call' : 'probe-call', type: 'function',
         function: { name: toolCase.name, arguments: JSON.stringify(toolCase.arguments) } }] })
       emit({}, 'tool_calls')
@@ -67,7 +72,7 @@ export async function startMockModel({ deliveryToolProbe = false } = {}) {
   server.listen(0, '127.0.0.1')
   await once(server, 'listening')
   return {
-    requests, toolCases, url: `http://127.0.0.1:${server.address().port}/v1`,
+    requests, toolCases,intentReplies, url: `http://127.0.0.1:${server.address().port}/v1`,
     waitFor(predicate) {
       const found = requests.find(predicate)
       if (found) return Promise.resolve(found)

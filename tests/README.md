@@ -1,37 +1,44 @@
-# 模块验证入口
+# 验证入口
 
-统一命令 `pnpm verify`，唯一清单为 [verification-catalog.mjs](../tooling/verification-catalog.mjs)。普通修改只选受影响模块，共享契约变更追加实际消费者；构建/打包依赖闭包不等于验证所有业务。
+唯一命令为 `pnpm verify`，模块/测试/门禁目录仅在 [verification-catalog.mjs](../tooling/verification-catalog.mjs)。只验证改动模块，共享契约追加实际消费者；仅文档改动检查链接和事实，不重跑业务套件。
+
+## 模块与安装层
 
 ```powershell
 . ./examples/use-d-drive-runtime.ps1
 pnpm verify --list
 pnpm verify --module feishu --local
-pnpm verify --module feishu-business --module settings --local
-# 宿主接线变更，指定仓库外官方运行时后执行安装层：
-pnpm verify --module feishu --installed
-# 两层都执行：
-pnpm verify --module settings
+pnpm verify --module core --module automation --local
 ```
 
-| 模块 | 本地范围 | 默认安装层 |
-|---|---|---|
-| core | 宿主适配、流进度、归档/隔离规则 | 官方基础 |
-| settings | 文件、凭据、原生页面、Base 链接 | 普通/桌面端口两种配置生命周期 |
-| feishu | webhook、会话、进度、队列、命令、收发、附件 | ACP/Web 渠道；progress/questions 为同载体的短路径 |
-| feishu-business | 四类应用资源、表名、CRUD、冻结确认 | ACP/Web 资源发现短路径，不重复渠道故障测试 |
-| codex / adviser | 各自权限、进程、历史/Skill 或缓存/超时 | 真 Codex 后端改动追加 codex-native |
-| publishing / automation | 各自发布/调度规则、账本与恢复 | automation 选 questions 短路径；完整业务接线另选 composition[-web] |
-| desktop | 原生身份、完整权限和隔离 | 不依赖飞书的原生 RPC |
-| knowledge | 上游插件 | 上游安装/关键词/重启 |
-
-内部检查归入 tests/integration/，按载体复用，不再各自提供顶层命令。基础/P0 共用 harness；渠道/完整业务共用 feishu；普通/桌面配置共用 settings；真实 Base/chat/预检共用 feishu-live。混合历史测试文件按测试名称过滤，多模块选中同一文件时合并过滤条件，只执行一次。catalog 回归保证没有遗漏断言。
+--local 用于领域/客户端变化，--installed 用于宿主接线，省略两者执行两层；多模块自动过滤和去重。模块包括 core、settings、feishu、feishu-business、codex、adviser、publishing、automation、desktop、knowledge，具体测试与 gate 由 --list 查询。
 
 ```powershell
-pnpm verify --gate p0
-pnpm verify --gate codex-native
-pnpm verify --gate composition-web
-# 仅正式发行/宿主升级，不自动包含真实平台或真实 Codex：
+$env:TELEBOT_DSH_INSTALL = 'D:/absolute/official-rc5-prefix'
+pnpm verify --module feishu-business --installed
+pnpm verify --module automation
+# 仅显式发行或兼容升级：
 pnpm verify --release
 ```
 
-`pnpm test` 保留全部本地检查的手动入口；`pnpm test --module <模块>` 和旧 --suite 参数仍可选测。真实平台绝不进入默认检查，命令与报告见 [testing.md](../docs/testing.md)。页面视觉验收由用户完成。
+安装层使用仓库外官方发行，不用源码 workspace。缺运行时时在 D 盘创建固定版本 npm prefix，版本见 [compatibility.json](../tooling/compatibility.json)。优先复用现有安装/缓存，结束后核实无引用和进程再清理临时安装，不删正式 profile、release 或数据。
+
+检查构建/打包一次、带 --fixtures 验证归档闭包，再由官方 manager 安装；使用隔离 home、ACP v1、loopback 模型/平台，不继承生产密钥。ACP 不替代命令注册表、所有者 RPC 或业务授权。settings 覆盖普通/桌面端口生命周期，feishu 选择 ACP/Web 渠道。
+
+完整业务可选 --gate composition / composition-web；真实 Codex 后端改动追加 --gate codex-native，并由 TELEBOT_CODEX_CLI 指定固定 CLI。发行默认不执行真实平台/账户检查，页面视觉验收由用户完成。
+
+## 构建与归档
+
+需要 Node.js >=24.9、pnpm 11.28.5 和 tar。先执行 D 盘脚本及 `pnpm install --frozen-lockfile`。build、pack:plugins、check:artifacts 可独立运行；组合验证前以 --fixtures 打包，生产只装七个非 fixture 包。
+
+## 真实服务检查
+
+```powershell
+pnpm verify --live preflight --reference 'D:/external/local.env' --workspace 'D:/test-workspace'
+pnpm verify --live bitable --reference 'D:/external/local.env' --base 'https://tenant.feishu.cn/base/EXPLICIT_BASE'
+pnpm verify --live chat --reference 'D:/external/local.env' --chat 'oc_EXPLICIT_CHAT'
+```
+
+preflight 不联网，未就绪退出 2；Base 默认只读，chat 默认只查资料。明确授权后才加 --write / --send：写入只处理本轮标记记录，不改旧记录/表结构；已发送项仅回读，sending/unknown 先对账。--callback 只检查 GET 可达，不修改后台或证明入站。真实检查不混入默认模块/发行流程，不记录秘密或敏感正文。范围见[真实验收](../docs/feishu.md#真实验收)。
+
+本机报告在忽略的 .runtime；成功隔离 home 自动清理，失败保留诊断。唯一可跟踪摘要是 [latest.json](../tracking_outputs/latest.json)，区分当前归档和沿用证据，不增并列进度报告。

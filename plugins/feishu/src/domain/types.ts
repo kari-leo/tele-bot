@@ -7,7 +7,7 @@ export interface InputEvent {
   chatId: string
   threadId: string
   actor: Actor
-  kind: 'text' | 'status' | 'notice' | 'answer' | 'attachment' | 'confirmation'
+  kind: 'text' | 'status' | 'notice' | 'answer' | 'attachment' | 'confirmation' | 'interpretation'
   text: string
   actionToken?: string
   /** Set only by the trusted interaction router, never decoded from webhook text. */
@@ -64,6 +64,7 @@ export interface ChannelRepository {
   claim(excludedSessions: readonly string[], controlsOnly?: boolean, waitingSessions?:readonly string[]): InboxEntry | undefined
   waiting?(entry:InboxEntry):void
   resumeQuestion?(entry:InboxEntry):void
+  reroute?(entry:InboxEntry,route:import('@telebot/core/contracts').HumanInputRoute):void
   continuation?(entry:InboxEntry):ConversationSpec
   currentSpec?(sessionKey:string):ConversationSpec
   commitContinuation?(entry:InboxEntry,spec:ConversationSpec):void

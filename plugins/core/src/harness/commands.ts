@@ -34,7 +34,8 @@ export class HarnessCommands implements CommandPort {
       if (resolved.sandbox === 'danger-full-access') throw new Error('permission_preset_not_allowed')
       service.set(agent.session, preset); await this.flush(agent)
     }
-    return JSON.stringify({ current: service.current(agent.session), available: service.names.filter(name => ['read-only', 'workspace-write'].includes(name)) })
+    const label=(value:string)=>({'read-only':'只读','workspace-write':'当前工作区可写'} as Record<string,string>)[value]??value
+    return `**会话权限**\n\n当前：${label(service.current(agent.session))}\n可选：${service.names.filter(name => ['read-only', 'workspace-write'].includes(name)).map(label).join('、')}`
   }
   async list(spec: ConversationSpec) {
     return this.registry().list(await this.open(spec)).filter(row => this.allowed.includes(row.name))

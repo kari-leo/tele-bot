@@ -91,7 +91,7 @@ async function configuration() {
     business: { resourcesJson: JSON.stringify(features ? [
       { alias: 'test-table', kind: 'bitable', id: 'test-base', tableId: 'test-table', identity: 'tenant', tokenRef: 'FEISHU_APP_TENANT', expiresAt: 0, capabilities: ['bitable.read','bitable.create','bitable.update','bitable.delete'] },
       { alias: 'test-calendar', kind: 'calendar', id: 'fixture@group.calendar.feishu.cn', identity: 'tenant', tokenRef: 'FEISHU_APP_TENANT', expiresAt: 0, capabilities: ['calendar.read','calendar.create','calendar.update','calendar.delete'] },
-    ] : [{alias:'test-table',kind:'bitable',id:'test-base',tableId:'test-table',identity:'tenant',tokenRef:'FEISHU_APP_TENANT',expiresAt:0,capabilities:['bitable.read']}]) },
+    ] : [{alias:'test-table',kind:'bitable',id:'test-base',tableId:'test-table',identity:'tenant',tokenRef:'FEISHU_APP_TENANT',expiresAt:0,capabilities:['bitable.read','bitable.create','bitable.update','bitable.delete']}]) },
   }
   await writeFile(patch, JSON.stringify([
     ...(webProfile ? [
@@ -176,11 +176,35 @@ try {
     await post(message('table_discovery','TELEBOT_TEST:TABLE_DISCOVERY',{chat:'oc_tables'}));await settled('table_discovery')
     const calls=model.requests.filter(row=>row.instruction==='TABLE_DISCOVERY')
     assert(calls.some(row=>row.receipt?.includes('Todo')))
-    assert(calls.some(row=>row.receipt?.includes('baseName')))
+    assert(calls.some(row=>row.receipt?.includes('多维表格')))
     assert(!calls.some(row=>row.receipt?.includes('Unregistered table')))
-    assert(calls.some(row=>row.receipt?.includes('field_name')))
+    assert(calls.some(row=>row.receipt?.includes('字段名称')))
     assert(!received('table_discovery').body.content.includes('unknown_resource'))
     check('model resolves legacy registered IDs to Todo through the installed inventory tool, excludes unregistered tables and inspects by name without filesystem scans')
+    if(resourcesOnly){
+      const body=id=>JSON.parse(received(id).body.content).zh_cn.content[0][0].text,chat={chat:'oc_resource_write'}
+      platform.records.set('rec_fixture',{截止日期:1786204800000})
+      model.toolCases.set('RESOURCE_WRITE',{name:'feishu_bitable_update',arguments:{resource:'Todo',params_json:JSON.stringify({records:[{record_id:'rec_fixture',fields:{截止日期:1793894400000}}]})}})
+      await post(message('resource_preview','TELEBOT_TEST:RESOURCE_WRITE',chat));await settled('resource_preview')
+      assert(body('resource_preview').includes('尚未执行'));assert(body('resource_preview').includes('2026-08-09'));assert(body('resource_preview').includes('2026-11-06'))
+      assert.equal(platform.records.get('rec_fixture').截止日期,1786204800000)
+      const token=body('resource_preview').match(/\/bitable confirm ([a-f0-9-]{36})/)?.[1];assert(token)
+      const turnsBeforeConfirm=model.requests.length
+      model.intentReplies.set('好的，请修改把',{decision:'confirm',selection:1})
+      await post(message('resource_confirm','好的，请修改把',chat));await settled('resource_confirm')
+      assert(body('resource_confirm').includes('已完成'));assert(body('resource_confirm').includes('核验'));assert(!body('resource_confirm').trim().startsWith('{'))
+      assert.equal(platform.records.get('rec_fixture').截止日期,1793894400000)
+      assert.equal(model.requests.length,turnsBeforeConfirm+1,'One auxiliary interpretation, without a conversation Agent turn')
+      assert.equal(model.requests.at(-1).instruction,'CONFIRMATION_INTENT');assert.deepEqual(model.requests.at(-1).names,[])
+      assert(JSON.stringify(model.requests.find(row=>row.instruction==='RESOURCE_WRITE').body.messages).includes('已经过时'))
+      const before=platform.business.filter(row=>row.url?.includes('/batch_update')).length
+      await post(message('resource_repeat','/bitable confirm '+token,chat));await settled('resource_repeat')
+      assert.equal(platform.business.filter(row=>row.url?.includes('/batch_update')).length,before)
+      await post(message('resource_followup','TELEBOT_TEST:CONFIRMED_CONTEXT',chat));await settled('resource_followup')
+      const next=model.requests.findLast(row=>row.instruction==='CONFIRMED_CONTEXT')
+      assert(JSON.stringify(next.body.messages).includes('已完成操作'))
+      check('frozen table update shows date changes, trusted confirmation sends Markdown receipt, repeated confirmation never writes twice, and follow-up context knows the verified result')
+    }
   }
 
   if(questionsOnly){
@@ -212,10 +236,10 @@ try {
     const task={title:'isolated natural task',prompt:'synthetic future work',mode:'auto',executor:'research',catchUp:'skip',rule:{kind:'once',first:new Date(Date.now()+3600000).toISOString(),timeZone:'Asia/Shanghai',interval:1}}
     model.toolCases.set('NATURAL_TASK',{name:'telebot_schedule',arguments:{action:'create',input_json:JSON.stringify(task)}})
     await send('natural_task','TELEBOT_TEST:NATURAL_TASK');await settled('natural_task');await send('task_confirm','同意');await settled('task_confirm')
-    await send('task_list','/schedule list');await settled('task_list');const created=JSON.parse(body('task_list'));assert.equal(created.length,1);assert.equal(created[0].authorized,false)
+    await send('task_list','/schedule list');await settled('task_list');const db=new DatabaseSync(path.join(home,'plugins/telebot-automation/automation.sqlite'),{readOnly:true});const created=db.prepare('SELECT id,authorized FROM tasks').all();db.close();assert.equal(created.length,1);assert.equal(created[0].authorized,0);assert(body('task_list').includes('已授权自动执行：否'));assert(!body('task_list').trim().startsWith('['))
     model.toolCases.set('NATURAL_AUTHORIZE',{name:'telebot_schedule',arguments:{action:'authorize',input_json:JSON.stringify({task_id:created[0].id})}})
     await send('task_authorize','TELEBOT_TEST:NATURAL_AUTHORIZE');await settled('task_authorize');await send('grant_confirm','同意授权');await settled('grant_confirm')
-    await send('task_after','/schedule list');await settled('task_after');assert.equal(JSON.parse(body('task_after'))[0].authorized,true)
+    await send('task_after','/schedule list');await settled('task_after');assert(body('task_after').includes('已授权自动执行：是'))
     const taskCalls=model.requests.filter(row=>row.instruction==='NATURAL_TASK');assert(taskCalls.length)
     await send('chat_with_future_task','新问题：现在请打个招呼');await settled('chat_with_future_task')
     check('task creation and separate automatic authorization accept trusted natural confirmation; active future tasks leave chat responsive and raw same-session scheduling is denied before execution')
@@ -328,7 +352,7 @@ try {
   check('P2 /cd creates a native workspace session, changes actual Shell cwd, rejects root escape and persists cwd/model through restart')
 
   if (features) {
-    await verifyFeatures({ post, message, settled, received, platform, model, workspace, rows, check })
+    await verifyFeatures({ post, message, settled, received, platform, model, workspace, home, rows, check })
     await stop(); featureDisabled = true; await configuration(); await open('business-disabled')
     const session = await acp.request(methods.agent.session.new, { cwd: workspace, mcpServers: [] })
     const before = model.requests.length

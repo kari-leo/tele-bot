@@ -1,5 +1,5 @@
-# Installation fixture
+# Diagnostics 测试夹具
 
-This test-only bundle exposes `telebot_echo` and asserts that its imported core service class matches the service installed by the core bundle. It is included only when packing with `--fixtures`, not in the production install manifest. The acceptance test installs tarballs through the official plugin manager and checks enabled, disabled and removed behavior with a loopback model.
+仅用于隔离官方 Harness 的接线、身份、权限和故障验证，不安装到正式 profile，不访问真实用户数据。
 
-The default configuration is read-only. Setting `prototypes: true` additionally registers `telebot_p0_probe` and a public schedule embedding hook. This opt-in fixture creates isolated Agents, commands and reminders and injects a persistence failure; it must never be enabled in a production profile or against real user data. `pnpm verify:p0` owns its isolated home and loopback model. The full P0 run now passes after isolating the injection from the observing ACP turn. Old recurrence/catch-up/occurrence-fence policies are tested separately as a prototype; full production automation remains P6. See [P0 progress](../../../docs/archive/2026-10-30/p0-progress.md).
+从仓库根通过 pnpm verify 选择模块/gate，组合验证以 --fixtures 打包；本包不是业务插件，不持有生产运行时服务定义。

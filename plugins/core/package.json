@@ -14,6 +14,10 @@
       "types": "./lib/contracts.d.ts",
       "default": "./lib/contracts.js"
     },
+    "./presentation": {
+      "types": "./lib/presentation.d.ts",
+      "default": "./lib/presentation.js"
+    },
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./configuration": {
       "types": "./lib/harness/configuration.d.ts",

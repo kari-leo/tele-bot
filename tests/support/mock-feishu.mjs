@@ -5,6 +5,7 @@ import { once } from 'node:events'
 export async function startMockFeishu({ appId = 'cli_test', appSecret = 'loopback-app-secret', tables=[{table_id:'test-table',name:'Isolated table'}] } = {}) {
   const attempts = [], sent = [], edits=[], messages=new Map(), behaviors = new Map(), resources = new Map(), uploads = [], records = new Map(), calendarEvents = new Map()
   let tokenRequests = 0
+  const business=[]
   const server = createServer(async (request, response) => {
     if (request.method === 'GET' && request.url.includes('/resources/')) {
       const key = decodeURIComponent(request.url.match(/\/resources\/([^?]+)/)?.[1] ?? '')
@@ -37,6 +38,7 @@ export async function startMockFeishu({ appId = 'cli_test', appSecret = 'loopbac
       response.end(JSON.stringify({ code: 0, data })); return
     }
     if (request.url.includes('/bitable/')) {
+      business.push({method:request.method,url:request.url})
       let data
       if (/\/apps\/[^/?]+$/.test(request.url)) data={app:{name:'Todo'}}
       else if (/\/tables\?/.test(request.url)) data = { items: tables, has_more: false }
@@ -64,7 +66,7 @@ export async function startMockFeishu({ appId = 'cli_test', appSecret = 'loopbac
   })
   server.listen(0, '127.0.0.1'); await once(server, 'listening')
   return {
-    attempts, sent, edits, behaviors, resources, uploads, records, calendarEvents, get tokenRequests() { return tokenRequests },
+    attempts, sent, edits, behaviors, resources, uploads, records, calendarEvents, business, get tokenRequests() { return tokenRequests },
     origin: 'http://127.0.0.1:' + server.address().port,
     async close() { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)) },
   }

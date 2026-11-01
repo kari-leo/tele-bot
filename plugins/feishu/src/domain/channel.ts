@@ -29,10 +29,11 @@ export class FeishuChannel {
     if (this.stopping) throw new Error('channel_stopping')
     if (this.admissionHolds) throw new Error('channel_reconfiguring')
     const actor=event.kind==='text'&&!event.text.startsWith('/')?this.ports.repository.actorFor?.(event,this.config):undefined
-    const route=actor?this.ports.features?.routeInput?.(actor,event.text):undefined
+    const route=actor?this.ports.features?.routeInput?.(actor,event.text,true):undefined
     const management = event.kind === 'text'&&!route ? baseManagementCommand(event.text) : undefined
     const input=route?{...event,kind:route.kind,text:route.text,targetSessionId:route.sessionId}:management?{...event,text:management}:event
     const result = this.ports.repository.accept(input, this.config)
+    if(route?.kind==='interpretation'&&(!result.accepted||result.duplicate))this.ports.features?.releaseInput?.(route.text)
     if (result.accepted && !result.duplicate) this.wake()
     return result
   }
@@ -71,6 +72,7 @@ export class FeishuChannel {
       if (this.stopping) return
       if(entry.state==='waiting'){this.ports.repository.finish(entry,'cancelled',posts('上次未回答的询问已随重启失效，没有自动执行或重放。请需要时重新提出。'));continue}
       if(entry.kind==='confirmation'){this.ports.repository.finish(entry,'unknown',posts('上次确认的执行状态未核实，没有自动重放。请先检查对应操作状态。'));continue}
+      if(entry.kind==='interpretation'){this.ports.repository.finish(entry,'cancelled',posts('上次尚未完成的意图解析已随重启失效，没有自动执行。请重新回复你的意图。'));continue}
       if (entry.kind !== 'text' || ['/stop', '/help'].includes(entry.text)) { await this.process(entry); continue }
       if (entry.text.startsWith('/')) {
         this.ports.repository.finish(entry, 'unknown', posts('上次命令结果未确认，没有自动重复执行。请使用 /status 检查。'))
@@ -90,6 +92,12 @@ export class FeishuChannel {
     }
   }
 
+  private async rememberResult(entry:InboxEntry,text:string){
+    const current=this.ports.repository.currentSpec?.(entry.sessionKey)
+    const specs=[entry.spec,...(current&&current.id!==entry.spec.id?[current]:[])]
+    for(const spec of specs)try{await this.ports.agent.context?.(spec,entry.id,text)}catch{/* Preserve the durable receipt; a context failure must never replay the operation. */}
+  }
+
   private async process(entry: InboxEntry): Promise<void> {
     try {
       if (entry.kind === 'status') {
@@ -105,11 +113,21 @@ export class FeishuChannel {
         await this.ports.files.receive(entry)
         this.ports.repository.finish(entry, 'completed', posts('附件已按当前用户/会话暂存 24 小时。请发送处理要求；不会自动加入知识库。'))
       }
+      else if(entry.kind==='interpretation'){
+        if(this.controlling.has(entry.spec.id)){this.ports.repository.finish(entry,'failed',posts('已有确认正在处理，请稍后再回复。'));return}
+        this.controlling.add(entry.spec.id)
+        try{
+          if(!this.ports.features?.resolveInput||!this.ports.repository.reroute)throw Error('input_interpretation_unavailable')
+          const route=await this.ports.features.resolveInput({userId:entry.actor.authorizedUserId??entry.actor.ids[0],chatId:entry.chatId,threadId:entry.threadId,sessionId:entry.spec.id,cwd:entry.spec.cwd,privateChat:Boolean(entry.actor.privateChat),origin:'feishu'},entry.text,entry.spec,AbortSignal.timeout(20000))
+          this.ports.repository.reroute(entry,route)
+        }finally{this.controlling.delete(entry.spec.id)}
+      }
       else if(entry.kind==='confirmation'){
         if(this.controlling.has(entry.spec.id)){this.ports.repository.finish(entry,'failed',posts('已有操作执行中，请完成后再次确认。'));return}
         this.controlling.add(entry.spec.id)
         try{const result=await this.ports.features?.invoke('confirm',{actor:{userId:entry.actor.authorizedUserId??entry.actor.ids[0],chatId:entry.chatId,sessionId:entry.spec.id,cwd:entry.spec.cwd,privateChat:Boolean(entry.actor.privateChat),origin:'feishu',sourceId:entry.id,threadId:entry.threadId},text:entry.text,signal:AbortSignal.timeout(120000)})
           this.ports.repository.finish(entry,result?.status??'failed',posts(result?.text||'当前没有需要确认的操作。'))
+          if(result?.text)await this.rememberResult(entry,result.text)
         }finally{this.controlling.delete(entry.spec.id)}
       }
       else if (entry.kind === 'answer' || entry.text.startsWith('/answer ')) {
@@ -146,6 +164,7 @@ export class FeishuChannel {
                 } catch { outputs.push(...posts('产物未通过目录、大小或哈希复核，未上传。业务执行不会因此重跑，请核对产物后显式发送。')) }
               }
               this.ports.repository.finish(entry, result.status, outputs)
+              if(/^\/(?:bitable|feishu|codex|publish|schedule)\s+(?:confirm|resume-confirm|cancel|execute|reject)\b/.test(entry.text))await this.rememberResult(entry,result.text)
             }
           } finally { this.controlling.delete(entry.spec.id) }
         }
@@ -156,7 +175,7 @@ export class FeishuChannel {
             userId: entry.actor.authorizedUserId ?? entry.actor.ids[0], chatId: entry.chatId, sessionId: entry.spec.id,
             cwd: entry.spec.cwd, privateChat: Boolean(entry.actor.privateChat), origin: 'feishu', sourceId: entry.id, threadId: entry.threadId,
           }, text: this.ports.features.has?.('confirm') ? (cancel ? 'cancel' : 'confirm') : (cancel ? 'cancel-latest' : 'confirm-latest'), signal: AbortSignal.timeout(120000) })
-          if (result.text) { this.ports.repository.finish(entry, result.status, posts(result.text)); return }
+          if (result.text) { this.ports.repository.finish(entry, result.status, posts(result.text)); await this.rememberResult(entry,result.text); return }
         }
         const attachments = await this.ports.files?.forMessage(entry)
         const result = await this.ports.agent.run(entry.spec, { id: entry.inputId, text: entry.text, attachments,

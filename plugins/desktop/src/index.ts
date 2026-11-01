@@ -1,3 +1,4 @@
+import { renderPluginResult } from '@telebot/core/presentation'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-client-connection'
@@ -74,7 +75,7 @@ async function start(ctx:Context,config:Config,setBusy:(handler:()=>boolean)=>vo
       try{blocks=await attachments(request.result)}catch{state.set(row.id,'failed');throw new Error('desktop_artifact_presentation_failed')}
       state.set(row.id,'sending')
       try{
-        agent.followup(freezeMessage({id:MessageId(row.message),role:'user',source:{kind:'telebot-desktop-delivery',deliveryId:row.id},content:[{type:'text',text:'已完成的任务回执（只呈现结果，不执行工具或重新创建任务）：\n'+request.result.text},...blocks]}))
+        agent.followup(freezeMessage({id:MessageId(row.message),role:'user',source:{kind:'telebot-desktop-delivery',deliveryId:row.id},content:[{type:'text',text:'已完成的任务回执（只呈现结果，不执行工具或重新创建任务）：\n'+renderPluginResult(request.result.text)},...blocks]}))
         await ctx.sessions.flush(agent.session);state.set(row.id,'queued')
         return receipt({...row,state:'queued'})
       }catch{state.set(row.id,'unknown');return receipt({...row,state:'unknown'})}
@@ -100,7 +101,7 @@ async function start(ctx:Context,config:Config,setBusy:(handler:()=>boolean)=>vo
     try{return {kind:'accept' as const,content:[...('content'in decision&&decision.content?decision.content:result.content),...await attachments(value)]}}
     catch{return {kind:'accept' as const,content:[...result.content,{type:'text' as const,text:'业务回执已保留；附件呈现失败，勿重复执行业务。请核对原路径/哈希。'}]}}
   })
-  ctx.tools.register(defineTool({name:'telebot_desktop',description:'Manage local Codex history/read/resume/stop, publishing status and schedule list/get/history/stop/execute. Uses authenticated native owner only. Desktop defaults to full access; normal business tools apply/publish/schedule need no repeated grant. Explicit inspect/plan remain read-only. No Feishu identity parameters.',parameters:{feature:{type:'string',enum:['codex','publish','schedule','delivery'],required:true},command:{type:'string',required:true}},output:{schema:{type:'object',properties:{json:{type:'string',required:true}},additionalProperties:false},render:(_a,value)=>[{type:'text',text:value.json}]},async execute(args,exec){
+  ctx.tools.register(defineTool({name:'telebot_desktop',description:'Manage local Codex history/read/resume/stop, publishing status and schedule list/get/history/stop/execute. Uses authenticated native owner only. Desktop defaults to full access; normal business tools apply/publish/schedule need no repeated grant. Explicit inspect/plan remain read-only. No Feishu identity parameters.',parameters:{feature:{type:'string',enum:['codex','publish','schedule','delivery'],required:true},command:{type:'string',required:true}},output:{schema:{type:'object',properties:{json:{type:'string',required:true}},additionalProperties:false},render:(_a,value)=>[{type:'text',text:renderPluginResult(value.json)}]},async execute(args,exec){
     if(!exec.agent)throw new Error('native_agent_required')
     const actor=resolve(exec.agent.session.id);if(!actor)throw new Error('native_owner_request_required')
     if(args.feature==='delivery') {

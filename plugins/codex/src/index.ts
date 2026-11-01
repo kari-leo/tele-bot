@@ -1,3 +1,4 @@
+import { renderPluginResult } from '@telebot/core/presentation'
 import { desktopOwner, desktopFull, operationIdentity } from '@telebot/core/contracts'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -30,7 +31,7 @@ async function start(ctx: Context, config: Config, onBusy: (busy: () => boolean)
   ctx.tools.register(defineTool({
     name: 'telebot_codex', description: 'Request Codex inspect/plan under enforced read-only, or apply changes. Native owner full access applies immediately; Feishu/restricted native returns a frozen proposal for trusted confirmation. This tool cannot consume confirmation tokens.',
     parameters: { mode: { type: 'string', enum: ['inspect', 'plan', 'apply'], required: true }, prompt: { type: 'string', required: true } },
-    output: { schema: { type: 'object', properties: { json: { type: 'string', required: true } }, additionalProperties: false }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
+    output: { schema: { type: 'object', properties: { json: { type: 'string', required: true } }, additionalProperties: false }, render: (_args, value) => [{ type: 'text', text: renderPluginResult(value.json) }] },
     async execute(args, exec) {
       if (!exec.agent) throw new Error('trusted_agent_required')
       const actor = ctx.telebotCore.actor(exec.agent.session.id)

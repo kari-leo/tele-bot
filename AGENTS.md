@@ -2,8 +2,8 @@
 
 This branch is a clean rebuild delivering independently installable plugins for the official DeepSeek Harness. HARNESS_DEVELOPMENT_PLAN.md is the sole development plan and owns the target directory structure, scope and acceptance criteria.
 
-- Resume with docs/status.md first; then read only the relevant plan/spec section and test group. Historical docs/archive and tracking_outputs/archive are evidence, not current instructions; do not read them by default. Update status.md and tracking_outputs/latest.json instead of adding parallel progress reports.
-- On this workstation the user chose D: for new plugin dependencies, cache and verification temp. Dot-source examples/use-d-drive-runtime.ps1 before installation/verification; retain the existing C: compatibility junctions and user config/data. See docs/knowledge.md for actual locations.
+- Resume with docs/status.md first; then read only the relevant plan/spec section and test group. Historical Git revisions and tracking_outputs/archive are evidence, not current instructions; do not read them by default. Update status.md and tracking_outputs/latest.json instead of adding parallel progress reports.
+- On this workstation the user chose D: for new plugin dependencies, cache and verification temp. Dot-source examples/use-d-drive-runtime.ps1 before installation/verification; retain the existing C: compatibility junctions and user config/data. See docs/installation.md for actual locations.
 - Organize new work under plugins/, internal/, tooling/ and tests/ as the plan describes. Do not add an application host, embedded Harness distribution, Python application or legacy code tree.
 - The human explicitly requested removal of old code on this new branch. Use D:/files_data/windborne/tele_bot only as an external behavior reference. Do not copy its Agent loop or retain old Python runtime dependencies. Existing credentials and user data are not disposable source code.
 - Use the official dsh profiles, plugin manager and public extension points. Reuse the Agent loop, commands, models, Shell and schedule timing; do not implement another agent loop, plugin loader, shell executor or timer for the same task.

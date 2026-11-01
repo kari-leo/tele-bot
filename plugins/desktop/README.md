@@ -1,7 +1,5 @@
-# 原生桌面对话入口
+# Telebot Desktop
 
-安装到官方 Harness 0.2.1-rc.5 的 Web/Desktop profile，依赖 core，业务包按需安装，无需飞书。仅在官方 Connection 限定本机的组合中启用；使用 SessionController 经认证的 owner 请求事实，不接受工具参数声明身份。
+官方原生对话入口，按需安装 core + desktop + 业务包。认证所有者默认完整权限，inspect/plan 仍只读，可在原生设置切为受限模式。
 
-默认完整权限仅适用于可信原生入口的已配置插件能力；不改变飞书策略或宿主全局权限。不增加账户或修改全局 Codex 配置。明确的 inspect/plan 仍只读；写入/发布/auto 任务由桌面策略预授权，保留冻结/防重/unknown 账本。Harness 桌面“设置 → Telebot 插件 → 原生桌面入口” 可主动改为受限模式。
-
-`telebot_desktop` 工具管理 Codex 历史/续聊、发布状态和任务查询/停止等操作；其他业务工具直接可用。文件通过官方附件服务呈现，定时结果回到原原生会话；缺失回执不盲重做业务。
+飞书、ACP、后台回执及模型参数不能取得原生所有者权限。核验结果和附件返回原会话，投递失败不重做业务。数据默认在 DSH_HOME/plugins/telebot-desktop。

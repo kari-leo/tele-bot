@@ -181,6 +181,19 @@ export class SqliteChannelRepository implements ChannelRepository {
     })
   }
   markMapped(id: string): void { this.owned(); this.db.prepare('UPDATE sessions SET initialized=1 WHERE id=?').run(id) }
+  reroute(entry:InboxEntry,route:import('@telebot/core/contracts').HumanInputRoute):void{
+    this.transaction(()=>{
+      this.owned()
+      if(!['text','answer','notice','confirmation'].includes(route.kind))throw Error('invalid_input_route')
+      let spec=entry.spec
+      if(route.sessionId&&route.sessionId!==spec.id){
+        const row=this.db.prepare("SELECT * FROM inbox WHERE session_key=? AND json_extract(pinned_spec,'$.id')=? AND json_extract(actor,'$.authorizedUserId')=? ORDER BY seq DESC LIMIT 1").get(entry.sessionKey,route.sessionId,entry.actor.authorizedUserId!) as Row|undefined
+        if(!row||this.entry(row).spec.cwd!==entry.spec.cwd)throw Error('input_route_scope_changed')
+        spec=this.entry(row).spec
+      }
+      this.db.prepare("UPDATE inbox SET kind=?,text=?,state='pending',pinned_spec=? WHERE id=? AND state='running'").run(route.kind,route.text,JSON.stringify(spec),entry.id)
+    })
+  }
   currentSpec(sessionKey:string):ConversationSpec{const row=this.db.prepare('SELECT spec,initialized FROM sessions WHERE key=?').get(sessionKey) as Row;return{...JSON.parse(String(row.spec)),allowCreate:!row.initialized}}
   waiting(entry:InboxEntry){this.owned();this.db.prepare("UPDATE inbox SET state='waiting' WHERE id=? AND state='running'").run(entry.id)}
   resumeQuestion(entry:InboxEntry){if(this.closed)return;this.owned();this.db.prepare("UPDATE inbox SET state='running' WHERE id=? AND state='waiting'").run(entry.id)}

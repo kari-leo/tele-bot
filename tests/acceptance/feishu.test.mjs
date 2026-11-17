@@ -33,6 +33,61 @@ async function repository(t, name = 'channel.sqlite') {
   cleanup(t, () => store.release())
   return { store, filename }
 }
+
+test('model messages use the existing outbox, authenticate targets and retain idempotent receipts across restart', async t => {
+  const { FeishuMessages } = await import('../../plugins/feishu/lib/domain/messages.js')
+  const {store,filename}=await repository(t), native={origin:'web',permissions:'full',userId:'desktop-owner',sessionId:'native-chat',chatId:'native-chat',cwd:process.cwd(),privateChat:true,nativeRequestId:'request-1'}
+  store.accept(event('target',{actor:{ids:['ou_alice'],privateChat:true}}),settings)
+  const source=store.claim([]);store.finish(source,'completed',[])
+  const messages=new FeishuMessages(store,settings), signal=AbortSignal.timeout(5000)
+  assert.equal(messages.list(native).items[0].chatId,'oc_chat')
+  assert.throws(()=>messages.list({...native,permissions:'restricted'}),/not_authorized/)
+  const actor={origin:'feishu',userId:'ou_alice',sessionId:source.spec.id,chatId:'oc_chat',threadId:'',cwd:process.cwd(),privateChat:true,sourceId:source.id}
+  assert.throws(()=>messages.send(actor,{chatId:'other',text:'forbidden'},signal),/target_not_authorized/)
+  assert.throws(()=>messages.send({...native,nativeRequestId:undefined},{text:'missing identity'},signal),/request_identity/)
+  assert.throws(()=>messages.send(native,{text:'x'.repeat(120001)},signal),/message_text/)
+  assert.throws(()=>messages.send(native,{text:'cancelled'},AbortSignal.abort()),/abort/i)
+  const first=messages.send(native,{text:'主动通知 😀'},signal)
+  assert.equal(first.state,'queued')
+  assert.equal(messages.send(native,{text:'主动通知 😀'},signal).id,first.id)
+  const outbound=store.claimDelivery(Date.now());assert.equal(outbound.chatId,'oc_chat');assert.equal(outbound.replyTo,'')
+  store.settleDelivery(outbound,{status:'sent',messageId:'om_proactive'},Date.now(),3)
+  assert.equal(messages.status(native,first.id).state,'sent')
+  assert.equal(messages.status(native,first.id).messages[0].messageId,'om_proactive')
+  assert.throws(()=>messages.status({...native,sessionId:'other-session'},first.id),/not_owned/)
+  const uncertain=messages.send({...native,nativeRequestId:'request-2'},{text:'未知结果'},signal)
+  store.claimDelivery(Date.now());store.recoverDeliveries()
+  assert.equal(messages.retry(native,uncertain.id).state,'unknown')
+  assert.equal(store.claimDelivery(Date.now()),undefined)
+  const failed=messages.send({...native,nativeRequestId:'request-3'},{text:'明确失败'},signal)
+  const rejected=store.claimDelivery(Date.now());assert(rejected,'unknown earlier request must not block a separate outgoing request')
+  store.settleDelivery(rejected,{status:'failed',code:'feishu_http_403'},Date.now(),3)
+  assert.equal(messages.retry(native,failed.id).state,'queued')
+  const retried=store.claimDelivery(Date.now());assert.equal(retried.id,rejected.id)
+  store.settleDelivery(retried,{status:'sent',messageId:'om_retry'},Date.now(),3)
+  store.release();const restored=new SqliteChannelRepository(filename,settings.appId,settings.leaseMs);cleanup(t,()=>restored.release())
+  assert.equal(new FeishuMessages(restored,settings).send(native,{text:'主动通知 😀'},signal).id,first.id)
+  assert.equal(inspection(filename,"SELECT count(*) AS n FROM outbox")[0].n,3)
+})
+
+test('message targets remain unambiguous and current; topic messages preserve Unicode chunks and ordered delivery',async t=>{
+  const { FeishuMessages }=await import('../../plugins/feishu/lib/domain/messages.js'),{store}=await repository(t)
+  for(const incoming of [event('root'),event('topic',{threadId:'thread-a'}),event('bob',{chatId:'oc_bob',actor:{ids:['ou_bob']}})]){store.accept(incoming,settings);store.finish(store.claim([]),'completed',[])}
+  const config={...settings},service=new FeishuMessages(store,config),native={origin:'web',permissions:'full',userId:'desktop',sessionId:'native',chatId:'native',cwd:process.cwd(),nativeRequestId:'req'},signal=AbortSignal.timeout(5000)
+  assert.equal(service.list(native).total,3)
+  assert.throws(()=>service.send(native,{text:'ambiguous'},signal),/target_required/)
+  const alice={origin:'feishu',userId:'ou_alice',sessionId:'topic',chatId:'oc_chat',threadId:'thread-a',cwd:process.cwd(),sourceId:'trusted-source'}
+  assert.equal(service.list(alice).total,1)
+  const text='😀'.repeat(6001),receipt=service.send(alice,{text},signal);assert.equal(receipt.messages.length,2)
+  const first=store.claimDelivery(Date.now());assert.equal(first.replyTo,'om_topic');assert.equal(first.threadId,'thread-a')
+  const firstText=JSON.parse(first.content).zh_cn.content[0][0].text;assert.equal(Array.from(firstText).length,6000)
+  store.settleDelivery(first,{status:'sent',messageId:'part-1'},Date.now(),3)
+  const second=store.claimDelivery(Date.now()),secondText=JSON.parse(second.content).zh_cn.content[0][0].text
+  assert.equal(firstText+secondText,text);store.settleDelivery(second,{status:'sent',messageId:'part-2'},Date.now(),3)
+  assert.equal(service.status(alice,receipt.id).state,'sent')
+  config.adminUserIds=['ou_bob'];assert.equal(service.list(native).total,1);assert.throws(()=>service.list(alice),/not_authorized/)
+  config.allowedChatIds=['oc_missing'];assert.equal(service.list(native).total,0);assert.throws(()=>service.send(native,{chatId:'oc_bob',text:'revoked'},signal),/target_not_authorized/)
+})
 function inspection(filename, query) {
   const db = new DatabaseSync(filename, { readOnly: true })
   try { return db.prepare(query).all() } finally { db.close() }
@@ -41,6 +96,38 @@ function fakeAgent(overrides = {}) {
   return { run: async () => ({ status: 'completed', text: 'done' }), recover: async () => ({ status: 'unknown', text: 'uncertain' }),
     cancel() {}, status: () => ({ active: false }), dispose: async () => {}, ...overrides }
 }
+
+test('mixed batch confirmation produces rich receipts and queues the remaining dialogue exactly once',async t=>{
+  const {store,filename}=await repository(t),require=createRequire(new URL('../../plugins/core/package.json',import.meta.url)),{Context}=await import(pathToFileURL(require.resolve('@deepseek-ai/cordis')).href),ctx=new Context(),core=new TelebotCore(ctx),writes=[],runs=[]
+  ctx.provide('llm',{async *stream(){yield{type:'text-delta',text:JSON.stringify({decision:'confirm',selections:[1,2],remainingText:'另外两点半发飞书提醒。'})};yield{type:'finish',reason:{kind:'stop'}}}})
+  const pending=new Set(['create','update'])
+  core.registerConfirmations('bitable',{pending:()=>[...pending].map(token=>({token,label:'**'+token+'预览**'})),confirm:async(_actor,token)=>{pending.delete(token);writes.push(token);return{status:'completed',text:'**已写入并核验**'}},cancel:async()=>{throw Error('Unexpected cancel')}})
+  const agent=fakeAgent({run:async(_spec,input)=>{runs.push(input.text);return{status:'completed',text:'已继续处理提醒。'}}})
+  const channel=new FeishuChannel({repository:store,agent,features:core,delivery:{send:async()=>({status:'sent',messageId:'sent'})}},{...settings,provider:'fixture',model:'fixture'})
+  // Establish a mapped session before the first confirmation arrives.
+  store.accept(event('seed'),{...settings,provider:'fixture',model:'fixture'});const seed=store.claim([]);store.finish(seed,'completed',[])
+  channel.start();cleanup(t,()=>channel.stop())
+  const reply='以上全部确认。另外两点半发飞书提醒。'
+  channel.accept(event('mixed',{text:reply}));channel.accept(event('mixed',{text:reply}))
+  await eventually(()=>runs.length===1)
+  assert.deepEqual(writes,['create','update']);assert.match(runs[0],/另外两点半发飞书提醒/);assert.match(runs[0],/已写入并核验/)
+  const originals=inspection(filename,"SELECT original_text FROM input_context c JOIN inbox i ON c.inbox_id=i.id WHERE event_id='event-mixed'")
+  assert.equal(originals[0].original_text,reply)
+  const outputs=inspection(filename,"SELECT msg_type,content FROM outbox o JOIN inbox i ON i.id=o.inbox_id WHERE event_id='event-mixed'")
+  assert.equal(outputs[0].msg_type,'interactive');assert.match(JSON.parse(outputs[0].content).elements[0].content,/\*\*批量确认结果\*\*/)
+})
+
+test('interpretation failure preserves the whole mixed message and resumes dialogue without authorizing anything',async t=>{
+  const {store,filename}=await repository(t),require=createRequire(new URL('../../plugins/core/package.json',import.meta.url)),{Context}=await import(pathToFileURL(require.resolve('@deepseek-ai/cordis')).href),ctx=new Context(),core=new TelebotCore(ctx),runs=[]
+  ctx.provide('llm',{async *stream(){yield{type:'text-delta',text:'not json'};yield{type:'finish',reason:{kind:'stop'}}}})
+  core.registerConfirmations('bitable',{pending:()=>[{token:'frozen',label:'已有预览'}],confirm:async()=>{throw Error('Must not authorize')},cancel:async()=>{throw Error('Must not cancel')}})
+  const config={...settings,provider:'fixture',model:'fixture'};store.accept(event('seed'),config);const seed=store.claim([]);store.finish(seed,'completed',[])
+  const channel=new FeishuChannel({repository:store,features:core,agent:fakeAgent({run:async(_spec,input)=>{runs.push(input.text);return{status:'completed',text:'继续解释'}}}),delivery:{send:async()=>({status:'sent',messageId:'sent'})}},config)
+  channel.start();cleanup(t,()=>channel.stop());const reply='全部确认，另外到点发飞书消息提醒。';channel.accept(event('parse-failure',{text:reply}))
+  await eventually(()=>runs.length===1)
+  assert.match(runs[0],new RegExp(reply));assert.match(runs[0],/确认尚未执行/)
+  assert.equal(inspection(filename,"SELECT count(*) AS n FROM inbox WHERE event_id='event-parse-failure:continuation'")[0].n,1)
+})
 
 test('confirmation completion enters original and continued chat context without invoking another model turn',async t=>{
   const {store,filename}=await repository(t),contexts=[]

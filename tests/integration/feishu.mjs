@@ -182,28 +182,74 @@ try {
     assert(!received('table_discovery').body.content.includes('unknown_resource'))
     check('model resolves legacy registered IDs to Todo through the installed inventory tool, excludes unregistered tables and inspects by name without filesystem scans')
     if(resourcesOnly){
-      const body=id=>JSON.parse(received(id).body.content).zh_cn.content[0][0].text,chat={chat:'oc_resource_write'}
+      const body=id=>{const value=JSON.parse(received(id).body.content);return value.zh_cn?.content[0][0].text??value.elements.map(row=>row.content??'').join('\n')},chat={chat:'oc_resource_write'}
+      const exposed=calls[0].body.tools.map(tool=>tool.function)
+      assert(!exposed.some(tool=>['bitable_inspect','bitable_query','bitable_create_records','bitable_update_records','bitable_delete_records'].includes(tool.name)))
+      const updateSchema=exposed.find(tool=>tool.name==='feishu_bitable_update').parameters
+      assert(updateSchema.properties.params.properties.records.items.required.includes('record_id'))
+      for(let i=0;i<25;i++)platform.records.set('rec_page_'+i,{name:'synthetic '+i,unneeded:'must-not-return'})
+      model.toolCases.set('SMALL_QUERY',{name:'feishu_bitable_query',arguments:{resource:'Todo',params:{field_names:['name']}}})
+      await post(message('small_query','TELEBOT_TEST:SMALL_QUERY',chat));await settled('small_query')
+      const small=model.requests.find(row=>row.instruction==='SMALL_QUERY'&&row.receipt!==undefined)
+      assert(small.receipt.includes('结果完整：否'));assert(small.receipt.includes('next_page_token：20'));assert(!small.receipt.includes('must-not-return'))
+      assert.equal(platform.business.filter(row=>row.url.includes('/search')).length,1)
+      model.toolCases.set('NEXT_QUERY',{name:'feishu_bitable_query',arguments:{resource:'Todo',params:{field_names:['name'],page_token:'20'}}})
+      await post(message('next_query','TELEBOT_TEST:NEXT_QUERY',chat));await settled('next_query')
+      assert(model.requests.some(row=>row.instruction==='NEXT_QUERY'&&row.receipt?.includes('结果完整：是')))
+      platform.records.clear()
+      check('official model catalog exposes structured Bitable record fields, omits duplicate aliases and returns bounded pages with honest continuation and field projection')
       platform.records.set('rec_fixture',{截止日期:1786204800000})
-      model.toolCases.set('RESOURCE_WRITE',{name:'feishu_bitable_update',arguments:{resource:'Todo',params_json:JSON.stringify({records:[{record_id:'rec_fixture',fields:{截止日期:1793894400000}}]})}})
+      model.toolCases.set('DIRECT_UPDATE',{name:'feishu_bitable_update',arguments:{resource:'Todo',params:{records:[{record_id:'rec_fixture',fields:{截止日期:1793894400000}}]}}})
+      const directUpdate=message('direct_update','TELEBOT_TEST:DIRECT_UPDATE',chat)
+      await post(directUpdate);await settled('direct_update');await post(directUpdate)
+      assert(body('direct_update').includes('已完成'));assert(!body('direct_update').includes('尚未执行'));assert.equal(platform.records.get('rec_fixture').截止日期,1793894400000)
+      assert.equal(platform.business.filter(row=>row.url?.includes('/batch_update')).length,1)
+      const sizeBeforeCreate=platform.records.size
+      model.toolCases.set('DIRECT_CREATE',{name:'feishu_bitable_create',arguments:{resource:'Todo',params_json:JSON.stringify({records:[{fields:{name:'direct one'}},{fields:{name:'direct two'}}]})}})
+      const directCreate=message('direct_create','TELEBOT_TEST:DIRECT_CREATE',chat)
+      await post(directCreate);await settled('direct_create');await post(directCreate)
+      assert(body('direct_create').includes('核验'));assert(!body('direct_create').includes('尚未执行'));assert.equal(platform.records.size,sizeBeforeCreate+2)
+      assert.equal(platform.business.filter(row=>row.url?.includes('/batch_create')).length,1)
+      check('Bitable update and multi-record create execute immediately, verify readback and deduplicate redelivered messages without asking for confirmation')
+      model.toolCases.set('RESOURCE_WRITE',{name:'feishu_bitable_delete',arguments:{resource:'Todo',params_json:JSON.stringify({records:[{record_id:'rec_fixture'}]})}})
       await post(message('resource_preview','TELEBOT_TEST:RESOURCE_WRITE',chat));await settled('resource_preview')
-      assert(body('resource_preview').includes('尚未执行'));assert(body('resource_preview').includes('2026-08-09'));assert(body('resource_preview').includes('2026-11-06'))
-      assert.equal(platform.records.get('rec_fixture').截止日期,1786204800000)
+      assert(body('resource_preview').includes('尚未执行'));assert(body('resource_preview').includes('2026-11-06'));assert(platform.records.has('rec_fixture'))
       const token=body('resource_preview').match(/\/bitable confirm ([a-f0-9-]{36})/)?.[1];assert(token)
       const turnsBeforeConfirm=model.requests.length
       model.intentReplies.set('好的，请修改把',{decision:'confirm',selection:1})
       await post(message('resource_confirm','好的，请修改把',chat));await settled('resource_confirm')
       assert(body('resource_confirm').includes('已完成'));assert(body('resource_confirm').includes('核验'));assert(!body('resource_confirm').trim().startsWith('{'))
-      assert.equal(platform.records.get('rec_fixture').截止日期,1793894400000)
+      assert(!platform.records.has('rec_fixture'))
       assert.equal(model.requests.length,turnsBeforeConfirm+1,'One auxiliary interpretation, without a conversation Agent turn')
       assert.equal(model.requests.at(-1).instruction,'CONFIRMATION_INTENT');assert.deepEqual(model.requests.at(-1).names,[])
-      assert(JSON.stringify(model.requests.find(row=>row.instruction==='RESOURCE_WRITE').body.messages).includes('已经过时'))
-      const before=platform.business.filter(row=>row.url?.includes('/batch_update')).length
+      assert(JSON.stringify(model.requests.find(row=>row.instruction==='DIRECT_UPDATE').body.messages).includes('多维表格记录的新增和修改'))
+      const before=platform.business.filter(row=>row.url?.includes('/batch_delete')).length
       await post(message('resource_repeat','/bitable confirm '+token,chat));await settled('resource_repeat')
-      assert.equal(platform.business.filter(row=>row.url?.includes('/batch_update')).length,before)
+      assert.equal(platform.business.filter(row=>row.url?.includes('/batch_delete')).length,before)
       await post(message('resource_followup','TELEBOT_TEST:CONFIRMED_CONTEXT',chat));await settled('resource_followup')
       const next=model.requests.findLast(row=>row.instruction==='CONFIRMED_CONTEXT')
       assert(JSON.stringify(next.body.messages).includes('已完成操作'))
-      check('frozen table update shows date changes, trusted confirmation sends Markdown receipt, repeated confirmation never writes twice, and follow-up context knows the verified result')
+      check('Bitable deletion retains frozen preview, natural confirmation, rich receipt, one-use authorization and verified follow-up context')
+      for(const [suffix,date]of [['a',1793980800000],['b',1794067200000]]){
+        platform.records.set('rec_batch_'+suffix,{截止日期:1786204800000})
+        model.toolCases.set('BATCH_'+suffix,{name:'feishu_bitable_delete',arguments:{resource:'Todo',params_json:JSON.stringify({records:[{record_id:'rec_batch_'+suffix}]})}})
+        await post(message('batch_preview_'+suffix,'TELEBOT_TEST:BATCH_'+suffix,chat));await settled('batch_preview_'+suffix)
+      }
+      const reply='这两项都确认。另外请继续解释提醒方式。'
+      model.intentReplies.set(reply,{decision:'confirm',selections:[1,2],remainingText:'另外请继续解释提醒方式。'})
+      const beforeBatch=platform.business.filter(row=>row.url?.includes('/batch_delete')).length
+      const batchMessage=message('batch_confirm',reply,chat)
+      await post(batchMessage);await settled('batch_confirm');await post(batchMessage)
+      await eventually(()=>rows("SELECT state FROM inbox WHERE event_id='event_batch_confirm:continuation'")[0]?.state==='completed',20000)
+      assert.equal(platform.business.filter(row=>row.url?.includes('/batch_delete')).length,beforeBatch+2)
+      assert(!platform.records.has('rec_batch_a'));assert(!platform.records.has('rec_batch_b'))
+      assert.match(body('batch_confirm'),/\*\*批量确认结果\*\*/);assert.match(body('batch_confirm'),/核验/)
+      const interpreted=model.requests.findLast(row=>row.instruction==='CONFIRMATION_INTENT'),intent=JSON.parse(interpreted.body.messages.findLast(m=>m.role==='user').content)
+      assert.equal(intent.candidates.length,2);assert(intent.conversation.some(row=>row.role==='assistant'))
+      assert(JSON.stringify(model.requests.at(-1).body.messages).includes('另外请继续解释提醒方式'))
+      assert(JSON.stringify(model.requests.at(-1).body.messages).includes('批量确认结果'))
+      assert.equal(rows("SELECT count(*) AS n FROM inbox WHERE event_id='event_batch_confirm:continuation'")[0].n,1)
+      check('mixed batch consent uses conversation context, verifies both frozen writes once, returns rich receipts and queues the remaining dialogue with actual results')
     }
   }
 
@@ -234,13 +280,16 @@ try {
       assert(model.requests.some(row=>row.instruction==='RAW_SCHEDULE_DENY'&&row.receipt?.includes('feishu_schedule_requires_isolated_task')))
     }
     const task={title:'isolated natural task',prompt:'synthetic future work',mode:'auto',executor:'research',catchUp:'skip',rule:{kind:'once',first:new Date(Date.now()+3600000).toISOString(),timeZone:'Asia/Shanghai',interval:1}}
-    model.toolCases.set('NATURAL_TASK',{name:'telebot_schedule',arguments:{action:'create',input_json:JSON.stringify(task)}})
+    model.toolCases.set('NATURAL_TASK',{name:'telebot_schedule',arguments:{action:'create',task}})
     await send('natural_task','TELEBOT_TEST:NATURAL_TASK');await settled('natural_task');await send('task_confirm','同意');await settled('task_confirm')
     await send('task_list','/schedule list');await settled('task_list');const db=new DatabaseSync(path.join(home,'plugins/telebot-automation/automation.sqlite'),{readOnly:true});const created=db.prepare('SELECT id,authorized FROM tasks').all();db.close();assert.equal(created.length,1);assert.equal(created[0].authorized,0);assert(body('task_list').includes('已授权自动执行：否'));assert(!body('task_list').trim().startsWith('['))
-    model.toolCases.set('NATURAL_AUTHORIZE',{name:'telebot_schedule',arguments:{action:'authorize',input_json:JSON.stringify({task_id:created[0].id})}})
+    model.toolCases.set('NATURAL_AUTHORIZE',{name:'telebot_schedule',arguments:{action:'authorize',task_id:created[0].id}})
     await send('task_authorize','TELEBOT_TEST:NATURAL_AUTHORIZE');await settled('task_authorize');await send('grant_confirm','同意授权');await settled('grant_confirm')
     await send('task_after','/schedule list');await settled('task_after');assert(body('task_after').includes('已授权自动执行：是'))
     const taskCalls=model.requests.filter(row=>row.instruction==='NATURAL_TASK');assert(taskCalls.length)
+    const taskSchema=taskCalls[0].body.tools.find(tool=>tool.function.name==='telebot_schedule').function.parameters
+    for(const key of ['rule','mode','executor','catchUp'])assert(taskSchema.properties.task.required.includes(key))
+    assert(taskSchema.properties.task.properties.rule.required.includes('first'))
     await send('chat_with_future_task','新问题：现在请打个招呼');await settled('chat_with_future_task')
     check('task creation and separate automatic authorization accept trusted natural confirmation; active future tasks leave chat responsive and raw same-session scheduling is denied before execution')
   }
@@ -358,7 +407,8 @@ try {
     const before = model.requests.length
     await acp.prompt(session.sessionId, 'TELEBOT_TEST:BUSINESS_DISABLED')
     const disabledNames = model.requests.slice(before).flatMap(row => row.names)
-    assert(!disabledNames.some(name => ['ask_adviser','telebot_codex','write_report','publish_source','telebot_schedule','telebot_task_read','telebot_task_list'].includes(name) || name.startsWith('feishu_')))
+    assert(!disabledNames.some(name => ['ask_adviser','telebot_codex','write_report','publish_source','telebot_schedule','telebot_task_read','telebot_task_list'].includes(name) || name.startsWith('feishu_')&&name!=='feishu_messages'))
+    assert(disabledNames.includes('feishu_messages'),'Channel message delivery remains available when resource business is disabled')
     await post(message('main_after_feature_disable', 'TELEBOT_TEST:MAIN_AFTER_FEATURE_DISABLE', { chat: 'oc_independent' })); await settled('main_after_feature_disable')
     await acp.request(methods.agent.session.close, { sessionId: session.sessionId })
     check('optional Codex/adviser and integrated Feishu business tools disable while the unified Feishu channel keeps running')

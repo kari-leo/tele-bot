@@ -1,13 +1,13 @@
 # 安装与配置
 
-使用独立安装的官方 Harness，精确兼容版本见 [compatibility.json](../tooling/compatibility.json)。本机为 0.2.1-rc.5，不混用其他版本。安装和更新使用官方插件管理器。
+使用独立安装的官方 Harness，精确兼容版本见 [compatibility.json](../tooling/compatibility.json)。本机为 0.2.2-rc.3，不混用其他版本。安装和更新使用官方插件管理器。
 
 ## 本机启动与目录
 
 插件已安装；先退出已有桌面，再从当前交付目录启动：
 
 ```powershell
-& 'D:\files_data\windborne\dsh-runtime\releases\telebot-0.1.0-semantic-confirmation-20261101\start-desktop.ps1'
+& 'D:\files_data\windborne\dsh-runtime\releases\telebot-0.1.0-dsh-0.2.2-rc.3-20261118\start-desktop.ps1'
 ```
 
 | 内容 | 位置 |
@@ -17,10 +17,13 @@
 | 兼容入口 | `C:/Users/41547/.dsh/profiles/desktop` → 完整 profile 的 Junction |
 | 配置、凭据、会话与业务数据 | 原 DSH_HOME，默认 `C:/Users/41547/.dsh` |
 | pnpm 内容缓存 | `D:/files_data/windborne/dsh-runtime/cache/pnpm/store/v11` |
+| 固定 pnpm 11.28.5 | `D:/files_data/windborne/dsh-runtime/prerequisites/pnpm-11.28.5`；环境脚本仅调整当前进程 PATH，不改全局版本 |
 | 验证临时目录 | `D:/files_data/windborne/dsh-runtime/tmp` |
-| 本次更新前备份 | `D:/files_data/windborne/dsh-runtime/backups/semantic-confirmation-before-2026-11-01T15-31-15-256Z` |
+| 本次 dsh 兼容升级前备份 | `D:/files_data/windborne/dsh-runtime/backups/dsh-0.2.2-rc.3-before-20261118-003014` |
 
 保留整个 profile 的 C→D 联接；只联接 node_modules 会破坏宿主 peer 解析。新依赖、缓存和临时目录用 D 盘，原用户数据保留。启动脚本准备 D 盘环境、PowerShell 7.6.9 和现有 Git，不依赖源码目录。
+
+当前桌面已合并[模型响应配置示例](../examples/responsive-model.patch.example.yml)：低思考强度、Flash 输出上限 16,384 token、60 秒流空闲超时及最多两次重试。配置走官方 provider，保留原有端点、模型选择、凭据及其他覆盖项；这些是默认设置，不是整个任务的总时限。
 
 ## 从归档安装或更新
 
@@ -59,7 +62,7 @@ foreach ($name in @('core','desktop','feishu','codex','publishing','automation')
 |---|---|
 | feishu | 应用、管理员、目录、来源校验和资源，见[飞书配置](feishu.md) |
 | desktop | 默认完整权限，可切为受限模式并配置允许目录 |
-| codex | 既有 CLI 绝对路径；飞书另配管理员、允许目录及本人历史 ID |
+| codex | 既有 CLI 绝对路径；飞书另配管理员、允许目录及本人历史 ID。本机允许 `D:/files_data` 及按真实路径位于其下的子目录。 |
 | publishing | 文章目录、Git 仓库/分支；飞书另配管理员和允许目录 |
 | automation | 时区、模型、执行限额与管理员，执行授权见[使用与维护](operations.md) |
 | adviser | 可选既有 OpenCLI 路径、管理员与脱敏项 |

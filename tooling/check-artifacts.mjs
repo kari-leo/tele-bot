@@ -14,7 +14,10 @@ export function validateManifest(manifest, files) {
   for (const section of ['dependencies', 'optionalDependencies', 'peerDependencies']) {
     for (const [name, spec] of Object.entries(manifest[section] ?? {})) {
       assert(!/^(workspace:|link:|file:)|[\\/](vendor|plugins|internal)[\\/]/.test(spec), `Nonportable ${section}: ${name}`)
-      if (name.startsWith('@deepseek-ai/')) assert(section === 'peerDependencies', `Host package must remain a peer: ${name}`)
+      if (name.startsWith('@deepseek-ai/')) {
+        assert(section === 'peerDependencies', `Host package must remain a peer: ${name}`)
+        assert.equal(spec, compatibility.hostPeers[name], `Exact tested host peer required: ${name}`)
+      }
       if (name === '@telebot/core') assert(section === 'peerDependencies', 'Core must have one runtime owner')
     }
   }

@@ -43,7 +43,11 @@ export async function startMockFeishu({ appId = 'cli_test', appSecret = 'loopbac
       if (/\/apps\/[^/?]+$/.test(request.url)) data={app:{name:'Todo'}}
       else if (/\/tables\?/.test(request.url)) data = { items: tables, has_more: false }
       else if (request.url.includes('/fields')) data = { items: [{ field_name: 'name', type: 1 }], has_more: false }
-      else if (request.url.includes('/search')) data = { items: [...records].map(([record_id, fields]) => ({ record_id, fields })), has_more: false }
+      else if (request.url.includes('/search')) {
+        const query=new URL(request.url,'http://localhost').searchParams,size=Number(query.get('page_size')??100),offset=Number(query.get('page_token')??0)
+        const all=[...records].map(([record_id,fields])=>({record_id,fields:body.field_names?Object.fromEntries(body.field_names.filter(name=>Object.hasOwn(fields,name)).map(name=>[name,fields[name]])):fields}))
+        data={items:all.slice(offset,offset+size),has_more:offset+size<all.length,...(offset+size<all.length?{page_token:String(offset+size)}:{})}
+      }
       else if (request.url.includes('/batch_create')) data = { records: body.records.map((row, i) => { const record_id = 'rec_' + (records.size + 1); records.set(record_id, row.fields); return { record_id, fields: row.fields } }) }
       else if (request.url.includes('/batch_update')) data = { records: body.records.map(row => { records.set(row.record_id, row.fields); return row }) }
       else if (request.url.includes('/batch_delete')) data = { records: body.records.map(record_id => ({ record_id, deleted: records.delete(record_id) })) }

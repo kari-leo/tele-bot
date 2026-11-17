@@ -2,9 +2,9 @@
 const file=name=>'tests/acceptance/'+name+'.test.mjs'
 const entry=(name,pattern)=>({file:file(name),...(pattern?{pattern}:{})})
 export const modules={
-  core:{description:'共享宿主适配、会话流和权限边界',packages:['core'],tests:['artifacts','verification-isolation','conversations'].map(x=>entry(x)),gates:['harness']},
+  core:{description:'共享宿主适配、会话流和权限边界',packages:['core'],tests:['artifacts','verification-isolation','conversations'].map(x=>entry(x)),gates:['harness','model-limits']},
   settings:{description:'原生配置页、凭据、持久化和 Base 链接',packages:['core','feishu'],tests:['feishu-configuration','configuration-and-bases','native-configuration-ui'].map(x=>entry(x)),gates:['settings','settings-desktop']},
-  feishu:{description:'webhook、会话、思考进度、队列、收发和附件',packages:['core','feishu','adviser'],tests:[entry('feishu'),entry('commands'),entry('production-business','^P2 ')],gates:['feishu-acp','feishu-web','progress-acp','progress-web','questions-acp','questions-web']},
+  feishu:{description:'webhook、会话、主动消息、思考进度、队列、收发和附件',packages:['core','feishu','adviser'],tests:[entry('feishu'),entry('commands'),entry('production-business','^P2 ')],gates:['messages-desktop','feishu-acp','feishu-web','progress-acp','progress-web','questions-acp','questions-web']},
   'feishu-business':{description:'应用资源、表名发现、CRUD 和冻结确认',packages:['core','feishu','codex','adviser'],tests:[entry('feishu-resources'),entry('local-business','^P3 '),entry('production-business','^P3 ')],gates:['resources-acp','resources-web']},
   codex:{description:'本地 Codex 会话、权限、历史、Skill 和产物',packages:['core','feishu','codex','adviser'],tests:[entry('local-business','^P4 (?:inspect|apply|cancelled)'),entry('skills-and-limits')],gates:[]},
   adviser:{description:'OpenCLI 适配、脱敏、缓存、超时和取消',packages:['core','feishu','codex','adviser'],tests:[entry('local-business','^P4 adviser'),entry('production-business','^P4 OpenCLI')],gates:[]},
@@ -28,6 +28,7 @@ export function selectTests(names){
   return [...selected.values()]
 }
 export const gates={
+  'model-limits':{file:'model-limits'},
   harness:{file:'harness'},p0:{file:'harness',args:['--p0']},
   'feishu-acp':{file:'feishu'},'feishu-web':{file:'feishu',args:['--web']},
   'resources-acp':{file:'feishu',args:['--resources']},'resources-web':{file:'feishu',args:['--resources','--web']},
@@ -36,4 +37,5 @@ export const gates={
   settings:{file:'settings'},'settings-desktop':{file:'settings',args:['--desktop']},
   composition:{file:'feishu',args:['--features']},'composition-web':{file:'feishu',args:['--features','--web']},
   desktop:{file:'desktop'},knowledge:{file:'knowledge'},'codex-native':{file:'codex'},
+  'messages-desktop':{file:'desktop',args:['--feishu-messages']},
 }

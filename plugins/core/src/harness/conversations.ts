@@ -20,22 +20,24 @@ declare module '@deepseek-ai/dsh-llm' { interface MessageSourceMap { 'telebot-ch
 
 /** Correlate an identified user message to its own committed turn, never another turn's success. */
 export function feishuTaskGuard(sessionId:string,available:()=>boolean){
-  return(call:Readonly<{name:string;agent?:{session:{id:string}}}>)=>call.agent?.session.id===sessionId&&available()&&['schedule_create','schedule_update'].includes(call.name)?'feishu_schedule_requires_isolated_task: use telebot_schedule; foreground chat must remain available':undefined
+  return(call:Readonly<{name:string;agent?:{session:{id:string}}}>)=>call.agent?.session.id===sessionId&&available()&&['schedule_create','schedule_edit'].includes(call.name)?'feishu_schedule_requires_isolated_task: use telebot_schedule; foreground chat must remain available':undefined
 }
 
 function settled(events: readonly SessionEvent[], inputId: string): ConversationResult {
   let turn: number | undefined, currentTurn: number | undefined
-  let text = '', reason: string | undefined
+  let text = '', finalText='', reason: string | undefined
   for (const event of events) {
     if (event.type === 'turn/start') currentTurn = event.data.turn
     if (event.type === 'user/message' && event.data.id === inputId) turn = currentTurn
     if (turn !== undefined && event.type === 'assistant/message' && event.data.turn === turn) {
       const candidate = event.data.message.content.filter(block => block.type === 'text').map(block => block.text).join('')
       if (candidate.trim()) text = candidate
+      finalText=event.data.message.content.some(block=>block.type==='tool-call')?'':candidate
     }
     if (turn !== undefined && event.type === 'turn/end' && event.data.turn === turn) reason = event.data.reason.kind
   }
-  if (reason === 'completed' && text.trim()) return { status: 'completed', text }
+  if (reason === 'completed' && finalText.trim()) return { status: 'completed', text:finalText }
+  if (reason === 'completed') return {status:'failed',text:'模型已结束本轮请求，但没有生成最终答复。工具可能已经完成部分操作，请先查询或核验实际结果，再决定下一步；系统没有自动重做操作。持续无回复时可在空闲后 /compact，或 /new 新建会话。'}
   if (reason === 'interrupted' || reason === 'aborted') return { status: 'cancelled', text: '本轮已停止；停止不代表已发生的外部操作被撤销。' }
   if (reason) return { status: 'failed', text: '本轮未完成，请检查宿主模型或工具状态。' + (text ? `\n执行结束前的输出：\n${text}` : '') }
   return { status: 'unknown', text: '本轮结果尚未确认，系统没有自动重复执行。请先检查会话状态。' }
@@ -153,7 +155,7 @@ export class HarnessConversations implements ConversationPort {
       await agent.whenIdle()
       if (activity.cancelled || this.closed) return { status: 'cancelled', text: '本轮已停止。' }
       if(this.feishuSessions.has(spec.id)&&!this.guided.has(agent)){
-        agent.inject(freezeMessage({id:MessageId('telebot-channel-policy:semantic-confirmation-20261101'),role:'user',source:{kind:'telebot-channel-policy',revision:'semantic-confirmation-20261101'},content:[{type:'text',text:confirmationPolicy+' 这段渠道说明本身不代表用户批准任何操作。'}]}))
+        agent.inject(freezeMessage({id:MessageId('telebot-channel-policy:structured-tools-20261104'),role:'user',source:{kind:'telebot-channel-policy',revision:'structured-tools-20261104'},content:[{type:'text',text:confirmationPolicy+' 工具调用补充：飞书资源使用 feishu_resources 和 feishu_bitable_*，旧 bitable_* 工具名已停用。优先使用工具声明的结构化 params、task、task_id，不猜 JSON 字段。查找记录先按目标名称过滤并只选所需字段；查询默认每页 20 条，complete=false 时按返回游标继续，不得将一页声称为全表。参数校验失败按错误说明修正，不能不断试猜或通过 Shell 读取配置、凭据、内部数据库来绕过业务工具。unknown 或回执缺失先核验，不重复写入。请简洁报告结果、待确认项或具体阻碍。 这段渠道说明本身不代表用户批准任何操作。'}]}))
         this.guided.add(agent)
       }
       const events = agent.session.snapshotEvents()

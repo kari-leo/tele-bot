@@ -7,9 +7,20 @@ import { HarnessCommands } from '../../plugins/core/lib/harness/commands.js'
 import { FeishuChannel } from '../../plugins/feishu/lib/domain/channel.js'
 import { SqliteChannelRepository } from '../../plugins/feishu/lib/adapters/sqlite.js'
 import { Workspaces } from '../../plugins/feishu/lib/adapters/workspaces.js'
+import { parseEvent } from '../../plugins/feishu/lib/domain/events.js'
 import { cleanup, eventually, temporaryDirectory } from '../support/temp-dir.mjs'
 
 const event = (id, text, extra = {}) => ({ eventId: id, messageId: `om_${id}`, chatId: 'chat', threadId: '', actor: { ids: ['alice'] }, kind: 'text', text, ...extra })
+test('explicit Base management bypasses pending confirmation interpretation without consuming its grant',()=>{
+  let admitted,interpretations=0
+  const ports={repository:{actorFor:()=>({userId:'alice'}),accept(input){admitted=input;return{accepted:false}}},features:{routeInput(){interpretations++;return{kind:'interpretation',text:'pending-grant'}}}}
+  const channel=new FeishuChannel(ports,{})
+  channel.accept(event('unlink','移除多维表格 https://fixture.feishu.cn/base/test-base'))
+  assert.equal(admitted.text,'/bases remove https://fixture.feishu.cn/base/test-base')
+  assert.equal(interpretations,0)
+  channel.accept(event('confirm','确认'))
+  assert.equal(interpretations,1)
+})
 async function setup(t, overrides = {}) {
   const root = await temporaryDirectory(t), child = path.join(root, 'child 中文')
   await mkdir(child)
@@ -107,4 +118,80 @@ test('P2 interrupted mutating command is marked unknown on restart without dispa
   channel.start(); cleanup(t, () => channel.stop())
   await eventually(() => s.rows("SELECT state FROM inbox WHERE event_id='old_command'")[0].state === 'unknown')
   assert.equal(s.selections.length, 0)
+})
+
+test('Codex cards bind buttons and task replies to their owner and expire when a new dialogue starts', async t => {
+  const s = await setup(t)
+  s.settings.adminUserIds.push('bob')
+  const calls = []
+  const thread = '12345678-1234-1234-1234-123456789abc'
+  s.ports.features = { async invoke(name, request) {
+    assert.equal(name, 'codex')
+    assert.equal(request.actor.userId, 'alice')
+    assert.equal(request.actor.privateChat, true)
+    calls.push(request.text)
+    if (request.text === 'history') return { status: 'completed', text: '最近会话', card: { title: '最近', actions: [{ label: '查看 1', command: 'read ' + thread }] } }
+    if (request.text === 'read ' + thread) return { status: 'completed', text: '详情', card: { title: '详情', actions: [{ label: '继续此会话', command: 'resume-select ' + thread }] } }
+    if (request.text === 'resume-select ' + thread) return { status: 'completed', text: '请回复本卡片', card: { title: '续聊', replyCommand: 'resume ' + thread } }
+    return { status: 'completed', text: '已执行' }
+  } }
+  const user = (id, text, referenceMessageId) => event(id, text, { actor: { ids: ['alice'], privateChat: true, referenceMessageId } })
+  const card = async (title, since = 0) => {
+    const find = () => s.sent.findIndex((message, index) => index >= since && message.msgType === 'interactive' && JSON.parse(message.content).header.title.content === title)
+    await eventually(() => find() >= 0)
+    const index = find()
+    return { id: 'sent_' + (index + 1), index, body: JSON.parse(s.sent[index].content) }
+  }
+  const click = (id, card, who = 'alice') => s.channel.accept(parseEvent({ header: { app_id: 'test', event_type: 'card.action.trigger', event_id: id }, event: {
+    operator: { user_id: who }, context: { open_chat_id: 'chat', open_message_id: card.id },
+    action: { value: { ...card.body.elements[1].actions[0].value, command: 'resume attacker injected task' } },
+  } }, 'test'))
+  s.channel.accept(user('history1', '/codex history'))
+  const first = await card('最近')
+  assert.equal(click('wrong_owner', first, 'bob').rejected, true)
+  s.channel.accept(user('new_topic', '换个话题'))
+  await s.settled('new_topic')
+  assert.equal(s.calls.at(-1).input.text, '换个话题')
+  assert.equal(click('expired_click', first).expired, true)
+  assert.deepEqual(calls, ['history'])
+
+  s.channel.accept(user('history2', '/codex history'))
+  const second = await card('最近', first.index + 1)
+  assert.equal(click('details', second).accepted, true)
+  const details = await card('详情')
+  assert.equal(click('details_repeat', second).duplicate, true)
+  assert.equal(click('select', details).accepted, true)
+  const prompt = await card('续聊')
+  assert.equal(calls.at(-1), 'resume-select ' + thread)
+  const task = user('task', '只执行这一轮')
+  assert.equal(s.channel.accept(task).accepted, true)
+  assert.equal(s.channel.accept(task).duplicate, true)
+  await s.settled('task')
+  assert.equal(calls.at(-1), `resume ${thread} 只执行这一轮`)
+  s.channel.accept(user('plain_after_task', '接下来聊别的'))
+  await s.settled('plain_after_task')
+  assert.equal(s.calls.at(-1).input.text, '接下来聊别的')
+  assert.equal(s.channel.accept(user('second_reply', '不能再执行', prompt.id)).accepted, true)
+  await s.settled('second_reply')
+  assert.equal(calls.filter(command => command.startsWith('resume ')).length, 1)
+
+  s.channel.accept(user('select_again', '/codex resume-select ' + thread))
+  const stalePrompt = await card('续聊', prompt.index + 1)
+  s.channel.accept(user('new_topic_again', '/new'))
+  await s.settled('new_topic_again')
+  s.channel.accept(user('stale_task', '旧卡任务', stalePrompt.id))
+  const staleResult = await s.settled('stale_task')
+  assert.match(staleResult.content, /卡片已失效/)
+  assert.equal(calls.filter(command => command.startsWith('resume ')).length, 1)
+})
+
+test('an unknown read-only Codex history request cannot strand the next ordinary conversation', async t => {
+  const s = await setup(t)
+  s.ports.features = { async invoke() { throw new Error('synthetic_history_read_failure') } }
+  s.channel.accept(event('history_unknown', '/codex history'))
+  await s.settled('history_unknown')
+  assert.equal(s.rows("SELECT state FROM inbox WHERE event_id='history_unknown'")[0].state, 'unknown')
+  s.channel.accept(event('ordinary_after_history', '开始新的对话'))
+  await s.settled('ordinary_after_history')
+  assert.equal(s.calls.at(-1).input.text, '开始新的对话')
 })

@@ -34,6 +34,7 @@ export class TelebotCore extends Service {
   private readonly deliveryInspection = new Map<string, {status(actor:TrustedActor,receipt:unknown):unknown;retry(actor:TrustedActor,receipt:unknown):unknown}>()
   private readonly confirmations = new Map<string, ConfirmationProvider>()
   private readonly inputIntents=new Map<string,{actor:TrustedActor;reply:string;candidates:IntentCandidate[];expires:number}>()
+  private readonly inputBatches=new Map<string,{actor:TrustedActor;spec:import('./contracts.js').ConversationSpec;reply:string;rows:IntentCandidate[];decision:'confirm'|'cancel';expires:number}>()
   private readonly deliveryReady = new Set<() => void>()
   private readonly artifacts = new Map<string, NonNullable<import('./contracts.js').ConversationResult['artifacts']>[number][]>()
   constructor(ctx: Context) { super(ctx, 'telebotCore') }
@@ -99,7 +100,7 @@ export class TelebotCore extends Service {
     const question=this.interactions.routeInput(actor,text)
     if(question){if(question.kind==='answer'&&confirmationIntent(text)&&this.routedConfirmations(actor).length)return{kind:'notice',text:'同时有询问和业务操作等待确认。回答卡片请用“回答1：允许一次”或“回答1：拒绝”；业务操作请用“确认第1项”或“取消第1项”。'};return question}
     const selected=/^(确认|同意|执行|取消|拒绝)(?:执行|授权)?第?([一二三四五六七八九十]|\d+)(?:个|项|项任务)?[。！!\s]*$/.exec(text.trim())
-    if(selected){const ordinal=Number(selected[2])||'一二三四五六七八九十'.indexOf(selected[2])+1,rows=this.routedConfirmations(actor),row=rows[ordinal-1];if(row)return{kind:'confirmation',text:(['取消','拒绝'].includes(selected[1])?'cancel':'confirm')+' '+row.name+' '+row.token,sessionId:row.sessionId};return{kind:'notice',text:'待确认列表已变化，请重新查看后选择。'}}
+    if(selected&&!semantic){const ordinal=Number(selected[2])||'一二三四五六七八九十'.indexOf(selected[2])+1,rows=this.routedConfirmations(actor),row=rows[ordinal-1];if(row)return{kind:'confirmation',text:(['取消','拒绝'].includes(selected[1])?'cancel':'confirm')+' '+row.name+' '+row.token,sessionId:row.sessionId};return{kind:'notice',text:'待确认列表已变化，请重新查看后选择。'}}
     const intent=confirmationIntent(text)
     if(intent){
       const rows=this.routedConfirmations(actor)
@@ -127,14 +128,24 @@ export class TelebotCore extends Service {
     if(spec.id!==actor.sessionId||spec.cwd!==actor.cwd)return{kind:'notice',text:'这次确认的会话或目录已变化，没有执行操作。'}
     this.inputIntents.delete(ticket)
     let decision:Awaited<ReturnType<typeof interpretConfirmation>>
-    try{decision=await interpretConfirmation(this.ctx,spec,request.reply,request.candidates,signal);signal.throwIfAborted()}catch{return{kind:'notice',text:'本次自然语言确认解析暂时未完成，操作尚未执行。可以重新表达你的意图，或使用预览中的备用命令。'}}
+    try{decision=await interpretConfirmation(this.ctx,spec,request.reply,request.candidates,signal);signal.throwIfAborted()}catch(error){
+      this.ctx.logger.warn('confirmation interpretation failed: %s',error instanceof Error&&/^confirmation_[a-z_]+$/.test(error.message)?error.message:error instanceof Error?error.name:'unknown')
+      return{kind:'notice',text:'**确认尚未执行**\n\n本次意图解析未完成，原消息已交回对话继续处理；待确认操作保持不变。',continuation:request.reply}
+    }
     if(decision.decision==='other'||decision.decision==='change')return{kind:'text',text:request.reply}
-    if(decision.decision==='ambiguous')return{kind:'notice',text:'尚未执行：请说明你指的是哪一个待确认事项：\n'+request.candidates.map((row,index)=>`${index+1}. ${row.label}`).join('\n')}
+    if(decision.decision==='ambiguous')return{kind:'notice',text:'**尚未执行，需要澄清确认范围**\n\n'+request.candidates.map((row,index)=>`**待确认 ${index+1}**\n${row.label}`).join('\n\n')+'\n\n可以按事项名称选择，也可以明确回复“以上全部确认”。',continuation:request.reply}
+    if(decision.selections.length>1){
+      const rows=decision.selections.map(n=>request.candidates[n-1])
+      for(const [id,row]of this.inputBatches)if(row.expires<=Date.now())this.inputBatches.delete(id)
+      if(this.inputBatches.size>=100)return{kind:'notice',text:'确认处理中，请稍后再试。',continuation:request.reply}
+      this.inputBatches.set(ticket,{actor:request.actor,spec,reply:request.reply,rows,decision:decision.decision,expires:Date.now()+120000})
+      return{kind:'confirmation',text:'batch '+ticket,continuation:decision.remainingText}
+    }
     const row=request.candidates[decision.selection!-1]
     const original={...request.actor,sessionId:row.sessionId}
-    if(row.kind==='approval')return this.interactions.routeApproval(original,row.token,decision.decision)??{kind:'notice',text:'这项权限询问已失效，没有执行操作。'}
-    if(!this.confirmations.get(row.name!)?.pending(original).some(current=>current.token===row.token))return{kind:'notice',text:'这项操作预览已失效或已处理，没有自动确认其他操作。'}
-    return{kind:'confirmation',text:decision.decision+' '+row.name+' '+row.token,sessionId:row.sessionId}
+    if(row.kind==='approval')return {...(this.interactions.routeApproval(original,row.token,decision.decision)??{kind:'notice' as const,text:'这项权限询问已失效，没有执行操作。'}),continuation:decision.remainingText}
+    if(!this.confirmations.get(row.name!)?.pending(original).some(current=>current.token===row.token))return{kind:'notice',text:'这项操作预览已失效或已处理，没有自动确认其他操作。',continuation:decision.remainingText||request.reply}
+    return{kind:'confirmation',text:decision.decision+' '+row.name+' '+row.token,sessionId:row.sessionId,continuation:decision.remainingText}
   }
   waitingSessions(){return this.interactions.waitingSessions()}
   registerTaskExecutor(name: string, handler: TaskExecutor) {
@@ -179,9 +190,43 @@ export class TelebotCore extends Service {
   }
   async invoke(name: string, request: FeatureRequest) {
     this.validateActor(request.actor)
+    if(name==='confirm'&&request.text.startsWith('batch '))return this.confirmBatch(request)
     const handler = this.features.get(name)
     if (!handler) return { status: 'failed' as const, text: '当前功能未安装或未启用。' }
     return presentResult(await handler(request))
+  }
+
+  private async confirmBatch(request:FeatureRequest):Promise<import('./contracts.js').ConversationResult>{
+    const ticket=request.text.slice(6),batch=this.inputBatches.get(ticket),actor=request.actor
+    if(!batch||batch.expires<=Date.now()||!['origin','userId','chatId','sessionId','cwd'].every(key=>batch.actor[key as keyof TrustedActor]===actor[key as keyof TrustedActor])||(batch.actor.threadId??'')!==(actor.threadId??''))return{status:'failed',text:'**本次批量确认已失效或不属于当前用户。**\n没有执行操作。'}
+    this.inputBatches.delete(ticket)
+    const results:import('./contracts.js').ConversationResult[]=[],artifacts:NonNullable<import('./contracts.js').ConversationResult['artifacts']>[number][]=[]
+    for(const [index,row]of batch.rows.entries()){
+      const original={...batch.actor,sessionId:row.sessionId}
+      let result:import('./contracts.js').ConversationResult
+      try{
+        request.signal.throwIfAborted()
+        if(row.kind==='approval'){
+          const route=this.interactions.routeApproval(original,row.token,batch.decision),match=route&&/^\/answer (\S+) ([\s\S]+)$/.exec(route.text)
+          const accepted=Boolean(match&&this.interactions.answer(original,match[1],match[2]))
+          result={status:accepted?'completed':'failed',text:accepted?(batch.decision==='confirm'?'已允许本次操作。':'已拒绝本次操作。'):'权限询问已失效，未授权。'}
+        }else{
+          const provider=this.confirmations.get(row.name!)
+          if(!provider?.pending(original).some(current=>current.token===row.token))result={status:'failed',text:'预览已失效或已处理，未改为执行其他事项。'}
+          else result=presentResult(await (batch.decision==='cancel'?provider.cancel(original,row.token):provider.confirm(original,row.token,request.signal)))
+        }
+      }catch(error){
+        const conflict=error instanceof Error&&['confirmation_binding_or_expiry_mismatch','preview_conflict_requires_new_confirmation','frozen_resource_changed_requires_new_confirmation'].includes(error.message)
+        result=conflict?{status:'failed',text:'本项预览已过期或内容发生冲突，尚未执行；请重新生成预览。'}:{status:'unknown',text:'本项结果待核实，没有自动重试；请检查操作状态。'}
+      }
+      artifacts.push(...result.artifacts??[])
+      results.push({...result,text:`### ${index+1}. ${batch.decision==='confirm'?'确认':'取消'}结果\n\n${row.label}\n\n${result.text}`})
+      if(row.sessionId!==actor.sessionId){
+        const bridge=new HarnessConversations(this.ctx)
+        try{await bridge.context({...batch.spec,id:row.sessionId,allowCreate:false},(actor.sourceId??ticket)+':'+index,'用户回复：'+batch.reply+'\n\n'+results.at(-1)!.text)}catch{/* The durable channel receipt wins; never replay business work. */}finally{await bridge.dispose().catch(()=>{})}
+      }
+    }
+    return{status:results.some(r=>r.status==='unknown')?'unknown':results.some(r=>r.status==='failed')?'failed':'completed',text:'**批量确认结果**\n\n'+results.map(r=>r.text).join('\n\n---\n\n'),...(artifacts.length?{artifacts}: {})}
   }
 
   capabilities(): CapabilitySnapshot {

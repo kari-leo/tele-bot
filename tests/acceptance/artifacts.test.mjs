@@ -20,6 +20,9 @@ test('release guard rejects nonportable dependencies and duplicate host ownershi
   const manifest = valid()
   manifest.dependencies = { '@deepseek-ai/cordis': '4.0.6-alpha.1' }
   assert.throws(() => validateManifest(manifest, files), /must remain a peer/)
+  const stale = valid()
+  stale.peerDependencies['@deepseek-ai/cordis'] = '4.0.5'
+  assert.throws(() => validateManifest(stale, files), /Exact tested host peer/)
 })
 
 test('release guard detects absent runtime resources and accidental data/source inclusion', () => {

@@ -3,10 +3,16 @@ import assert from 'node:assert/strict'
 import path from 'node:path'
 import { AutomationService } from '../../plugins/automation/lib/adapters/service.js'
 import { nextOccurrence, dueOccurrences, validateTask } from '../../plugins/automation/lib/domain/rules.js'
-import {scheduleToolInput} from '../../plugins/automation/lib/domain/tool-input.js'
+import {scheduleToolInput,scheduleToolCommand} from '../../plugins/automation/lib/domain/tool-input.js'
 import { temporaryDirectory, cleanup, eventually } from '../support/temp-dir.mjs'
+import { scheduleParameters } from '../../plugins/automation/lib/harness/tool-schema.js'
 
 const first='2026-11-02T01:00:00.000Z'
+test('the schedule tool declares required task and time fields instead of an opaque JSON payload',()=>{
+  for(const key of ['title','prompt','mode','executor','catchUp','rule'])assert.equal(scheduleParameters.task.properties[key].required,true)
+  assert.equal(scheduleParameters.task.properties.rule.properties.first.required,true)
+  assert.equal(scheduleParameters.input_json.required,undefined)
+})
 test('task authorization tools prepare only an exact task identifier and cannot inject confirmation or change grant scope',()=>{
   assert.equal(scheduleToolInput('authorize','{"task_id":"task-1"}'),'task-1')
   assert.equal(scheduleToolInput('delete','{"id":"task-1"}'),'task-1')
@@ -14,6 +20,19 @@ test('task authorization tools prepare only an exact task identifier and cannot 
   assert.throws(()=>scheduleToolInput('authorize','{"task_id":"task-1 confirm other"}'),/exact_task_id/)
 })
 const input=(overrides={})=>({title:'合成任务',prompt:'Generate a synthetic report.',mode:'auto',executor:'research',catchUp:'skip',rule:{kind:'once',first,timeZone:'Asia/Shanghai',interval:1},...overrides})
+test('structured schedule calls carry the full task contract and old malformed calls receive actionable corrections',()=>{
+  const task=input()
+  assert.equal(scheduleToolCommand({action:'create',task}),'create '+JSON.stringify(task))
+  assert.deepEqual(JSON.parse(scheduleToolCommand({action:'update',task_id:'task-1',task}).slice(7)),{id:'task-1',input:task})
+  assert.equal(scheduleToolCommand({action:'authorize',task_id:'task-1'}),'authorize task-1')
+  assert.equal(scheduleToolCommand({action:'create',input_json:JSON.stringify(task)}),'create '+JSON.stringify(task))
+  assert.throws(()=>scheduleToolCommand({action:'create',input_json:'{"title":"x","prompt":"y","at":"tomorrow"}'}),/task_fields_not_supported.*rule.*mode.*executor.*catchUp/)
+  assert.throws(()=>scheduleToolCommand({action:'create',task,input_json:JSON.stringify(task)}),/one_payload/)
+  assert.throws(()=>scheduleToolCommand({action:'authorize',task_id:'task-1',task}),/unexpected_task_arguments/)
+  assert.throws(()=>scheduleToolCommand({action:'create',task:input({rule:{kind:'once',first:'tomorrow',timeZone:'UTC',interval:1}})}),/task_rule.*ISO/)
+  const batch=JSON.parse(scheduleToolCommand({action:'batch',mutations:[{action:'create',task},{action:'delete',task_id:'task-1'}]}).slice(6))
+  assert.deepEqual(batch,[{action:'create',input:task},{action:'delete',id:'task-1'}])
+})
 async function fixture(t){
   const directory=await temporaryDirectory(t),actor={userId:'alice',chatId:'test',threadId:'topic',sessionId:'source',sourceId:'durable',cwd:directory,privateChat:true,origin:'feishu'},wakes=[],receipts=new Map(),delivered=new Map();let now=Date.parse(first)-1000,count=0,failDelivery=false,failExecution=false
   const schedule={async catalog(){return wakes.map(row=>({...row}))},async create(sessionId,planned){const row={id:'wake-'+wakes.length,sessionId,scheduledAt:planned,status:'active',fingerprint:'immutable-'+sessionId};wakes.push(row);return{...row}},async history(row){return receipts.get(row.id)??[]},async delete(row){const i=wakes.findIndex(item=>item.id===row.id);if(i>=0)wakes.splice(i,1)}}

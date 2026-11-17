@@ -7,10 +7,10 @@ import type { CodingExecutorPort, CodingRequest } from '../domain/coding.js'
 export class NativeClient {
   private readonly child: ChildProcessWithoutNullStreams
   private sequence = 0
-  private readonly pending = new Map<number, { resolve(value: any): void; reject(reason: Error): void }>()
+  private readonly pending = new Map<number, { method: string; resolve(value: any): void; reject(reason: Error): void }>()
   private readonly observers = new Set<(message: any) => void>()
   private closed = false
-  constructor(cli: string, cwd: string, home?: string, environment: NodeJS.ProcessEnv = process.env) {
+  constructor(cli: string, cwd: string | undefined, home?: string, environment: NodeJS.ProcessEnv = process.env) {
     if (!path.isAbsolute(cli) || (home && !path.isAbsolute(home))) throw new Error('absolute_codex_paths_required')
     this.child = /\.[cm]?js$/.test(cli) ? spawn(process.execPath, [cli, 'app-server', '--listen', 'stdio://'], { cwd, windowsHide: true,
       env: { ...environment, ...(home ? { CODEX_HOME: home } : {}) }, stdio: ['pipe', 'pipe', 'pipe'] }) : spawn(cli, ['app-server', '--listen', 'stdio://'], { cwd, windowsHide: true,
@@ -22,8 +22,15 @@ export class NativeClient {
       try { message = JSON.parse(line) } catch { this.fail(new Error('invalid_codex_protocol')); return }
       if (message.id !== undefined && !message.method) {
         const waiter = this.pending.get(message.id); this.pending.delete(message.id)
-        if (message.error) waiter?.reject(new Error('codex_request_rejected'))
-        else waiter?.resolve(message.result)
+        if (!waiter) return
+        if (message.error) {
+          let code = 'codex_request_rejected'
+          if (waiter.method === 'thread/resume') {
+            code = typeof message.error.message === 'string' && /\bthread [a-f0-9-]{36} already has an active writer\b/i.test(message.error.message)
+              ? 'codex_thread_locked' : 'codex_resume_rejected'
+          }
+          waiter.reject(new Error(code))
+        } else waiter.resolve(message.result)
       } else if (message.id !== undefined) {
         // The connector never approves an escalation or asks a model for consent.
         this.send({ id: message.id, error: { code: -32601, message: 'Telebot refuses unconfirmed server requests' } })
@@ -45,7 +52,7 @@ export class NativeClient {
     return new Promise((resolve, reject) => {
       const abort = () => { const row = this.pending.get(id); this.pending.delete(id); row?.reject(new Error('codex_request_cancelled')) }
       const timer = setTimeout(() => { const row = this.pending.get(id); this.pending.delete(id); row?.reject(new Error('codex_request_timeout')) }, 30000)
-      this.pending.set(id, { resolve: value => { clearTimeout(timer); signal?.removeEventListener('abort', abort); resolve(value) }, reject: error => { clearTimeout(timer); signal?.removeEventListener('abort', abort); reject(error) } })
+      this.pending.set(id, { method, resolve: value => { clearTimeout(timer); signal?.removeEventListener('abort', abort); resolve(value) }, reject: error => { clearTimeout(timer); signal?.removeEventListener('abort', abort); reject(error) } })
       signal?.addEventListener('abort', abort, { once: true })
       this.send({ id, method, params })
     })
@@ -69,9 +76,9 @@ export class NativeCodex implements CodingExecutorPort {
   lastTurnFailure: unknown
   private readonly clients = new Set<NativeClient>()
   constructor(private readonly cli: string, private readonly home?: string, private readonly environment?: NodeJS.ProcessEnv) {}
-  async connect(cwd: string) { const client = new NativeClient(this.cli, cwd, this.home, this.environment); this.clients.add(client); try { await client.initialize(); return client } catch (error) { await this.release(client); throw error } }
+  async connect(cwd?: string) { const client = new NativeClient(this.cli, cwd, this.home, this.environment); this.clients.add(client); try { await client.initialize(); return client } catch (error) { await this.release(client); throw error } }
   async release(client: NativeClient) { this.clients.delete(client); await client.close() }
-  async execute(request: CodingRequest, options: { sandbox: 'read-only' | 'workspace-write' | 'danger-full-access'; signal: AbortSignal }, resumeThread?: string): Promise<NativeResult> {
+  async execute(request: CodingRequest, options: { sandbox: 'read-only' | 'workspace-write' | 'danger-full-access'; signal: AbortSignal }, resumeThread?: string, resumeModel?: { model?: string | null; modelProvider?: string | null }): Promise<NativeResult> {
     const client = await this.connect(request.cwd)
     let threadId: string | undefined, turnId: string | undefined
     const signal = options.signal
@@ -87,7 +94,8 @@ export class NativeCodex implements CodingExecutorPort {
         : { type: 'workspaceWrite', writableRoots: [request.cwd], networkAccess: false, excludeSlashTmp: true, excludeTmpdirEnvVar: true }
       const selection = { cwd: request.cwd, sandbox: options.sandbox, approvalPolicy: 'never', approvalsReviewer: 'user',
         config: { sandbox_workspace_write: { writable_roots: [request.cwd], network_access: false, exclude_slash_tmp: true, exclude_tmpdir_env_var: true } } }
-      const started = await client.request(resumeThread ? 'thread/resume' : 'thread/start', { ...selection, ...(resumeThread ? { threadId: resumeThread } : { ephemeral: false }) }, signal)
+      const model = resumeModel?.model ? { model: resumeModel.model } : {}
+      const started = await client.request(resumeThread ? 'thread/resume' : 'thread/start', { ...selection, ...model, ...(resumeThread ? { threadId: resumeThread, ...(resumeModel?.modelProvider ? { modelProvider: resumeModel.modelProvider } : {}) } : { ephemeral: false }) }, signal)
       this.lastPermission = { requested: sandboxPolicy, active: started.activePermissionProfile ?? null, projection: started.sandbox }
       // CLI 0.160 may retain the home default in thread/start's legacy projection.
       // Start must never be broader than requested; the exact policy is set again
@@ -106,7 +114,7 @@ export class NativeCodex implements CodingExecutorPort {
       const cancelled = () => settle?.({ status: 'interrupted' })
       signal.addEventListener('abort', cancelled, { once: true })
       try {
-        const turn = await client.request('turn/start', { threadId, cwd: request.cwd, approvalPolicy: 'never', approvalsReviewer: 'user', sandboxPolicy,
+        const turn = await client.request('turn/start', { threadId, cwd: request.cwd, ...model, approvalPolicy: 'never', approvalsReviewer: 'user', sandboxPolicy,
           input: [{ type: 'text', text: request.prompt+(request.skills?'\nUse only the selected Skill run copies in '+path.join(request.cwd,'.telebot-skills',request.skills.digest)+'. Selected names: '+request.skills.names.join(', ')+'. Keep deduplication state in those run copies. Never modify the original .codex skills.':''), text_elements: [] }], outputSchema: {
           type: 'object', properties: { summary: { type: 'string' }, artifacts: { type: 'array', items: { type: 'string' } } }, required: ['summary', 'artifacts'], additionalProperties: false,
         } }, signal)
@@ -119,8 +127,12 @@ export class NativeCodex implements CodingExecutorPort {
         if (typeof value.summary !== 'string' || !Array.isArray(value.artifacts) || value.artifacts.some(item => typeof item !== 'string')) return { status: 'unknown', text: 'Codex 结构化结果不符合约定。', threadId }
         return { status: 'completed', text: value.summary, artifacts: value.artifacts, threadId }
       } finally { remove(); signal.removeEventListener('abort', cancelled) }
-    } catch (error) { return { status: signal.aborted ? 'failed' : 'unknown', text: signal.aborted ? 'Codex 已取消。' : 'Codex 结果未确认，没有自动重试。', threadId,
-      diagnostic: error instanceof Error && /^codex_[a-zA-Z_]+$/.test(error.message) ? error.message : 'codex_connector_failure' } }
+    } catch (error) {
+      const diagnostic = error instanceof Error && /^codex_[a-zA-Z_]+$/.test(error.message) ? error.message : 'codex_connector_failure'
+      if (diagnostic === 'codex_thread_locked') return { status: 'failed', text: '此 Codex 会话正被另一个 Codex 窗口或进程占用，本轮尚未开始。请关闭占用它的客户端后重新发起续聊，或选择未打开的会话。', diagnostic }
+      if (diagnostic === 'codex_resume_rejected') return { status: 'failed', text: 'Codex 拒绝恢复原会话，本轮尚未开始。请在 Codex 中核对原会话状态后重新发起续聊。', diagnostic }
+      return { status: signal.aborted ? 'failed' : 'unknown', text: signal.aborted ? 'Codex 已取消。' : 'Codex 结果未确认，没有自动重试。', threadId, diagnostic }
+    }
     finally { signal.removeEventListener('abort', abort); await this.release(client) }
   }
   async dispose() { await Promise.allSettled([...this.clients].map(client => this.release(client))) }

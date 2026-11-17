@@ -15,11 +15,11 @@
       "tesseract.js": false
     },
     "tested": {
-      "dsh": "0.2.1-rc.5",
+      "dsh": "0.2.2-rc.3",
       "platform": "win32",
-      "date": "2026-10-31",
-      "checks": 6,
-      "scope": "Official rc.5 Web/ACP, synthetic text ingest/lexical retrieval, restart and isolated uninstall; no real user library or paid model. Electron desktop installation is user-managed."
+      "date": "2026-11-18",
+      "scope": "Official rc.3 Web/ACP isolated install, synthetic text ingest/lexical retrieval, restart and uninstall; no real library or paid model. Existing formal installation retained.",
+      "evidence": "tracking_outputs/latest.json#/dshUpgrade20261118/verification"
     }
   }
 }

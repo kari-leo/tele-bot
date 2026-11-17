@@ -1,5 +1,6 @@
 /** One installable Feishu plugin: configuration UI, webhook and all business capabilities. */
 import type { Context, Fiber } from '@deepseek-ai/cordis'
+import { desktopFull } from '@telebot/core/contracts'
 import WebServer from '@deepseek-ai/dsh-host-webserver'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
@@ -92,7 +93,7 @@ async function configure(ctx: Context, store: Configuration, directory: string, 
   const unregisterBases = ctx.telebotCore.registerFeature('bases', async request => {
     const task = queue.then(async () => {
       const config = store.current
-      if (!config.adminUserIds.includes(request.actor.userId)) throw new Error('actor_not_authorized')
+      if (!desktopFull(request.actor) && !config.adminUserIds.includes(request.actor.userId)) throw new Error('actor_not_authorized')
       if (!config.businessEnabled || !business) return { status: 'failed' as const, text: '飞书业务未启用。' }
       const resources = JSON.parse(config.business.resourcesJson) as Resource[], links = JSON.parse(config.business.baseLinksJson) as BaseLink[]
       const [action, ...parts] = request.text.trim().split(/\s+/), value = parts.join(' ')

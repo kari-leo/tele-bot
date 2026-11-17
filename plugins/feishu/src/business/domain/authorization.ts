@@ -6,7 +6,7 @@ export const permissionMatrix = Object.freeze({
   tasks: ['read', 'create', 'update', 'delete'],
 } as const)
 export type ResourceKind = keyof typeof permissionMatrix
-export interface TrustedActor { origin: 'feishu' | 'web'; userId?: string; chatId?: string }
+export interface TrustedActor { origin: 'feishu' | 'web'; userId?: string; chatId?: string; permissions?: 'full' | 'restricted' }
 export interface ApiGrant {
   kind: 'tenant'
   expiresAt: number
@@ -18,7 +18,7 @@ export interface ApiOperation { kind: ResourceKind; action: string; resource: st
 /** Trusted configuration and credential owner must be supplied separately from model arguments. */
 export function authorizeApi(actor: TrustedActor, admins: readonly string[], operation: ApiOperation,
   grant: ApiGrant | undefined, now: number): void {
-  if (!actor.userId || !admins.includes(actor.userId)) throw new Error('actor_not_authorized')
+  if (!actor.userId || (!(actor.origin === 'web' && actor.permissions === 'full') && !admins.includes(actor.userId))) throw new Error('actor_not_authorized')
   if (actor.origin === 'feishu' && !actor.chatId) throw new Error('feishu_chat_required')
   const actions: readonly string[] | undefined = Object.hasOwn(permissionMatrix, operation.kind) ? permissionMatrix[operation.kind] : undefined
   if (!actions?.includes(operation.action)) throw new Error('unsupported_operation')

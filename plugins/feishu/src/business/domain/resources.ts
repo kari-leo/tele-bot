@@ -65,7 +65,20 @@ export class Resources {
       if (!resource.tableId && inspect) return { tables: await pages(`/open-apis/bitable/v1/apps/${id(resource.id)}/tables`), known_resources_only: true }
       const base = `/open-apis/bitable/v1/apps/${id(resource.id)}/tables/${id(resource.tableId)}`
       if (inspect) return { fields: await pages(base + '/fields'), known_resources_only: true, resource: resource.alias }
-      if (query) return pages(base + '/records/search', 'POST', { ...(p.filter ? { filter: p.filter } : {}), ...(p.field_names ? { field_names: p.field_names } : {}) })
+      if (query) {
+        const body={ ...(p.filter ? { filter: p.filter } : {}), ...(p.field_names ? { field_names: p.field_names } : {}) }
+        // Model tools request a bounded page. Internal legacy enumerations keep
+        // their existing complete-inventory contract and are not used by tools.
+        if(p.page_size!==undefined||p.page_token!==undefined){
+          const size=p.page_size??20
+          if(!Number.isSafeInteger(size)||size<1||size>100)throw Error('invalid_bitable_page_size')
+          if(p.page_token!==undefined&&(typeof p.page_token!=='string'||!p.page_token||p.page_token.length>4096))throw Error('invalid_bitable_page_token')
+          const value=await client.request('POST',base+'/records/search?page_size='+size+(p.page_token?'&page_token='+encode(p.page_token):''),body,signal,false)
+          if(!Array.isArray(value.items)||typeof value.has_more!=='boolean'||value.items.length>size||value.has_more&&(typeof value.page_token!=='string'||!value.page_token||value.page_token===p.page_token))throw Error('invalid_page_response')
+          return {items:value.items,complete:!value.has_more,...(value.has_more?{next_page_token:value.page_token,instruction:'More matching records exist. Continue with params.page_token=next_page_token, retaining the same filter and field_names; do not claim this page is the full table.'}:{})}
+        }
+        return pages(base + '/records/search', 'POST', body)
+      }
       if (!Array.isArray(p.records) || !p.records.length || p.records.length > 500) throw new Error('invalid_record_batch')
       if (operation.action !== 'create') for (const record of p.records) id(record.record_id)
       const action = { create: 'batch_create', update: 'batch_update', delete: 'batch_delete' }[operation.action as 'create' | 'update' | 'delete']

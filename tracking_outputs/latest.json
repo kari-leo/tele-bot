@@ -1,9 +1,256 @@
 {
-  "assessedAt": "2026-11-01T15:38:52.926Z",
-  "branch": "codex/compat-desktop-0.2.1-rc.5",
+  "assessedAt": "2026-11-17T17:08:09.203Z",
+  "branch": "codex/dsh-0.2.2-rc.3-compatibility",
   "workingTreeCommitted": false,
-  "targetRuntime": "0.2.1-rc.5",
-  "development": "Semantic confirmation installed and verified in official desktop: unmatched user replies use a one-shot tool-free call through the official LLM service and the selected session model. Current channel guidance overrides obsolete exact-word instructions. Local module, official ACP and formal startup checks passed; no Web tests, paid model calls or real test messages.",
+  "targetRuntime": "0.2.2-rc.3",
+  "development": "Official dsh 0.2.2-rc.3 compatibility upgrade verified, installed and enabled on the existing desktop profile.",
+  "codexContinuationReceipt20261107": {
+    "requestAt": "2026-11-07T22:55:05.267+08:00",
+    "turnCompletedAt": "2026-11-07T22:58:06.511+08:00",
+    "shellRestartDenied": true,
+    "rejectedArtifact": "Existing Harness launcher outside the resumed workspace",
+    "verification": {
+      "command": "pnpm verify --module codex --gate codex-native",
+      "reproducedBeforeFix": true,
+      "localTestsPassed": 7,
+      "nativeChecksPassed": 18,
+      "paidModelCalls": false,
+      "realFeishuSent": false
+    },
+    "archive": {
+      "filename": "telebot-codex-0.1.0.tgz",
+      "sha256": "4f4f9fe08e4cab3d24b695e105adc0a910ef155d4bdb44c6d91f1ec24df46292"
+    },
+    "production": {
+      "installedLibFilesMatched": 12,
+      "reconciledInboxSequence": 92,
+      "reconciledInboxState": "failed",
+      "originalCodexReceiptPreserved": true,
+      "sentReplyPreserved": true,
+      "pendingAfterRestart": 0,
+      "codexWriterRestarted": true,
+      "feishuLeaseLive": true,
+      "webhookListening": true,
+      "configuredExecutionRoots": [
+        "D:/files_data"
+      ],
+      "configurationPreserved": true,
+      "credentialsPreserved": true
+    }
+  },
+  "codexWriterContention20261107": {
+    "failedResumeAt": "2026-11-07T22:38:15.511+08:00",
+    "workspaceAllowed": true,
+    "selectedThreadOpenInUserCodexClient": true,
+    "productionWriterLockRead": "EBUSY",
+    "isolatedProtocolRejection": "thread already has an active writer",
+    "verification": {
+      "command": "pnpm verify --module codex --gate codex-native",
+      "localTestsPassed": 7,
+      "nativeChecksPassed": 18,
+      "resumeAfterWriterRelease": true,
+      "modelRequestsOnResumeRejection": 0,
+      "paidModelCalls": false,
+      "realFeishuSent": false
+    },
+    "archive": {
+      "filename": "telebot-codex-0.1.0.tgz",
+      "sha256": "eb22330e04d793521dd2ba17664be5b96745e1ba7d16f283036eae269f128e31"
+    },
+    "production": {
+      "updated": [
+        "codex"
+      ],
+      "installedLibFilesMatched": 12,
+      "reconciledFeishuPreTurnRejections": 1,
+      "originalCodexReceiptPreserved": true,
+      "pendingAfterRestart": 0,
+      "codexWriterAlive": true,
+      "channelLeaseLive": true,
+      "webhookListening": true,
+      "configuredExecutionRoots": [
+        "D:/files_data"
+      ],
+      "configurationPreserved": true,
+      "credentialsPreserved": true,
+      "startupLogErrors": 0
+    }
+  },
+  "codexWorkspaceScope20261107": {
+    "workspaceDeniedAt": "2026-11-07T22:30:41.236+08:00",
+    "workspace": "D:/files_data/windborne/coding/tele-bot",
+    "cause": "The target directory existed and the active Codex execution roots were empty.",
+    "authorizedRoots": [
+      "D:/files_data"
+    ],
+    "savedAt": "2026-11-07T22:34:23.700+08:00",
+    "configurationBackup": "D:/files_data/windborne/dsh-runtime/backups/codex-files-data-before-20261107-223422/config.json",
+    "method": "Official local owner settings with revision check and live activation",
+    "scopeProbe": {
+      "allowed": [
+        "D:/files_data",
+        "D:/files_data/windborne/coding/tele-bot"
+      ],
+      "denied": [
+        "D:/tools"
+      ],
+      "sandbox": "workspace-write",
+      "realFeishuSent": false,
+      "paidModelCalls": false
+    },
+    "codexActive": true,
+    "feishuLeaseLive": true,
+    "otherCodexSettingsPreserved": true
+  },
+  "codexResumeNoResponse20261107": {
+    "promptDeliveredAt": "2026-11-07T22:06:42.467+08:00",
+    "unquotedInputAt": "2026-11-07T22:07:01.060+08:00",
+    "observed": "The prompt was sent and the unquoted message entered the ordinary queue. Two older read-only history requests with unknown status kept it pending. No Codex execution was recorded.",
+    "workspace": "D:/files_data/windborne/coding/tele-bot",
+    "configuredExecutionRoots": [],
+    "verification": {
+      "localCommand": "pnpm verify --module feishu --module codex --local",
+      "localTestsPassed": 54,
+      "reproducedRegressions": 2,
+      "installedCommand": "pnpm verify --gate feishu-acp --gate feishu-web",
+      "isolatedGatesPassed": 2,
+      "realFeishuSent": false,
+      "paidModelCalls": false
+    },
+    "candidateRelease": "D:/files_data/windborne/dsh-runtime/releases/telebot-0.1.0-codex-resume-fix-20261107",
+    "archives": {
+      "feishu": "9cbad5a5a49b8fa438050f64ca024c7b54e51f3d7cab64752e51d1ab309f9cb6",
+      "codex": "afac621d130709905c295f6a293f29b1b17041a975ac3a88d728821146ea0944"
+    },
+    "productionCutover": {
+      "performed": true,
+      "approval": "User explicitly approved replacing the pending restart request with this deployment restart.",
+      "originalRequestPreserved": true,
+      "retiredRestartRequests": 1,
+      "pendingAfterRestart": 0,
+      "readOnlyUnknownHistoryRecordsPreserved": 2,
+      "installedLibFilesMatched": {
+        "feishu": 56,
+        "codex": 12
+      },
+      "codexWriterAlive": true,
+      "channelLeaseLive": true,
+      "webhookListening": true,
+      "configurationPreserved": true,
+      "credentialsPreserved": true,
+      "startupLogErrors": 0
+    }
+  },
+  "codexCards20261107": {
+    "historyButtons": [
+      "detail",
+      "next",
+      "refresh",
+      "continue"
+    ],
+    "replyRequiresOriginalTaskCard": true,
+    "newDialogueInvalidatesOlderCards": true,
+    "verification": {
+      "command": "pnpm verify --module codex --module feishu --gate codex-native",
+      "localTestsPassed": 53,
+      "isolatedGatesPassed": 8,
+      "nativeChecksPassed": 17,
+      "realFeishuSent": false,
+      "paidModelCalls": false
+    },
+    "archives": {
+      "core": "74927ce63e1e288a15b6ab3b615a580cd1eb058a642ec77385e329dd8ffc8043",
+      "feishu": "1ad02e748d6d58d0ee309a6d9dbb36921a730a8c7d43a6848fa6d133c8a809d4",
+      "codex": "7d8ac656e092a627957287f2916762572f8d12ec5938436d9275163ab3accfe4"
+    },
+    "production": {
+      "installedLibFilesMatched": {
+        "core": 24,
+        "feishu": 56,
+        "codex": 12
+      },
+      "codexWriterAlive": true,
+      "channelLeaseLive": true,
+      "webhookListening": true,
+      "cardTableCreated": true,
+      "channelSchema": 3,
+      "configuredExecutionRoots": [],
+      "configurationPreserved": true,
+      "credentialsPreserved": true,
+      "startupLogErrors": 0
+    }
+  },
+  "codexRulesAlignment20261107": {
+    "reference": "D:/files_data/windborne/tele_bot",
+    "userConfirmedExplicitResume": true,
+    "historyPageSize": 10,
+    "historyPageExpiryMinutes": 30,
+    "resumeUsesOriginalWorkspace": true,
+    "resumeDeduplicatesByTrustedFeishuMessage": true,
+    "verification": {
+      "command": "pnpm verify --module codex --gate codex-native",
+      "localTestsPassed": 7,
+      "nativeChecksPassed": 17,
+      "codexCli": "0.160.0",
+      "artifactClosure": true,
+      "realFeishuSent": false,
+      "paidModelCalls": false
+    },
+    "archive": {
+      "filename": "telebot-codex-0.1.0.tgz",
+      "sha256": "fd1e2b68971e451323fb974dc22c87b43441ce5780c0f07f8979313e2e2ec564"
+    },
+    "production": {
+      "updated": [
+        "codex"
+      ],
+      "installedLibFilesMatched": 12,
+      "codexWriterAlive": true,
+      "channelLeaseLive": true,
+      "webhookListening": true,
+      "configurationPreserved": true,
+      "credentialsPreserved": true,
+      "configuredExecutionRoots": [],
+      "rootChangeReview": "Automatic review rejected setting the legacy D:/ drive-wide execution root without explicit authorization for that scope."
+    }
+  },
+  "codexHistoryRepair20261107": {
+    "failedFeishuCommandsAt": [
+      "2026-11-07T20:38:57.909+08:00",
+      "2026-11-07T20:39:55.623+08:00"
+    ],
+    "command": "/codex history",
+    "reproducedError": "coding_workspace_not_allowed",
+    "configuredPrivateHistoryOwnerMatched": true,
+    "configuredExecutionRoots": 0,
+    "verification": {
+      "command": "pnpm verify --module codex --gate codex-native",
+      "localTestsPassed": 6,
+      "nativeChecksPassed": 17,
+      "codexCli": "0.160.0",
+      "artifactClosure": true,
+      "historyModelRequests": 0,
+      "paidModelCalls": false,
+      "realFeishuSent": false
+    },
+    "archive": {
+      "filename": "telebot-codex-0.1.0.tgz",
+      "sha256": "33108cdb708cab085cbc5a13cbb65ff0c3bc9a0f0c33e622b8ade0f6979ca01d"
+    },
+    "production": {
+      "updated": [
+        "codex"
+      ],
+      "installedLibFilesMatched": 10,
+      "codexWriterAlive": true,
+      "channelLeaseLive": true,
+      "webhookListening": true,
+      "configurationPreserved": true,
+      "credentialsPreserved": true,
+      "originalUnknownRecords": 2,
+      "originalRepeatedAttempts": 0
+    }
+  },
   "scopeDecisions": {
     "formalInstallation": "agent_authorized_install_and_commit_2026-11-01",
     "windowsOnly": true,
@@ -24,7 +271,14 @@
     "conversationPresentation": "readable_rich_text_or_cards_for_all_plugin_conversation_outputs_json_remains_internal",
     "confirmationReplyRecordCountGate": false,
     "webVerificationForConfirmationFix": false,
-    "confirmationIntent": "current_session_model_one_shot_no_tools_bound_to_admission_candidates"
+    "confirmationIntent": "current_session_model_one_shot_with_conversation_and_tool_history_frozen_multiple_candidates_and_remaining_original_dialogue",
+    "bitableRecordConfirmation": {
+      "create": false,
+      "update": false,
+      "delete": true,
+      "otherResources": "unchanged",
+      "legacyConfirmAll": "accepted_for_compatibility_does_not_control_Bitable_create_update"
+    }
   },
   "formalInstallation": {
     "performed": true,
@@ -42,11 +296,11 @@
     "home": "C:\\Users\\41547\\.dsh",
     "profile": "C:\\Users\\41547\\.dsh\\profiles\\desktop",
     "physicalProfile": "D:\\files_data\\windborne\\dsh-runtime\\profiles\\desktop",
-    "release": "D:/files_data/windborne/dsh-runtime/releases/telebot-0.1.0-semantic-confirmation-20261101",
-    "backup": "D:/files_data/windborne/dsh-runtime/backups/semantic-confirmation-before-2026-11-01T15-31-15-256Z",
+    "release": "D:/files_data/windborne/dsh-runtime/releases/telebot-0.1.0-codex-receipt-fix-20261107",
+    "backup": "D:\\files_data\\windborne\\dsh-runtime\\backups\\codex-receipt-fix-before-20261107-230645",
     "profileBackup": "C:/Users/41547/.dsh/backups/desktop-before-profile-junction-20261101",
-    "launcher": "D:\\files_data\\windborne\\dsh-runtime\\releases\\telebot-0.1.0-semantic-confirmation-20261101\\start-desktop.ps1",
-    "startupEvidenceScope": "filesystem endpoints with living writer PIDs, initialized business databases; no model turns",
+    "launcher": "D:/files_data/windborne/dsh-runtime/releases/telebot-0.1.0-codex-receipt-fix-20261107/start-desktop.ps1",
+    "startupEvidenceScope": "Twelve Codex runtime files matched. The known denied restart was reconciled, and the new Codex writer, Feishu lease and webhook listener were verified.",
     "uiAcceptance": false,
     "adviserEnabled": false,
     "knowledgeVersion": "0.5.2",
@@ -85,16 +339,36 @@
     ],
     "conversationPresentationInstalled": true,
     "credentialsPreserved": true,
-    "explicitApproval": "user_confirmed_2026-11-01",
+    "explicitApproval": "user_requested_harness_plugin_restart_2026-11-07",
     "confirmationRepliesInstalled": true,
-    "semanticConfirmationInstalled": true
+    "semanticConfirmationInstalled": true,
+    "previousRelease": "D:/files_data/windborne/dsh-runtime/releases/telebot-0.1.0-codex-writer-fix-20261107",
+    "previousBackup": "D:/files_data/windborne/dsh-runtime/backups/codex-writer-fix-before-20261107-224919",
+    "installedAt": "2026-11-07T23:08:00.3510428+08:00",
+    "directFeishuMessagesInstalled": true,
+    "nativeFeishuResourceAuthorityInstalled": true,
+    "startupVerified": true,
+    "forcedStopWhileIdle": true,
+    "channelLeaseLive": true,
+    "businessWriterAlive": true,
+    "matchedFeishuRuntimeFiles": 56,
+    "mixedConfirmationInstalled": true,
+    "mixedConfirmationCardsInstalled": true,
+    "bitableDirectWritesInstalled": true,
+    "responsiveToolsInstalled": true,
+    "modelResponsePolicy": {
+      "reasoningEffort": "low",
+      "streamIdleTimeoutMs": 60000,
+      "flashMaxTokens": 16384,
+      "maxRetries": 2
+    }
   },
   "counts": {
     "tests": 80,
     "harness": 11,
     "p0": 18,
-    "feishuAcp": 15,
-    "feishuWeb": 15,
+    "feishuAcp": 14,
+    "feishuWeb": 14,
     "featuresAcp": 25,
     "featuresWeb": 25,
     "setup": 15,
@@ -110,9 +384,9 @@
     "catalogAssertions": 100,
     "scopedLocal": 59,
     "resourceFollowupLocal": 9,
-    "feishuResourcesAcp": 6,
-    "feishuResourcesWeb": 6,
-    "currentLocalModules": 64,
+    "feishuResourcesAcp": 8,
+    "feishuResourcesWeb": 8,
+    "currentLocalModules": 28,
     "progressAcp": 5,
     "progressWeb": 5,
     "questionsAcp": 7,
@@ -124,14 +398,25 @@
     "formalConfirmationReplies": 5,
     "installedConfirmationPhrases": 4,
     "semanticConfirmationLocal": 64,
-    "semanticConfirmationFormal": 7
+    "semanticConfirmationFormal": 7,
+    "feishuMessagesLocal": 54,
+    "feishuMessagesShared": 14,
+    "feishuMessagesInstalled": 67,
+    "feishuMessagesDesktop": 3,
+    "formalFeishuRuntimeFiles": 52,
+    "mixedConfirmationLocal": 72,
+    "formalMixedConfirmationRuntimeFiles": 76,
+    "bitableDirectLocal": 28,
+    "bitableDirectAcp": 8,
+    "bitableDirectWeb": 8,
+    "bitableDirectHarness": 11
   },
   "evidence": {
     "harness": {
       "status": "passed",
       "passedChecks": 11,
       "report": ".runtime/verify-latest.json",
-      "sha256": "aed22765033a77cf9546621e460d52ea4ec69d0128f667c817f16beee594f5fa",
+      "sha256": "c8ea9b4cc99fab0e0e76f8707765c6c9ae88decd8dabadba0097123f4159d05d",
       "retainedEarlierEvidence": true,
       "releaseHashesMatch": false
     },
@@ -145,17 +430,17 @@
     },
     "feishuAcp": {
       "status": "passed",
-      "passedChecks": 15,
+      "passedChecks": 14,
       "report": ".runtime/verify-feishu-latest.json",
-      "sha256": "fc793abd66e971b4137c6e2b396196b38f57a3722a927210c1488f3079546d3a",
+      "sha256": "1a42c85b32e444fa31abfe08d39160732056679e9551c322d2e3159846585141",
       "retainedEarlierEvidence": true,
       "releaseHashesMatch": false
     },
     "feishuWeb": {
       "status": "passed",
-      "passedChecks": 15,
+      "passedChecks": 14,
       "report": ".runtime/verify-feishu-web-latest.json",
-      "sha256": "deb2f052b2e721d830394c31c4b96a8c95c89c2bf1ebac446665b8400694d951",
+      "sha256": "9e3f70d7941cd6ea8c6f5fde5af93799629967b448015b43756d28da40f20e45",
       "retainedEarlierEvidence": true,
       "releaseHashesMatch": false
     },
@@ -187,7 +472,7 @@
       "status": "passed",
       "passedChecks": 15,
       "report": ".runtime/verify-desktop-setup-latest.json",
-      "sha256": "6b11ea146c1805dd0cefe7bbd8516611d480414e0c078efc4422faf7c0250ae8",
+      "sha256": "a281895a219ca9e04d17d31c90bcaf4804ea6a0ea3801c2da54a0a7ec2f99100",
       "retainedEarlierEvidence": true,
       "releaseHashesMatch": false
     },
@@ -220,9 +505,9 @@
     },
     "nativeDesktop": {
       "status": "passed",
-      "passedChecks": 16,
+      "passedChecks": 3,
       "report": ".runtime/verify-desktop-latest.json",
-      "sha256": "14b3b45a45d72a38e7b4464ea823b6b3ab01a70827189640131f21169c884f7b",
+      "sha256": "bcd46f170ab6043771bee26446f28dc92d3aa7a118bf189cb8fea9e1c66af0d4",
       "retainedEarlierEvidence": true,
       "releaseHashesMatch": false
     },
@@ -279,20 +564,20 @@
     },
     "feishuResourcesAcp": {
       "status": "passed",
-      "passedChecks": 6,
+      "passedChecks": 8,
       "report": ".runtime/verify-feishu-resources-latest.json",
-      "sha256": "87ccfe1436ef7b54552ce725624239f418198a827a9f584c26703d2bdd39cc18",
+      "sha256": "c38e7ffa01b62cc5ec6e995d1eb04d0d11d45bee2f385265ace14deec11e417f",
       "retainedEarlierEvidence": false,
       "releaseHashesMatch": true,
       "scope": "Current core/Feishu archives: official ACP, loopback LLM HTTP adapter, semantic typo reply, current guidance, frozen write, idempotency and follow-up context"
     },
     "feishuResourcesWeb": {
       "status": "passed",
-      "passedChecks": 6,
+      "passedChecks": 8,
       "report": ".runtime/verify-feishu-resources-web-latest.json",
-      "sha256": "abe26c8d04c28bb7629e3cbd78d9ad379140bbdf153f3616fc7729b8dbf1afe0",
-      "retainedEarlierEvidence": true,
-      "releaseHashesMatch": false
+      "sha256": "ddd8b1d9cf99cce591830ec93c8f986e558dacae576dedd454fdf56ed5d852de",
+      "retainedEarlierEvidence": false,
+      "releaseHashesMatch": true
     },
     "dialogueModules": {
       "status": "passed",
@@ -306,7 +591,7 @@
       "status": "passed",
       "passedChecks": 5,
       "report": ".runtime/verify-feishu-progress-latest.json",
-      "sha256": "53be74abd7be501db869dace331d44d79fed13f656ecffea596108eb2102ff7b",
+      "sha256": "56020d79f4a33ee65b367774f48da28fc60d7d4964c686b49dbb67ec0cdd6ad0",
       "retainedEarlierEvidence": true,
       "releaseHashesMatch": false
     },
@@ -314,7 +599,7 @@
       "status": "passed",
       "passedChecks": 5,
       "report": ".runtime/verify-feishu-progress-web-latest.json",
-      "sha256": "a65607bebc8d89c00c3e247d9a2e1e7e1b18a10e39b74fb8b8ecdfad5b34f84a",
+      "sha256": "48ae210b08723dd75fde601ca617890cba925b13157203f12fe3504f53681016",
       "retainedEarlierEvidence": true,
       "releaseHashesMatch": false
     },
@@ -322,7 +607,7 @@
       "status": "passed",
       "passedChecks": 7,
       "report": ".runtime/verify-feishu-questions-latest.json",
-      "sha256": "325e4df253d13908eaf0eb11e677bcd4b01bf98ae01056a8c97b15c685c58409",
+      "sha256": "1558d1f163f2e85fbf831056f2836c817dd2957559df30bf2d7fddaa772a17e6",
       "retainedEarlierEvidence": true,
       "releaseHashesMatch": false
     },
@@ -330,7 +615,7 @@
       "status": "passed",
       "passedChecks": 7,
       "report": ".runtime/verify-feishu-questions-web-latest.json",
-      "sha256": "0e2c0c4e9276d57ea913a3781ba04563a31b3e36bcf72e5a2e06ca08af486127",
+      "sha256": "dc31b02504169a82f1b8ca5fb24b8eb4891f6d08507bd2ac1bb9a2689df206a3",
       "retainedEarlierEvidence": true,
       "releaseHashesMatch": false
     },
@@ -383,9 +668,69 @@
       "passedChecks": 7,
       "report": ".runtime/formal-semantic-confirmation-latest.json",
       "sha256": "61296245d77cb8390c6ad8a892fb31186ecf2f12b245f54f9dc7b5817b867399",
-      "retainedEarlierEvidence": false,
-      "releaseHashesMatch": true,
+      "retainedEarlierEvidence": true,
+      "releaseHashesMatch": false,
       "scope": "All six enabled native configuration pages active, 36 current core/Feishu JavaScript files, installed semantic adapter/guidance, seven production bundles, preserved configuration/credentials and schema 3"
+    },
+    "mixedConfirmationAcp": {
+      "status": "passed",
+      "passedChecks": 8,
+      "report": ".runtime/verify-feishu-resources-latest.json",
+      "sha256": "c38e7ffa01b62cc5ec6e995d1eb04d0d11d45bee2f385265ace14deec11e417f",
+      "currentForPackages": [
+        "@telebot/core",
+        "@telebot/feishu"
+      ],
+      "changedPackagesMatch": true,
+      "scope": "Final core/Feishu archives: official installed ACP/Web, loopback models/platform, two frozen writes, duplicate suppression, rich cards, conversation context and remaining dialogue",
+      "releaseHashesMatch": true,
+      "retainedEarlierEvidence": false
+    },
+    "mixedConfirmationWeb": {
+      "status": "passed",
+      "passedChecks": 8,
+      "report": ".runtime/verify-feishu-resources-web-latest.json",
+      "sha256": "ddd8b1d9cf99cce591830ec93c8f986e558dacae576dedd454fdf56ed5d852de",
+      "currentForPackages": [
+        "@telebot/core",
+        "@telebot/feishu"
+      ],
+      "changedPackagesMatch": true,
+      "scope": "Final core/Feishu archives: official installed ACP/Web, loopback models/platform, two frozen writes, duplicate suppression, rich cards, conversation context and remaining dialogue",
+      "releaseHashesMatch": true,
+      "retainedEarlierEvidence": false
+    },
+    "bitableDirectAcp": {
+      "status": "passed",
+      "passedChecks": 8,
+      "report": ".runtime/verify-feishu-resources-latest.json",
+      "sha256": "c38e7ffa01b62cc5ec6e995d1eb04d0d11d45bee2f385265ace14deec11e417f",
+      "currentForPackages": [
+        "@telebot/core",
+        "@telebot/feishu"
+      ],
+      "scope": "Direct update/multiple-record create, verified readback and deduplication; natural single/batch deletion confirmation and mixed dialogue preserved"
+    },
+    "bitableDirectWeb": {
+      "status": "passed",
+      "passedChecks": 8,
+      "report": ".runtime/verify-feishu-resources-web-latest.json",
+      "sha256": "ddd8b1d9cf99cce591830ec93c8f986e558dacae576dedd454fdf56ed5d852de",
+      "currentForPackages": [
+        "@telebot/core",
+        "@telebot/feishu"
+      ],
+      "scope": "Direct update/multiple-record create, verified readback and deduplication; natural single/batch deletion confirmation and mixed dialogue preserved"
+    },
+    "bitableDirectHarness": {
+      "status": "passed",
+      "passedChecks": 11,
+      "report": ".runtime/verify-latest.json",
+      "sha256": "c8ea9b4cc99fab0e0e76f8707765c6c9ae88decd8dabadba0097123f4159d05d",
+      "currentForPackages": [
+        "@telebot/core"
+      ],
+      "scope": "Official installed host compatibility"
     }
   },
   "artifacts": [
@@ -393,7 +738,7 @@
       "name": "@telebot/core",
       "version": "0.1.0",
       "filename": "telebot-core-0.1.0.tgz",
-      "sha256": "3e2edd754b0035a84349eaa089b192ed7deb07adbfa3388d6887b35896e81ca1",
+      "sha256": "c79f2dcde85226947580a26486cd9b1a6e6c5212ef0f18de434d414f005bad18",
       "fixture": false
     },
     {
@@ -407,7 +752,7 @@
       "name": "@telebot/feishu",
       "version": "0.1.0",
       "filename": "telebot-feishu-0.1.0.tgz",
-      "sha256": "b26cdeb28a8f4f4858b78cf315e6dc9d8d1b5f38748a99ee68f3d24b92f6013f",
+      "sha256": "ed14ca96833b458ebd1bca69d3414a5ef7606841047bc5e63100b186ed115fc2",
       "fixture": false
     },
     {
@@ -544,20 +889,21 @@
     "outOfScope": "No remote non-disruptive updater, unified migration wizard, old knowledge migration or Feishu knowledge-space binding"
   },
   "activeWork": {
-    "phase": "semantic_confirmation_installed_verified",
+    "phase": "bitable_direct_writes_installed_verified",
     "modules": [
       "core",
-      "feishu",
       "feishu-business"
     ],
-    "localChecks": 64,
-    "finalFocusedChecks": 55,
-    "installedAcpChecks": 6,
-    "formalStartupChecks": 7,
+    "localChecks": 28,
+    "installedChecks": {
+      "resourcesAcp": 8,
+      "resourcesWeb": 8,
+      "harness": 11
+    },
+    "formalRuntimeFiles": 76,
     "fullSuiteRerun": false,
     "formalInstallationPerformed": true,
-    "webRun": false,
-    "remaining": "User live Feishu acceptance; existing unrelated platform/service boundaries remain"
+    "remaining": "User real Feishu interaction and visual acceptance"
   },
   "configurationSaveFix": {
     "status": "fixed_and_installed",
@@ -638,6 +984,16 @@
     "formalStartupChecks": 5
   },
   "documentation": {
+    "retrospectiveUpdate": {
+      "date": "2026-11-02",
+      "file": "产品与开发过程总结.md",
+      "standaloneWithoutOtherFileReferences": true,
+      "intendedUse": "blog",
+      "projectBranchUrl": "https://github.com/kari-leo/tele-bot/tree/dsh-plugin",
+      "scope": "User-stated selection rationale, scope decisions, interaction evolution and development lessons; delivery state unchanged",
+      "businessTestsRerun": false,
+      "runtimeChanged": false
+    },
     "consolidatedAt": "2026-11-01T14:31:55.112Z",
     "mainDocuments": [
       "README.md",
@@ -811,7 +1167,7 @@
     "replacedBy": "semanticConfirmationFix"
   },
   "semanticConfirmationFix": {
-    "status": "installed_verified",
+    "status": "superseded_by_mixed_batch_confirmation",
     "reproduction": {
       "afterLocalTime": "2026-11-01 23:04 Asia/Shanghai",
       "reply": "好的，请修改把",
@@ -907,6 +1263,592 @@
         "sha256": "aaeddc77423109ce4589cb915a3a8da2303d66db6ca54dd37c27196448300ae6",
         "fixture": false
       }
+    ],
+    "replacedBy": "mixedConfirmationFix"
+  },
+  "feishuMessagingAndContextAssessment": {
+    "date": "2026-11-02",
+    "scope": "Diagnosis, fix, local and official installed verification, then protected backup and formal official-manager update",
+    "findings": {
+      "modelCallableFeishuTextSender": true,
+      "desktopResourceFailure": "Fixed: trusted native full policy recognized locally without Feishu user impersonation; application capabilities and remote ACLs still enforced",
+      "automationDelivery": "origin-bound: desktop to desktop, Feishu to Feishu; no cross-entry target selection",
+      "officialCompaction": "rc.5 default composition includes automatic compaction and /compact; default maxOverflowRetries=1",
+      "feishuRecovery": "/compact while idle; /stop if busy; /new or /reset preserves history/data without carrying old context or confirmations",
+      "lastObservedDesktopInputTokens": 199553,
+      "observedDesktopCompactionEvents": 0,
+      "observedContextOverflow": false
+    },
+    "implementationPending": false,
+    "formalInstallationChanged": true,
+    "paidModelCalls": false,
+    "realFeishuSent": false,
+    "documentation": [
+      "HARNESS_DEVELOPMENT_PLAN.md",
+      "docs/feishu.md",
+      "docs/operations.md",
+      "docs/installation.md",
+      "docs/status.md"
+    ],
+    "implementation": {
+      "state": "installed-and-verified",
+      "modelTool": "feishu_messages",
+      "actions": [
+        "list",
+        "send",
+        "status",
+        "retry"
+      ],
+      "targets": "currently admitted chats/threads; desktop full selects, Feishu stays in its own chat/thread",
+      "sameRequestDeduplication": true,
+      "unknownNeverResent": true,
+      "localAssertions": 54,
+      "sharedCatalogAndArtifactAssertions": 14,
+      "installedAssertions": 67,
+      "installedGates": {
+        "verify-desktop-latest": 3,
+        "verify-feishu-latest": 14,
+        "verify-feishu-web-latest": 14,
+        "verify-feishu-progress-latest": 5,
+        "verify-feishu-progress-web-latest": 5,
+        "verify-feishu-questions-latest": 7,
+        "verify-feishu-questions-web-latest": 7,
+        "verify-feishu-resources-latest": 6,
+        "verify-feishu-resources-web-latest": 6
+      },
+      "formalRuntimeFilesMatched": 52,
+      "realFeishuSent": false,
+      "paidModelCalls": false
+    },
+    "initialReproduction": {
+      "offlineProbes": [
+        "actual request tool catalog contains no Feishu text sender",
+        "quoted desktop turn only invokes schedule list; creates no task",
+        "desktop-origin actor rejected by Feishu business admin check",
+        "/compact reaches official command registry through channel adapter"
+      ],
+      "passed": 4,
+      "formalModuleSuitesRerun": false
+    }
+  },
+  "mixedConfirmationFix": {
+    "status": "installed_verified",
+    "observedLog": {
+      "date": "2026-11-02",
+      "timezone": "Asia/Shanghai",
+      "after": "11:28",
+      "findings": [
+        "Assistant offered batch consent but router required exactly one candidate",
+        "11:55 interpretation failed; 11:56 repeated ambiguous notices",
+        "Rerouting overwrote inbound text; separate classifier lacked dialogue context and continuation output"
+      ]
+    },
+    "reference": {
+      "path": "D:/files_data/windborne/tele_bot",
+      "used": "Behavior reference only: trusted original-message binding, injected conversation context, exact receipts; older table router was also single-selection",
+      "legacyRuntimeCopied": false
+    },
+    "changes": [
+      "conversation and tool history through public session APIs, including cold read handles",
+      "multi-selection frozen candidates, sequential per-item revalidation, one-use batch ticket",
+      "durable original_text and atomic continuation enqueue with actual receipts",
+      "parse failure/ambiguity returns original dialogue without authorization",
+      "Markdown confirmation/notice cards and accurate unknown/failed business status",
+      "larger bounded interpretation budget and fenced JSON support; safe diagnostic codes"
+    ],
+    "local": {
+      "passed": 72,
+      "modules": [
+        "core",
+        "feishu",
+        "feishu-business"
+      ],
+      "log": ".runtime/mixed-confirmation-final-local.log"
+    },
+    "installed": {
+      "acp": 7,
+      "web": 7,
+      "log": ".runtime/mixed-confirmation-final-installed.log",
+      "finalArtifactScope": [
+        "@telebot/core",
+        "@telebot/feishu"
+      ],
+      "otherGateEvidence": "Earlier pass in this work session for Harness, native messages, ACP/Web channel, progress and questions; final changes were verified by local checks and focused ACP/Web resource gates"
+    },
+    "formal": {
+      "backup": "D:/files_data/windborne/dsh-runtime/backups/mixed-confirmation-before-2026-11-02T12-24-30",
+      "paidModelCalls": false,
+      "realFeishuSent": false,
+      "configurationPreserved": true,
+      "credentialsPreserved": true,
+      "runtimeFilesMatched": true,
+      "installedAt": "2026-11-02T12:24:52.9501495+08:00",
+      "forcedStop": true,
+      "release": "D:/files_data/windborne/dsh-runtime/releases/telebot-0.1.0-mixed-confirmation-20261102",
+      "startupVerified": true,
+      "channelSchema": 3,
+      "channelLeaseLive": true,
+      "businessWriterAlive": true,
+      "configurationPagesActive": 6,
+      "webhookListening": true,
+      "profileJunctionPreserved": true,
+      "protectedDataPreserved": true,
+      "verifiedAt": "2026-11-02T04:25:16.930Z",
+      "report": ".runtime/formal-mixed-confirmation-installed.json",
+      "runtimeFiles": 76
+    },
+    "realFeishuSent": false,
+    "paidModelCalls": false,
+    "visualAcceptance": "user_pending",
+    "currentScope": "Still applies to deletion and other remaining confirmation flows; Bitable create/update confirmation removed by subsequent user instruction."
+  },
+  "bitableDirectWritePolicy": {
+    "status": "installed_verified",
+    "requestedOn": "2026-11-02",
+    "policy": {
+      "bitableCreate": "direct",
+      "bitableUpdate": "direct",
+      "bitableDelete": "confirm",
+      "multipleRecords": "same_policy",
+      "otherResources": "unchanged"
+    },
+    "implementation": [
+      "One shared operation path for model tools, aliases and channel commands",
+      "Freeze and verify internally; keep authorization and capability checks",
+      "Automatic requests use trusted inbound source plus tool-call identity; receipt replay never repeats completed/unknown writes",
+      "Refresh resumed conversation guidance; preserve legacy configuration without letting confirmAll override the new policy"
+    ],
+    "verification": {
+      "modules": [
+        "core",
+        "feishu-business"
+      ],
+      "localPassed": 28,
+      "resourcesAcp": 8,
+      "resourcesWeb": 8,
+      "harness": 11,
+      "log": ".runtime/bitable-direct-verify.log"
+    },
+    "formal": {
+      "release": "D:/files_data/windborne/dsh-runtime/releases/telebot-0.1.0-bitable-direct-20261102",
+      "configurationPreserved": true,
+      "runtimeFilesMatched": true,
+      "installedAt": "2026-11-02T14:54:41.2672973+08:00",
+      "paidModelCalls": false,
+      "credentialsPreserved": true,
+      "forcedStop": true,
+      "backup": "D:/files_data/windborne/dsh-runtime/backups/bitable-direct-before-2026-11-02T14-54-18",
+      "realFeishuSent": false,
+      "startupVerified": true,
+      "channelSchema": 3,
+      "channelLeaseLive": true,
+      "businessWriterAlive": true,
+      "configurationPagesActive": 6,
+      "webhookListening": true,
+      "profileJunctionPreserved": true,
+      "protectedDataPreserved": true,
+      "verifiedAt": "2026-11-02T06:55:38.077Z",
+      "report": ".runtime/formal-bitable-direct-installed.json",
+      "runtimeFiles": 76
+    },
+    "realFeishuSent": false,
+    "paidModelCalls": false,
+    "visualAcceptance": "user_pending"
+  },
+  "readOnlyDiagnosis20261104": {
+    "assessedOn": "2026-11-04",
+    "source": "formal desktop session log, official installed packages and current plugin source",
+    "scope": "prompt composition, tool contracts, token usage and 2026-11-03 16:50 failure",
+    "productionModified": false,
+    "paidModelCalls": false,
+    "liveMessagesSent": false,
+    "fixApplied": false,
+    "historicalNetworkFailureReproduced": false,
+    "request": {
+      "provider": "deepseek-account",
+      "model": "deepseek-flash",
+      "reasoningEffort": "high",
+      "maxTokens": 256000,
+      "contextWindow": 1048576,
+      "tools": 71,
+      "toolSchemaCharacters": 60350
+    },
+    "incident": {
+      "timeZone": "Asia/Shanghai",
+      "startedAt": "2026-11-03T16:50:28.388+08:00",
+      "tool": "feishu_bitable_update",
+      "readFailures": [
+        {
+          "callAt": "16:50:37.027",
+          "resultAt": "16:50:47.053",
+          "durationMs": 10026
+        },
+        {
+          "callAt": "16:50:48.663",
+          "resultAt": "16:50:58.685",
+          "durationMs": 10022
+        }
+      ],
+      "error": "read_failed",
+      "stage": "pre-write record snapshot read; error propagates before mutation execution",
+      "likelyCause": "10-second Feishu HTTP read deadline, inferred from durations and installed default; original exception not retained",
+      "otherPossibleCauses": [
+        "transport failure",
+        "response JSON parse failure",
+        "request cancellation"
+      ],
+      "modelStream": {
+        "step3StartedAt": "16:50:58.753",
+        "endedAt": "17:01:08.143",
+        "outputTokens": 1,
+        "visibleFinalText": false,
+        "hostTurnReason": "completed"
+      },
+      "eventualVerifiedSuccessAt": "2026-11-03T17:35:24+08:00",
+      "firstRequestUsage": {
+        "inputTokens": 238,
+        "cacheReadTokens": 387200,
+        "outputTokens": 307
+      },
+      "turnUsage": {
+        "inputTokens": 622,
+        "cacheReadTokens": 1162496,
+        "outputTokens": 447,
+        "totalTokens": 1163565
+      }
+    },
+    "additionalFindings": {
+      "taskFieldsNotSupportedErrorsInSession": 28,
+      "invalidTaskInputErrorsInSession": 4,
+      "scheduleToolContract": "input_json is opaque string; create/update payload structure not exposed in schema or description; generic validation errors do not teach required fields",
+      "provider503ErrorsAt1745": 6,
+      "provider500ErrorsAt1745": 1,
+      "largeHistory": "multiple full-table results and prior troubleshooting; context pressure observed, causal link to incident not proved"
+    },
+    "limits": [
+      "No historical DNS/TLS/proxy exception or HTTP trace exists in read_failed; precise network cause unproved.",
+      "No paid model replay or live remote state mutation performed.",
+      "No implementation tests run for this read-only diagnosis."
+    ],
+    "localPromptSnapshot": ".runtime/diagnostics/harness-prompt-2026-11-03.md",
+    "localToolSnapshot": ".runtime/diagnostics/harness-tools-2026-11-03.json"
+  },
+  "responsiveToolsRepair20261104": {
+    "assessedAt": "2026-11-04T08:38:10.229130+00:00",
+    "status": "installed_and_startup_verified",
+    "runtime": "0.2.1-rc.5",
+    "development": "Structured schedule/Bitable tool contracts, actionable errors, bounded Bitable pages, classified safe read retries, honest empty-final handling and official model response policy.",
+    "modules": [
+      "core",
+      "automation",
+      "feishu-business",
+      "feishu",
+      "desktop"
+    ],
+    "localAssertions": 99,
+    "installedChecks": 105,
+    "verificationCommands": [
+      "pnpm verify --module automation --module feishu-business --module core --local",
+      "pnpm verify --module core --module feishu-business --module feishu --module desktop --local",
+      "pnpm verify --module core --module automation --module feishu-business --module feishu --module desktop --installed",
+      "pnpm verify --gate model-limits --installed"
+    ],
+    "verification": {
+      "local": true,
+      "officialInstalled": true,
+      "modelLimits": true,
+      "artifactClosure": true,
+      "realServiceWrites": false,
+      "realMessagesSent": false,
+      "paidInference": false
+    },
+    "redEvidence": ".runtime/diagnostics/repair-red.log",
+    "artifacts": [
+      {
+        "name": "@telebot/core",
+        "version": "0.1.0",
+        "filename": "telebot-core-0.1.0.tgz",
+        "sha256": "f51b95bbb6c7c1ed6206f5f190e8303a3ec8d7af403ad5a6a94b67a712c7dfb7",
+        "fixture": false
+      },
+      {
+        "name": "@telebot/desktop",
+        "version": "0.1.0",
+        "filename": "telebot-desktop-0.1.0.tgz",
+        "sha256": "6345ba6994a8199d9390b7fe1f874157bbde0d78f2795ca441828a4f27cc931c",
+        "fixture": false
+      },
+      {
+        "name": "@telebot/feishu",
+        "version": "0.1.0",
+        "filename": "telebot-feishu-0.1.0.tgz",
+        "sha256": "44e2d0661612a1c657863e1cd2b2fc8c325d3a3be9ccb1e89dee428cbf096cd6",
+        "fixture": false
+      },
+      {
+        "name": "@telebot/codex",
+        "version": "0.1.0",
+        "filename": "telebot-codex-0.1.0.tgz",
+        "sha256": "b45716c7fda15dff4297e03df6149157d2a58635f15a69fde9ee059c300b6c7d",
+        "fixture": false
+      },
+      {
+        "name": "@telebot/adviser",
+        "version": "0.1.0",
+        "filename": "telebot-adviser-0.1.0.tgz",
+        "sha256": "9f8442302785015037a7221c7978ac6a08c27a401fd6d4dc310206c26939bd42",
+        "fixture": false
+      },
+      {
+        "name": "@telebot/publishing",
+        "version": "0.1.0",
+        "filename": "telebot-publishing-0.1.0.tgz",
+        "sha256": "b676f1ab5dcc30981bdca8470a50a3d608dc4e79392e9ce25dfbf72f98b74c75",
+        "fixture": false
+      },
+      {
+        "name": "@telebot/automation",
+        "version": "0.1.0",
+        "filename": "telebot-automation-0.1.0.tgz",
+        "sha256": "de49cd6580c671d88b4786ca34a2c61e39586584faf84275ff8f8d87be437cf6",
+        "fixture": false
+      }
+    ],
+    "formalInstallation": {
+      "updated": [
+        "core",
+        "feishu",
+        "automation"
+      ],
+      "pluginConfigurationPreserved": true,
+      "stopMethod": "WM_CLOSE then stop any residual official processes after idle check and backup",
+      "credentialsPreserved": true,
+      "backup": "D:\\files_data\\windborne\\dsh-runtime\\backups\\responsive-tools-before-20261104-163458",
+      "provider": {
+        "reasoningEffort": "low",
+        "streamIdleTimeoutMs": 60000,
+        "flashMaxTokens": 16384,
+        "maxRetries": 2
+      },
+      "release": "D:/files_data/windborne/dsh-runtime/releases/telebot-0.1.0-responsive-tools-20261104",
+      "channelLeaseLive": true,
+      "inboxStates": {
+        "completed": 51,
+        "failed": 2,
+        "merged": 1
+      },
+      "outboxStates": {
+        "sent": 234
+      },
+      "automationWriterPid": 43084,
+      "installedLibFilesMatched": {
+        "core": 24,
+        "feishu": 56,
+        "automation": 12
+      },
+      "compatibilityVersion": "0.2.1-rc.5",
+      "stdout.logBytes": 206,
+      "stdout.logErrorLines": 0,
+      "stderr.logBytes": 0,
+      "stderr.logErrorLines": 0
+    },
+    "legacyToolAliasesRemoved": 5,
+    "modelQueryDefaultPageSize": 20,
+    "httpReadAttempts": 2,
+    "unknownWriteReplay": false,
+    "channelSchema": 3,
+    "pinnedPnpm": "D:/files_data/windborne/dsh-runtime/prerequisites/pnpm-11.28.5",
+    "limits": [
+      "Historical network outage was not recreated against the real tenant.",
+      "Official silent-stream timeout does not impose a total turn deadline while data continues.",
+      "Existing long histories retained; no paid compaction call performed.",
+      "Formal visual interaction and real-service end-to-end acceptance remain user-managed."
     ]
+  },
+  "dshUpgrade20261118": {
+    "status": "verified_and_enabled",
+    "from": "0.2.1-rc.5",
+    "to": "0.2.2-rc.3",
+    "officialRelease": "https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.2-rc.3",
+    "fixes": [
+      "Exact bundle engines and host peers: Cordis 4.1.0, Schemastery 3.19.0",
+      "Agent-owned durable model selection",
+      "Typed official schedule timing, explicit targets, edit/delete, delivery targets and ended/paused states",
+      "Official batch tool dispatch in isolated diagnostics fixture",
+      "Native schedule_edit guard for Feishu task isolation",
+      "Missing transcript in command-only confirmation interpretation",
+      "Complete official development peer closure and pnpm 11 D-drive store environment",
+      "Explicit Base management precedes pending semantic confirmation routing",
+      "Native acceptance probe observes public live Session/persistence instead of removed controller.inspect"
+    ],
+    "verification": {
+      "localTestsCovered": 132,
+      "initialReleaseLocalPassed": 131,
+      "postFixCoreFeishuPassed": 65,
+      "postFixFeishuPassed": 48,
+      "passedGates": [
+        "harness",
+        "p0",
+        "composition",
+        "composition-web",
+        "resources-acp",
+        "resources-web",
+        "progress-acp",
+        "progress-web",
+        "questions-acp",
+        "questions-web",
+        "settings",
+        "settings-desktop",
+        "desktop",
+        "knowledge",
+        "model-limits",
+        "codex-native"
+      ],
+      "pendingGates": [],
+      "gateChecks": {
+        "harness": 11,
+        "p0": 18,
+        "composition": 25,
+        "composition-web": 25,
+        "resources-acp": 9,
+        "resources-web": 9,
+        "progress-acp": 5,
+        "progress-web": 5,
+        "questions-acp": 7,
+        "questions-web": 7,
+        "settings": 15,
+        "settings-desktop": 15,
+        "desktop": 19,
+        "knowledge": 6,
+        "model-limits": 2,
+        "codex-native": 18
+      },
+      "installedAndNativeChecks": 196,
+      "entry": "pnpm verify --release, then only affected module regressions and remaining named gates after fixes",
+      "unchangedEarlyGatesRetained": [
+        "harness",
+        "p0"
+      ],
+      "frozenOfflineInstallPassed": true,
+      "exactOfficialHostPeersMatched": 25,
+      "paidModels": false,
+      "realFeishuSent": false
+    },
+    "production": {
+      "backup": "D:/files_data/windborne/dsh-runtime/backups/dsh-0.2.2-rc.3-before-20261118-003014",
+      "stoppedByUser": true,
+      "activeAutomationTasks": 0,
+      "pendingInbound": 0,
+      "pendingOutbound": 0,
+      "retainedUnknownInbound": 2,
+      "installed": true,
+      "enabled": true,
+      "matchedRuntimeFiles": 122,
+      "preservedPluginConfigurations": 6,
+      "credentialsPreserved": true,
+      "profilePatchPreserved": true,
+      "release": "D:/files_data/windborne/dsh-runtime/releases/telebot-0.1.0-dsh-0.2.2-rc.3-20261118",
+      "pluginConfigurationsPreserved": true,
+      "channelLeaseLive": true,
+      "inbox": [
+        {
+          "state": "cancelled",
+          "count": 1
+        },
+        {
+          "state": "completed",
+          "count": 88
+        },
+        {
+          "state": "failed",
+          "count": 7
+        },
+        {
+          "state": "merged",
+          "count": 1
+        },
+        {
+          "state": "unknown",
+          "count": 2
+        }
+      ],
+      "outbox": [
+        {
+          "state": "sent",
+          "count": 304
+        }
+      ],
+      "automationWriterAlive": true,
+      "codexWriterAlive": true,
+      "startupErrorLines": 0,
+      "activePlugins": [
+        "telebot-core",
+        "telebot-automation",
+        "telebot-publishing",
+        "telebot-feishu",
+        "telebot-desktop",
+        "telebot-codex"
+      ],
+      "adviserEnabled": false,
+      "webhookSourceRejection": 403,
+      "desktopProcessId": 23620,
+      "originalDataPreserved": true,
+      "privateStartupLogs": "D:/files_data/windborne/dsh-runtime/logs/desktop-dsh-0.2.2-rc.3-20261118"
+    },
+    "archives": [
+      {
+        "name": "@telebot/core",
+        "version": "0.1.0",
+        "filename": "telebot-core-0.1.0.tgz",
+        "sha256": "b0e9fa3b8357b6ec19af6695e4a55a5e87616df78a1e997dba8152b5058ac82e",
+        "fixture": false
+      },
+      {
+        "name": "@telebot/desktop",
+        "version": "0.1.0",
+        "filename": "telebot-desktop-0.1.0.tgz",
+        "sha256": "2a125cc7a48c35aaca34b2580d2c3746a9bf48e1aeeffe5e8cbeb845223d597e",
+        "fixture": false
+      },
+      {
+        "name": "@telebot/feishu",
+        "version": "0.1.0",
+        "filename": "telebot-feishu-0.1.0.tgz",
+        "sha256": "776fa7e8fb0d1834ad1d9fab11335d281c32f33b582a46edee73a4590312581f",
+        "fixture": false
+      },
+      {
+        "name": "@telebot/codex",
+        "version": "0.1.0",
+        "filename": "telebot-codex-0.1.0.tgz",
+        "sha256": "e3901868fbf40dcdf2abf1cb837562938f4bc9452a4d2456781ae693dd286bb6",
+        "fixture": false
+      },
+      {
+        "name": "@telebot/adviser",
+        "version": "0.1.0",
+        "filename": "telebot-adviser-0.1.0.tgz",
+        "sha256": "d7e817dffc7205693bc17620799aaba1fc3d803199fb7675afa0d45bb84282b2",
+        "fixture": false
+      },
+      {
+        "name": "@telebot/publishing",
+        "version": "0.1.0",
+        "filename": "telebot-publishing-0.1.0.tgz",
+        "sha256": "45860401a278bd56bde280e6502f096a81e5add761cfc0eb0f3375edaedb88f0",
+        "fixture": false
+      },
+      {
+        "name": "@telebot/automation",
+        "version": "0.1.0",
+        "filename": "telebot-automation-0.1.0.tgz",
+        "sha256": "07a4ad9a09b63e71ff3653d6700d6b49599da83e6310f8064f2e384a7018eba6",
+        "fixture": false
+      }
+    ],
+    "publication": {
+      "branch": "codex/dsh-0.2.2-rc.3-compatibility",
+      "status": "pending"
+    }
   }
 }

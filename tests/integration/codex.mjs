@@ -94,6 +94,24 @@ try {
   const details = await app.request('thread/read', { threadId, includeTurns: true })
   assert(details.thread.turns.length > 0)
   check('native thread/list pagination and thread/read expose the persisted Codex history independently of Harness Sessions')
+  const second = await startCodex({ cli, cwd, env })
+  try {
+    await assert.rejects(second.request('thread/resume', { threadId, cwd, sandbox: 'workspace-write', approvalPolicy: 'never' }), /already has an active writer/i)
+  } finally { await second.stop() }
+  const contender = new NativeCodex(cli, home, env)
+  try {
+    const lockedRequest = { userId: 'test-admin', chatId: 'test-chat', sessionId: 'locked-thread', cwd, mode: 'apply', prompt: 'P4_LOCKED isolated request' }
+    const count = requests.length
+    const blocked = await contender.execute({ ...lockedRequest, digest: codingDigest(lockedRequest) }, { sandbox: 'workspace-write', signal: AbortSignal.timeout(30000) }, threadId)
+    assert.equal(blocked.status, 'failed', JSON.stringify(blocked))
+    assert.equal(blocked.diagnostic, 'codex_thread_locked')
+    assert.match(blocked.text, /占用/)
+    const missing = await contender.execute({ ...lockedRequest, digest: codingDigest(lockedRequest) }, { sandbox: 'workspace-write', signal: AbortSignal.timeout(30000) }, '11111111-1111-1111-1111-111111111111')
+    assert.equal(missing.status, 'failed', JSON.stringify(missing))
+    assert.equal(missing.diagnostic, 'codex_resume_rejected')
+    assert.equal(requests.length, count)
+  } finally { await contender.dispose() }
+  check('An exclusive native writer on a readable thread causes a definite busy rejection without starting a turn')
   await app.stop(); app = await startCodex({ cli, cwd, env })
   const resumed = await app.request('thread/resume', { threadId, cwd, sandbox: 'read-only', approvalPolicy: 'never' })
   assert.equal(resumed.thread.id, threadId)
@@ -149,6 +167,18 @@ try {
     const skills=new RunSkills(skillSource,['synthetic']),service = new CodingService(backend, path.join(work, 'coding.sqlite'), ['test-admin'], [cwd], 'test-admin',1200000,900000,skills)
     try {
       const actor = { ...binding, privateChat: true, origin: 'feishu' }
+      const historyActor = { ...actor, cwd: path.join(work, 'unavailable') }
+      const beforeHistory = requests.length
+      const history = await service.command(historyActor, 'history', AbortSignal.timeout(30000))
+      assert.equal(history.status, 'completed')
+      assert(history.card.actions.some(action => action.command === 'read ' + result.threadId), history.text)
+      const archivedHistory = await service.command(historyActor, 'read ' + threadId, AbortSignal.timeout(30000))
+      assert.equal(archivedHistory.status, 'completed')
+      assert(archivedHistory.text.includes(threadId), archivedHistory.text)
+      assert(archivedHistory.text.includes('P0 loopback persistence probe'), archivedHistory.text)
+      assert(!archivedHistory.card.actions.some(action => action.label === '继续此会话'))
+      assert.equal(requests.length, beforeHistory)
+      check('Feishu private history lists threads and reads archived details outside workspace grants without a model request')
       const proposal = await service.command(actor, 'apply P4_WRITE_ARTIFACT create the controlled artifact', AbortSignal.timeout(30000))
       const token = proposal.text.match(/\/codex confirm ([a-f0-9-]+)/)?.[1]
       assert(token)
@@ -161,17 +191,16 @@ try {
       assert.equal(requests.length, count)
       check('P4 production service freezes and consumes a write grant, verifies the real artifact hash and never repeats native execution')
       const thread=JSON.parse(applied.text).threadId
-      const resume=await service.command(actor,'resume '+thread+' P4_WRITE_ARTIFACT update only the controlled workspace artifact',AbortSignal.timeout(30000))
-      const resumeToken=resume.text.match(/\/codex resume-confirm ([a-f0-9-]+)/)?.[1]
-      assert(resumeToken);assert(resume.text.includes('关闭 Shell 网络'))
-      const continued=await service.command(actor,'resume-confirm '+resumeToken,AbortSignal.timeout(30000))
+      const resumeActor = { ...historyActor, sourceId: 'explicit-feishu-request' }
+      const resumeCommand = 'resume ' + thread + ' P4_WRITE_ARTIFACT update only the controlled workspace artifact'
+      const continued = await service.command(resumeActor, resumeCommand, AbortSignal.timeout(30000))
       assert.equal(continued.status,'completed',continued.text)
       assert.equal(JSON.parse(continued.text).threadId,thread)
       assert.equal(continued.artifacts[0].sha256.length,64)
       const afterResume=requests.length
-      await assert.rejects(service.command(actor,'resume-confirm '+resumeToken,AbortSignal.timeout(30000)),/confirmation/)
+      await service.command(resumeActor, resumeCommand, AbortSignal.timeout(30000))
       assert.equal(requests.length,afterResume)
-      check('P4 native continuation resets a one-use confirmed workspace-write policy and preserves the original thread with verified artifacts')
+      check('P4 explicit Feishu continuation runs once in the original thread workspace with a fresh workspace-write policy and verified artifacts')
       for(const extension of ['csv','xlsx']){
         const plan=await service.command(actor,'apply P4_WRITE_'+extension.toUpperCase()+' generate the controlled '+extension+' artifact',AbortSignal.timeout(30000)),token=plan.text.match(/\/codex confirm ([a-f0-9-]+)/)?.[1];assert(token)
         const output=await service.command(actor,'confirm '+token,AbortSignal.timeout(30000));assert.equal(output.status,'completed',output.text);assert(output.artifacts[0].path.endsWith('.'+extension));assert.equal(output.artifacts[0].sha256.length,64)

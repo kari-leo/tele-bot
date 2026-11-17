@@ -4,6 +4,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { TelebotCore } from '@telebot/core'
 import type { TrustedActor } from '@telebot/core/contracts'
+import { desktopFull, operationIdentity } from '@telebot/core/contracts'
 import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import { FeishuHttp, origin } from './adapters/http.js'
@@ -11,6 +12,8 @@ import { OperationLedger } from './adapters/ledger.js'
 import { Resources, validateResources, type Operation, type Resource } from './domain/resources.js'
 import { Config } from './config.js'
 import { discoverBase } from './adapters/discovery.js'
+import { bitableOperation, type BitableToolArgs } from './domain/tool-input.js'
+import { bitableParameters } from './harness/tool-schema.js'
 export { Config }
 
 export const name = 'telebot-feishu-business'
@@ -28,14 +31,20 @@ export async function apply(ctx: Context, config: Config, access: { tenantGrant(
   }))
   let resourceHold = false
   const ledger = new OperationLedger(path.join(directory, 'operations.sqlite'))
-  const authorize = (actor: TrustedActor) => { if (!config.adminUserIds.includes(actor.userId)) throw new Error('actor_not_authorized') }
+  const authorize = (actor: TrustedActor) => { if (!desktopFull(actor) && !config.adminUserIds.includes(actor.userId)) throw new Error('actor_not_authorized') }
   const prepare = async (actor: TrustedActor, operation: Operation) => {
     if (resourceHold) throw new Error('resource_configuration_busy')
     authorize(actor)
     const resource = service.configured(operation.resource)
     resource.expiresAt = (await access.tenantGrant()).expiresAt
   }
-  const invoke = async (actor: TrustedActor, operation: Operation, signal: AbortSignal) => { await prepare(actor, operation); return ledger.preview(service, actor, operation, signal) }
+  const invoke = async (actor: TrustedActor, operation: Operation, signal: AbortSignal, requestId?: string) => {
+    await prepare(actor, operation)
+    if (desktopFull(actor) && !['inspect', 'query'].includes(operation.action) && !requestId) throw new Error('native_operation_identity_required')
+    const automatic=!['inspect','query'].includes(operation.action)&&(desktopFull(actor)||service.configured(operation.resource).kind==='bitable'&&['create','update'].includes(operation.action))
+    const identity=desktopFull(actor)?requestId:actor.sourceId?JSON.stringify([actor.sourceId,requestId??'command']):undefined
+    return ledger.execute(service,actor,operation,signal,automatic,automatic?identity:undefined)
+  }
   const lifetime = new AbortController(), jobs = new Set<Promise<any>>()
   const track = <T>(work: () => Promise<T>) => { const job = work(); jobs.add(job); job.finally(() => jobs.delete(job)).catch(() => {}); return job }
   const refresh = async (actor: TrustedActor) => {
@@ -75,10 +84,10 @@ export async function apply(ctx: Context, config: Config, access: { tenantGrant(
     } else if (action === 'cancel') result = { cancelled: ledger.cancel(actor, value) }
     else {
       const operation = JSON.parse(text) as Operation
-      result = await invoke(actor, operation, signal)
-      if (!config.confirmAll && ['create', 'update'].includes(operation.action) && operation.params.records?.length === 1 && result && typeof result === 'object' && 'token' in result) result = await ledger.confirm(service, actor, String(result.token), signal)
+      result = await invoke(actor, operation, signal, request.id)
     }
-    return { status: 'completed', text: renderPluginResult(JSON.stringify(result)) }
+    const outcome=result&&typeof result==='object'&&'status' in result?result.status:undefined
+    return { status: outcome==='unknown'?'unknown':outcome==='failed'?'failed':outcome==='cancelled'?'cancelled':'completed', text: renderPluginResult(JSON.stringify(result)) }
   })
   const unregister = ctx.telebotCore.registerFeature('feishu', handler)
   const unregisterBitable = ctx.telebotCore.registerFeature('bitable', handler)
@@ -86,7 +95,7 @@ export async function apply(ctx: Context, config: Config, access: { tenantGrant(
   ctx.effect(() => async () => { unregister(); unregisterBitable(); unregisterConfirm(); lifetime.abort(); await Promise.allSettled([...jobs]); ledger.close() })
   ctx.tools.register(defineTool({
     name: 'feishu_resources',
-    description: 'List ONLY resources explicitly connected to this Feishu plugin, including table names and exact aliases. Call this FIRST for natural-language requests such as "操作 todo 表格"; use its alias with feishu_bitable_inspect/query. Does not scan local files or enumerate tenant resources. Empty means no links registered in plugin settings; platform API permissions alone do not register resources. Ask for a Base link in that case. Writes still require a frozen preview and trusted user confirmation; table/schema editing is not supported.',
+    description: 'List ONLY resources explicitly connected to this Feishu plugin, including table names and exact aliases. Call this FIRST for natural-language requests such as "操作 todo 表格"; use its alias with feishu_bitable_inspect/query. Does not scan local files or enumerate tenant resources. Empty means no links registered in plugin settings; platform API permissions alone do not register resources. Ask for a Base link in that case. Authenticated full-access desktop owners use their trusted policy; Bitable creates and updates execute immediately after authorization and return verified receipts; Bitable deletes and other resource writes require confirmation. Table/schema editing is not supported.',
     parameters: { kind: { type: 'string', enum: ['bitable','documents','calendar','tasks'] } },
     output: { schema: { type: 'object', properties: { json: { type: 'string', required: true } }, additionalProperties: false }, render: (_args, value) => [{ type:'text', text:renderPluginResult(value.json) }] },
     async execute(args, exec) { return track(async()=>{
@@ -118,21 +127,21 @@ export async function apply(ctx: Context, config: Config, access: { tenantGrant(
     }) },
   }))
   const tool = (toolName: string, fixedAction?: Operation['action'], kind?: Resource['kind']) => ctx.tools.register(defineTool({
-    name: toolName, description: 'Feishu configured resource operation. FIRST use feishu_resources to discover exact aliases and table names; never guess a resource from a natural-language name. Inspect before record operations. No schema/field editing. Writes return a frozen preview with status "confirmation_required" — that is a normal pause awaiting the user, NOT a failure. Relay the returned preview (baseline → new values) to the user and tell them to reply 「确认」/「取消」 or send /bitable confirm <token> / /bitable cancel <token>. Application identity only.',
-    parameters: { resource: { type: 'string', required: true }, action: { type: 'string', enum: ['inspect', 'query', 'create', 'update', 'delete'] }, params_json: { type: 'string', required: true } },
+    name: toolName, description: kind==='bitable'?'Feishu Bitable '+fixedAction+'. Discover aliases via feishu_resources and inspect fields first. Use structured params; query defaults to 20 records, so filter and select fields. Create/update execute and verify immediately; delete returns a preview for real user confirmation. No schema editing; application ACLs still apply.':'Feishu configured '+kind+' operation. Discover aliases via feishu_resources first. Application identity and ACLs apply. Writes return confirmation previews; trusted full-access desktop owners may execute immediately.',
+    parameters: kind==='bitable'?bitableParameters(fixedAction!):{ resource: { type: 'string', required: true }, action: { type: 'string', enum: ['inspect', 'query', 'create', 'update', 'delete'],required:true }, params_json: { type: 'string', required: true } },
     output: { schema: { type: 'object', properties: { json: { type: 'string', required: true } }, additionalProperties: false }, render: (_args, value) => [{ type: 'text', text: renderPluginResult(value.json) }] },
     async execute(args, exec) { return track(async () => {
       if (!exec.agent) throw new Error('trusted_agent_required')
       const actor = ctx.telebotCore.actor(exec.agent.session.id)
-      const operation: Operation = { resource: args.resource, action: fixedAction ?? args.action as Operation['action'], params: JSON.parse(args.params_json) }
+      const input=args as unknown as BitableToolArgs
+      const operation: Operation = kind==='bitable'?bitableOperation(fixedAction!,input):{ resource: input.resource, action: input.action as Operation['action'], params: JSON.parse(input.params_json!) }
       await prepare(actor, operation)
       if (kind && service.resource(actor, operation).kind !== kind) throw new Error('resource_kind_mismatch')
-      return { json: JSON.stringify(await invoke(actor, operation, AbortSignal.any([exec.signal, lifetime.signal]))) }
+      return { json: JSON.stringify(await invoke(actor, operation, AbortSignal.any([exec.signal, lifetime.signal]), operationIdentity(actor, String(exec.callId)))) }
     })
     },
   }))
   for (const action of ['inspect', 'query', 'create', 'update', 'delete'] as const) tool('feishu_bitable_' + action, action, 'bitable')
-  for (const [old, action] of [['bitable_inspect', 'inspect'], ['bitable_query', 'query'], ['bitable_create_records', 'create'], ['bitable_update_records', 'update'], ['bitable_delete_records', 'delete']] as const) tool(old, action, 'bitable')
   for (const kind of ['documents', 'calendar', 'tasks'] as const) tool('feishu_' + kind, undefined, kind)
   return {
     invalidatePending: () => ledger.invalidatePending(),

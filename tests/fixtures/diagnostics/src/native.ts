@@ -3,6 +3,8 @@ import type {Context} from '@deepseek-ai/cordis'
 import {writeFile,mkdir} from 'node:fs/promises'
 import path from 'node:path'
 import {randomUUID} from 'node:crypto'
+import {SessionId} from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-session-persistence'
 export async function installNativeProbes(ctx:Context,directory:string){
  const host=ctx as any,token=randomUUID(),origin=host.webServer.getOrigin(),actors=new Map<string,any>()
  await mkdir(directory,{recursive:true})
@@ -18,8 +20,10 @@ export async function installNativeProbes(ctx:Context,directory:string){
   try{
    let raw='';for await(const part of req)raw+=part;const input=JSON.parse(raw);let result:any
    if(input.action==='inspect'){
-    const observed=await host.sessionController.inspect(input.sessionId)
-    result={events:observed.events??observed.session?.snapshotEvents?.(),header:observed.meta,actor:actors.get(input.sessionId),status:host.agents.get(input.sessionId)?.status,capabilities:{features:ctx.telebotCore.hasActorProvider('web')}}
+    const id=SessionId(input.sessionId),live=ctx.agents.get(id)
+    let events=live?.session.snapshotEvents(),header=live?.session.header
+    if(!live){const handle=await ctx.sessionPersistence.open(id,'read');try{events=(await handle.read()).events;header=handle.header}finally{await handle.close()}}
+    result={events,header,actor:actors.get(input.sessionId),status:live?.status,capabilities:{features:ctx.telebotCore.hasActorProvider('web')}}
    }else if(input.action==='delivery'){
     const actor=actors.get(input.sessionId);if(!actor)throw new Error('fixture_actor_missing')
     result=await ctx.telebotCore.deliver({id:input.id,actor,result:input.result})

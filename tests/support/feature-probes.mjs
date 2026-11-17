@@ -35,7 +35,7 @@ export async function verifyFeatures({ post, message, settled, received, platfor
   const uploadsBeforeAlias=platform.uploads.length
   model.toolCases.set('CODEX_ALIAS_ATTACK',{name:'telebot_codex',arguments:{mode:'apply',prompt:token}})
   await send('codex_alias_denied','TELEBOT_TEST:CODEX_ALIAS_ATTACK')
-  assert(model.requests.some(row=>row.instruction==='CODEX_ALIAS_ATTACK'&&row.receipt?.includes('apply_token_requires_explicit_confirm')))
+  assert(model.requests.some(row=>row.instruction==='CODEX_ALIAS_ATTACK'&&row.receipt?.includes('apply_token_requires_explicit_confirm')),JSON.stringify(model.requests.filter(row=>row.instruction==='CODEX_ALIAS_ATTACK').map(({names,receipt})=>({names,receipt}))))
   assert.equal(platform.uploads.length,uploadsBeforeAlias)
   check('P4 actual model apply-token call cannot consume a trusted user grant; explicit confirmation remains required')
   await send('codex_confirm', '/codex confirm ' + token)
@@ -88,13 +88,17 @@ export async function verifyFeatures({ post, message, settled, received, platfor
   assert(researchRequests.every(row=>!row.names.some(name=>['bash','pwsh','shell','telebot_codex','publish_source','telebot_schedule','skill'].includes(name)||name.startsWith('feishu_'))))
   check('P6 per-occurrence confirmed research runs the official Agent with restricted tools and delivers a hash-verified new report without Shell, MCP or publication')
 
-  await send('bitable_preview', '/feishu ' + JSON.stringify({ resource: 'test-table', action: 'create', params: { records: [{ fields: { name: 'isolated row' } }] } }))
-  const plan = {token:tokenOf(bodyOf('bitable_preview'))}
-  assert(bodyOf('bitable_preview').includes('尚未执行')); assert.equal(platform.records.size, 0)
-  await send('bitable_confirm', '/feishu confirm ' + plan.token)
-  assert(received('bitable_confirm').body.content.includes('已完成')); assert.equal(platform.records.size, 1)
-  await send('bitable_repeat', '/feishu confirm ' + plan.token); assert.equal(platform.records.size, 1)
-  check('P3 installed Bitable bundle freezes a preview, writes only on the trusted confirmation and verifies remote readback without duplicate records')
+  const createText='/feishu '+JSON.stringify({resource:'test-table',action:'create',params:{records:[{fields:{name:'isolated row'}}]}})
+  await send('bitable_create',createText)
+  assert(bodyOf('bitable_create').includes('已完成'));assert(!bodyOf('bitable_create').includes('尚未执行'));assert.equal(platform.records.size,1)
+  const recordId=[...platform.records.keys()][0]
+  await send('bitable_preview','/feishu '+JSON.stringify({resource:'test-table',action:'delete',params:{records:[{record_id:recordId}]}}))
+  const plan={token:tokenOf(bodyOf('bitable_preview'))}
+  assert(bodyOf('bitable_preview').includes('尚未执行'));assert.equal(platform.records.size,1)
+  await send('bitable_confirm','/feishu confirm '+plan.token)
+  assert(received('bitable_confirm').body.content.includes('已完成'));assert.equal(platform.records.size,0)
+  await send('bitable_repeat','/feishu confirm '+plan.token);assert.equal(platform.records.size,0)
+  check('P3 installed Bitable creates directly while deletion retains trusted one-use confirmation and verified readback')
 
   const event = { summary: 'isolated calendar event', start_time: { timestamp: '1800000000', timezone: 'Asia/Shanghai' }, end_time: { timestamp: '1800003600', timezone: 'Asia/Shanghai' } }
   const calendar = async (id, action, params) => {
@@ -116,7 +120,9 @@ export async function verifyFeatures({ post, message, settled, received, platfor
   assert.equal(platform.calendarEvents.size, 0)
   check('P3 calendar CRUD uses the installed application token and owned write confirmation without an OAuth callback or user token')
 
-  const pending=await send('base_pending','/feishu '+JSON.stringify({resource:'test-table',action:'create',params:{records:[{fields:{name:'must-not-write-after-unlink'}}]}}))
+  await send('base_seed','/feishu '+JSON.stringify({resource:'test-table',action:'create',params:{records:[{fields:{name:'preserved-after-unlink'}}]}}))
+  const pendingRecord=[...platform.records.keys()][0];assert(pendingRecord)
+  await send('base_pending','/feishu '+JSON.stringify({resource:'test-table',action:'delete',params:{records:[{record_id:pendingRecord}]}}))
   const pendingToken=tokenOf(bodyOf('base_pending'))
   const beforeManagement=model.requests.length
   await send('base_remove','移除多维表格 https://fixture.feishu.cn/base/test-base')

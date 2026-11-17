@@ -7,9 +7,41 @@ import {pathToFileURL} from 'node:url'
 import {renderPluginResult} from '../../plugins/core/lib/presentation.js'
 import {Interactions} from '../../plugins/core/lib/interactions.js'
 
+test('mixed batch consent retains the conversation, freezes each target and consumes only once',async()=>{
+  const require=createRequire(new URL('../../plugins/core/package.json',import.meta.url)),{Context}=await import(pathToFileURL(require.resolve('@deepseek-ai/cordis')).href),ctx=new Context(),calls=[]
+  ctx.provide('llm',{async *stream(options){
+    assert.match(JSON.stringify(options.messages),/① 新增品阔.*② 修改杉川/)
+    yield{type:'text-delta',text:'```json\n'+JSON.stringify({decision:'confirm',selections:[2,1],remainingText:'另外两点半发飞书提醒。'})+'\n```'}
+    yield{type:'finish',reason:{kind:'stop'}}
+  }})
+  ctx.provide('agents',{get:()=>({session:{snapshotEvents:()=>[{type:'assistant/message',data:{message:{content:[{type:'text',text:'① 新增品阔；② 修改杉川'}]}}}]}})})
+  const core=new TelebotCore(ctx),actor={origin:'feishu',userId:'alice',chatId:'chat',sessionId:'continued',relatedSessionIds:['old'],cwd:process.cwd()},pending=new Set(['create','update'])
+  core.registerConfirmations('bitable',{pending:a=>a.sessionId==='old'?[...pending].map(token=>({token,label:token})):[],confirm:async(a,token)=>{assert.equal(a.sessionId,'old');pending.delete(token);calls.push(token);return{status:'completed',text:'**已核验 '+token+'**'}},cancel:async()=>{throw Error('Unexpected cancellation')}})
+  const ticket=core.routeInput(actor,'①②都确认。另外两点半发飞书提醒。',true)
+  const route=await core.resolveInput(actor,ticket.text,{id:actor.sessionId,cwd:actor.cwd,provider:'fixture',model:'fixture'},AbortSignal.timeout(1000))
+  assert.equal(route.kind,'confirmation');assert.equal(route.continuation,'另外两点半发飞书提醒。')
+  const request={actor,text:route.text,signal:AbortSignal.timeout(1000)}
+  assert.equal((await core.invoke('confirm',{...request,actor:{...actor,userId:'bob'}})).status,'failed')
+  const result=await core.invoke('confirm',request);assert.equal(result.status,'completed');assert.match(result.text,/确认结果/)
+  assert.deepEqual(calls,['update','create']);assert.equal((await core.invoke('confirm',request)).status,'failed');assert.equal(calls.length,2)
+})
+
+test('batch cancellation uses cold conversation history, skips expired items and never includes a later preview',async()=>{
+  const require=createRequire(new URL('../../plugins/core/package.json',import.meta.url)),{Context}=await import(pathToFileURL(require.resolve('@deepseek-ai/cordis')).href),ctx=new Context(),pending=new Set(['first','second']),cancelled=[]
+  let closed=0
+  ctx.provide('sessionPersistence',{stat:async()=>({}),open:async(_id,access)=>{assert.equal(access,'read');return{read:async()=>({events:[{type:'assistant/message',data:{message:{content:[{type:'text',text:'之前的两个预览'}]}}}]}),close:async()=>{closed++}}}})
+  ctx.provide('llm',{async *stream(options){assert.match(JSON.stringify(options.messages),/之前的两个预览/);pending.add('later');pending.delete('first');yield{type:'text-delta',text:JSON.stringify({decision:'cancel',selections:[1,2],remainingText:''})};yield{type:'finish',reason:{kind:'stop'}}}})
+  const core=new TelebotCore(ctx),actor={origin:'feishu',userId:'alice',chatId:'chat',sessionId:'same',cwd:process.cwd()},spec={id:'same',cwd:actor.cwd,provider:'fixture',model:'fixture'}
+  core.registerConfirmations('bitable',{pending:()=>[...pending].map(token=>({token,label:token})),confirm:async()=>{throw Error('Must not confirm')},cancel:async(_actor,token)=>{pending.delete(token);cancelled.push(token);return{status:'cancelled',text:'已取消'}}})
+  const ticket=core.routeInput(actor,'这两个全部取消',true),route=await core.resolveInput(actor,ticket.text,spec,AbortSignal.timeout(1000))
+  const result=await core.invoke('confirm',{actor,text:route.text,signal:AbortSignal.timeout(1000)})
+  assert.deepEqual(cancelled,['second']);assert.deepEqual([...pending],['later']);assert.match(result.text,/预览已失效/);assert.equal(closed,1)
+})
+
 test('semantic confirmation uses a single tool-free official model request bound to admission candidates',async()=>{
   const require=createRequire(new URL('../../plugins/core/package.json',import.meta.url)),{Context}=await import(pathToFileURL(require.resolve('@deepseek-ai/cordis')).href),ctx=new Context(),requests=[]
   let result={decision:'confirm',selection:1},finish='stop',present=true
+  ctx.provide('sessionPersistence',{stat:async()=>undefined,open:async()=>{throw Error('A command-only mapping has no transcript yet')}})
   ctx.provide('llm',{async *stream(options){requests.push(options);yield{type:'text-delta',index:0,text:JSON.stringify(result)};yield{type:'finish',reason:{kind:finish}}}})
   const core=new TelebotCore(ctx),actor={origin:'feishu',userId:'alice',chatId:'chat',sessionId:'continued',relatedSessionIds:['original'],cwd:process.cwd()},spec={id:actor.sessionId,cwd:actor.cwd,provider:'fixture',model:'selected-model'}
   core.registerConfirmations('bitable',{pending:a=>present&&a.userId==='alice'&&a.sessionId==='original'?[{token:'frozen',label:'将两条任务的详情改为已预览文本'}]:[],confirm:async()=>{throw Error('Routing must not execute')},cancel:async()=>{throw Error('Routing must not execute')}})
@@ -37,6 +69,15 @@ test('semantic confirmation uses a single tool-free official model request bound
   assert.equal((await core.resolveInput(actor,pending.text,spec,AbortSignal.timeout(1000))).kind,'notice')
   result={decision:'confirm',selection:1};finish='max-tokens';pending=core.routeInput(actor,'请按刚才的方案修改',true)
   assert.equal((await core.resolveInput(actor,pending.text,spec,AbortSignal.timeout(1000))).kind,'notice','Incomplete generation never grants permission')
+})
+
+test('a completed model stream without a final answer reports the model failure instead of treating tool progress as success',async()=>{
+  const events=[],adapter=new HarnessConversations({on:()=>()=>{}}),agent={session:{id:'empty-final',snapshotEvents:()=>events},whenIdle:async()=>{},followup:message=>{
+    events.push({type:'turn/start',data:{turn:1}},{type:'user/message',data:{id:message.id}},{type:'assistant/message',data:{turn:1,message:{content:[{type:'text',text:'我正在修改。'},{type:'tool-call',name:'fixture'}]}}},{type:'assistant/message',data:{turn:1,message:{content:[{type:'reasoning',text:'private'}]}}},{type:'turn/end',data:{turn:1,reason:{kind:'completed'}}})
+  }}
+  adapter.open=async()=>agent;adapter.flush=async()=>{}
+  const result=await adapter.run({id:'empty-final',cwd:process.cwd()},{id:'input',text:'修改任务'})
+  assert.equal(result.status,'failed');assert.match(result.text,/模型.*最终答复/);assert.match(result.text,/核验|查询/);assert(!result.text.includes('private'))
 })
 
 test('resumed Feishu conversations receive current channel guidance above stale exact-word instructions',async()=>{
@@ -129,9 +170,29 @@ test('continued chat freezes business confirmation in its original session and n
   await core.confirmLatest({...continued,sessionId:routed.sessionId},false,AbortSignal.timeout(1000),{name:'schedule',token:'frozen'});assert.deepEqual(confirmed,['old'])
 })
 
+test('model selection uses the official durable Agent model and preserves the choice on resume',async()=>{
+  const require=createRequire(new URL('../../plugins/core/package.json',import.meta.url))
+  const {AgentModel}=await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-agent')).href)
+  const {HarnessModels}=await import('../../plugins/core/lib/harness/models.js')
+  let state={lastUsed:{provider:'fixture',model:'saved'},pending:null};const appended=[]
+  const model=new AgentModel(()=>state,{append(type,data){appended.push({type,data});state={...state,pending:data}}},{provider:'fixture',model:'fallback'})
+  const agent={model},models=new HarnessModels(),listeners=[]
+  const scope={on(name,listener){listeners.push({name,listener});return()=>{}},effect(){}}
+  await models.mount(scope,agent,{provider:'fixture',model:'fallback'})
+  assert.equal(models.current(agent).model,'saved','Resume must retain the persisted model choice')
+  assert.equal(appended.length,0,'Mounting must not reset the restored selection')
+  models.select(agent,{provider:'fixture',model:'next'})
+  assert.equal(models.current(agent).model,'next');assert.equal(appended[0].type,'model/selection')
+  const resumed={model:new AgentModel(()=>state,{append(){throw Error('read-only probe')}},{provider:'fixture',model:'fallback'})}
+  assert.equal(new HarnessModels().current(resumed).model,'next','A recreated adapter reads the durable selection')
+  assert.throws(()=>models.select(resumed,{provider:'fixture',model:'foreign'}),/owned_elsewhere/)
+  assert(listeners.some(row=>row.name==='agent/pre-step'))
+})
+
 test('task isolation follows late plugin activation and never restricts another native session',()=>{
   let active=false;const guard=feishuTaskGuard('feishu-session',()=>active),call={name:'schedule_create',agent:{session:{id:'feishu-session'}}}
   assert.equal(guard(call),undefined);active=true;assert.match(guard(call),/requires_isolated_task/)
+  assert.match(guard({...call,name:'schedule_edit'}),/requires_isolated_task/)
   assert.equal(guard({...call,agent:{session:{id:'native-session'}}}),undefined)
   assert.equal(guard({...call,name:'web_fetch'}),undefined);active=false;assert.equal(guard(call),undefined)
 })

@@ -49,10 +49,10 @@ export function installPrototypes(ctx: Context): void {
           })
         }
         try {
-          const record = await ctx.schedule.create(agent.session.id, {
+          const record = await ctx.schedule.create({
             title: 'P0 isolated reminder', prompt: args.action === 'schedule-fault' ? 'P0 checkpoint fault' : 'P0 reminder only',
-            after_seconds: Math.max(1, Math.min(30, args.delay ?? 2)),
-          }, exec.signal)
+            timing:{kind:'after',after_seconds: Math.max(1, Math.min(30, args.delay ?? 2))},target:{kind:'session',sessionId:agent.session.id},
+          }, agent.session.id,exec.signal)
           tasks.set(record.id, agent.session.id)
           value = { record }
         } catch (error) { fault?.(); throw error }
@@ -61,15 +61,15 @@ export function installPrototypes(ctx: Context): void {
         const id = ScheduleId(args.id)
         const sessionId = SessionId(tasks.get(id) ?? agent.session.id)
         const catalog = await ctx.schedule.catalog()
-        const task = catalog.find(row => row.id === id && row.sessionId === sessionId)
+        const task = catalog.find(row => row.id === id && row.target.kind==='session' && row.target.sessionId === sessionId)
         assert(!task || task.title === 'P0 isolated reminder', 'Never touch unrelated reminders')
         if (args.action === 'schedule-delete') {
-          const deleted = await ctx.schedule.delete({ id, sessionId }, exec.signal)
-          const history = await ctx.schedule.history({ id, sessionId, limit: 10 })
+          const deleted = await ctx.schedule.edit({ id, action:'delete' },sessionId, exec.signal)
+          const history = await ctx.schedule.history({ id, limit: 10 })
           value = { deleted, history }
         } else {
           assert.equal(args.action, 'schedule-read')
-          const history = await ctx.schedule.history({ id, sessionId, limit: 10 })
+          const history = await ctx.schedule.history({ id, limit: 10 })
           const events = (ctx.agents.get(sessionId) ?? agent).session.snapshotEvents()
           const scheduleEvents = events.filter(event => event.type === 'agent/inbox/spliced' || event.type === 'user/message')
           value = { task: task ?? null, history, scheduleEvents }
@@ -124,9 +124,9 @@ async function scopeProbe(ctx: Context, parent: Agent, signal: AbortSignal) {
       assert.equal(ctx.tools.get(name, handle.agent), undefined)
       const dispatched = await ctx.tools.execute({
         agent: handle.agent, signal,
-        callId:ToolCallId(randomUUID()),name,arguments:{},
+        calls:[{type:'tool-call',id:ToolCallId(randomUUID()),name,arguments:'{}'}],
       })
-      assert(dispatched.isError,'Direct dispatch must not bypass '+name+' restriction')
+      assert(dispatched.results[0]?.result.isError,'Direct dispatch must not bypass '+name+' restriction')
     }
     assert(ctx.tools.get('telebot_echo', handle.agent))
     assert(ctx.tools.get(process.platform === 'win32' ? 'pwsh' : 'bash', parent))
@@ -144,7 +144,7 @@ async function coldReceiptProbe(ctx: Context, parent: Agent, signal: AbortSignal
     const restored=await controller.resolveAgent(id);if('error'in restored)throw restored.error
     assert(ctx.tools.get('telebot_echo',restored.agent))
     const denied=['pwsh','bash','subagent','schedule_create','telebot_schedule','telebot_publish']
-    for(const name of denied){assert.equal(ctx.tools.get(name,restored.agent),undefined);assert((await ctx.tools.execute({agent:restored.agent,signal,callId:ToolCallId(randomUUID()),name,arguments:{}})).isError)}
+    for(const name of denied){assert.equal(ctx.tools.get(name,restored.agent),undefined);assert((await ctx.tools.execute({agent:restored.agent,signal,calls:[{type:'tool-call',id:ToolCallId(randomUUID()),name,arguments:'{}'}]})).results[0]?.result.isError)}
     restored.agent.followup(freezeMessage({id:MessageId(randomUUID()),role:'user',source:{kind:'user'},content:[{type:'text',text:'Synthetic wake must never call a model or execute business actions.'}]}))
     await restored.agent.whenIdle();await ctx.sessions.flush(restored.agent.session)
     return{coldRestored:true,deniedDirectEntrypoints:denied,inert:true}

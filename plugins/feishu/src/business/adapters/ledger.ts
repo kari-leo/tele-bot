@@ -14,6 +14,7 @@ export class OperationLedger {
     this.db = new DatabaseSync(filename)
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;
       CREATE TABLE IF NOT EXISTS operations(token TEXT PRIMARY KEY,binding TEXT NOT NULL,operation TEXT NOT NULL,baseline TEXT NOT NULL,digest TEXT NOT NULL,expires INTEGER NOT NULL,state TEXT NOT NULL,result TEXT);
+      CREATE TABLE IF NOT EXISTS operation_requests(id TEXT PRIMARY KEY,digest TEXT NOT NULL,token TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS writer(id INTEGER PRIMARY KEY,pid INTEGER,owner TEXT);`)
     this.db.exec('BEGIN IMMEDIATE')
     const writer = this.db.prepare('SELECT * FROM writer WHERE id=1').get() as any
@@ -23,15 +24,39 @@ export class OperationLedger {
     this.db.prepare('INSERT OR REPLACE INTO writer VALUES(1,?,?)').run(process.pid, this.owner)
     this.db.exec("UPDATE operations SET state='unknown' WHERE state='running'; COMMIT;")
   }
-  async preview(resources: Resources, actor: TrustedActor, operation: Operation, signal: AbortSignal) {
+  async preview(resources: Resources, actor: TrustedActor, operation: Operation, signal: AbortSignal, requestId?: string) {
     resources.resource(actor, operation)
     if (['inspect', 'query'].includes(operation.action)) return resources.execute(actor, operation, signal)
+    const requestKey = requestId ? digest([actor.origin, binding(actor), requestId]) : undefined
+    const replay = () => {
+      if (!requestKey) return
+      const request = this.db.prepare('SELECT * FROM operation_requests WHERE id=?').get(requestKey) as any
+      if (!request) return
+      if (request.digest !== digest(operation)) throw new Error('operation_request_collision')
+      const row = this.db.prepare('SELECT * FROM operations WHERE token=?').get(request.token) as any
+      if (row.state !== 'pending') return { status: row.state, result: row.result ? JSON.parse(row.result) : null, replayed: false }
+      return { status: 'confirmation_required', token: row.token, digest: row.digest, expiresAt: row.expires, preview: JSON.parse(row.operation), baseline: JSON.parse(row.baseline) }
+    }
+    const existing = replay(); if (existing) return existing
     const frozen = JSON.parse(JSON.stringify(operation)) as Operation
     frozen.frozenResource = resources.fingerprint(actor, operation)
     const baseline = await resources.snapshots(actor, frozen, signal)
     const token = randomUUID(), hash = digest([binding(actor), frozen, baseline])
-    this.db.prepare('INSERT INTO operations VALUES(?,?,?,?,?,?,?,NULL)').run(token, JSON.stringify(binding(actor)), JSON.stringify(frozen), JSON.stringify(baseline), hash, Date.now() + 900000, 'pending')
+    signal.throwIfAborted()
+    this.db.exec('BEGIN IMMEDIATE')
+    try {
+      const existing = replay()
+      if (existing) { this.db.exec('COMMIT'); return existing }
+      this.db.prepare('INSERT INTO operations VALUES(?,?,?,?,?,?,?,NULL)').run(token, JSON.stringify(binding(actor)), JSON.stringify(frozen), JSON.stringify(baseline), hash, Date.now() + 900000, 'pending')
+      if (requestKey) this.db.prepare('INSERT INTO operation_requests VALUES(?,?,?)').run(requestKey, digest(operation), token)
+      this.db.exec('COMMIT')
+    } catch (error) { this.db.exec('ROLLBACK'); throw error }
     return { status: 'confirmation_required', token, digest: hash, expiresInSeconds: 900, preview: frozen, baseline }
+  }
+  async execute(resources:Resources,actor:TrustedActor,operation:Operation,signal:AbortSignal,automatic:boolean,requestId?:string){
+    if(automatic&&!requestId)throw new Error('automatic_operation_identity_required')
+    const result=await this.preview(resources,actor,operation,signal,requestId)
+    return automatic&&result.status==='confirmation_required'&&'token' in result?this.confirm(resources,actor,String(result.token),signal):result
   }
   async confirm(resources: Resources, actor: TrustedActor, token: string, signal: AbortSignal) {
     const row = this.db.prepare('SELECT * FROM operations WHERE token=?').get(token) as Record<string, any> | undefined

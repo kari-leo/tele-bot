@@ -28,14 +28,14 @@ export function parseEvent(payload: Record<string, unknown>, appId: string): Inp
     const context = object(event.context ?? payload)
     const action = object(event.action)
     const value = object(action.value)
-    if (!['telebot.status', 'telebot.answer'].includes(string(value.action))) return undefined
+    if (!['telebot.status', 'telebot.answer', 'telebot.codex'].includes(string(value.action))) return undefined
     const messageId = identifier(context.open_message_id)
     const actionToken = identifier(value.token)
     return {
       eventId: header ? identifier(header.event_id) : `card:${actionToken}`,
       messageId, chatId: identifier(context.open_chat_id), threadId: '',
-      actor: { ids: ids(operator.operator_id ?? operator) }, kind: value.action === 'telebot.answer' ? 'answer' : 'status',
-      text: value.action === 'telebot.answer' ? `/answer ${actionToken} ${string(value.answer)}` : '/status', actionToken,
+      actor: { ids: ids(operator.operator_id ?? operator) }, kind: value.action === 'telebot.codex' ? 'codex-card' : value.action === 'telebot.answer' ? 'answer' : 'status',
+      text: value.action === 'telebot.codex' ? '' : value.action === 'telebot.answer' ? `/answer ${actionToken} ${string(value.answer)}` : '/status', actionToken,
     }
   }
   if (header?.event_type !== 'im.message.receive_v1') return undefined

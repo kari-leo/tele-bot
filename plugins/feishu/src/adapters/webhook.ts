@@ -1,7 +1,7 @@
 import { createDecipheriv, createHash, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { object, parseEvent, string } from '../domain/events.js'
-import type { InputEvent } from '../domain/types.js'
+import type { AcceptResult, InputEvent } from '../domain/types.js'
 
 export interface WebhookSecrets { verificationToken: string; encryptKey: string }
 const equal = (a: string, b: string): boolean => {
@@ -41,7 +41,7 @@ export function decodeWebhook(raw: Buffer, headers: IncomingMessage['headers'], 
 /** Register with the official HTTP carrier; persistence completes before the 200 acknowledgment. */
 export function webhookHandler(options: {
   appId: string; secrets: WebhookSecrets; maxBodyBytes: number;
-  accept(event: InputEvent): { accepted: boolean; duplicate?: boolean; rejected?: boolean; full?: boolean }
+  accept(event: InputEvent): AcceptResult
 }) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     const reply = (status: number, value: object) => {
@@ -67,10 +67,11 @@ export function webhookHandler(options: {
       if (!event) { reply(200, { ignored: true }); return }
       let result
       try { result = options.accept(event) } catch { reply(503, { error: 'persistence_unavailable' }); return }
+      if (result.expired) { reply(200, { toast: { type: 'info', content: '此卡片已失效，请重新发送 /codex history。' } }); return }
       if (result.rejected) { reply(403, { error: 'actor_or_action_rejected' }); return }
       if (result.full) { reply(503, { error: 'queue_full' }); return }
       reply(200, event.actionToken
-        ? { toast: { type: 'info', content: result.duplicate ? '此操作已处理' : '已收到，正在更新状态' } }
+        ? { toast: { type: 'info', content: result.duplicate ? '此操作已处理' : event.kind === 'codex-card' ? '已收到，正在处理' : '已收到，正在更新状态' } }
         : { accepted: true, duplicate: Boolean(result.duplicate) })
     } catch (error) {
       const code = error instanceof Error ? error.message : ''

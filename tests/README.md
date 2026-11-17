@@ -14,7 +14,7 @@ pnpm verify --module core --module automation --local
 --local 用于领域/客户端变化，--installed 用于宿主接线，省略两者执行两层；多模块自动过滤和去重。模块包括 core、settings、feishu、feishu-business、codex、adviser、publishing、automation、desktop、knowledge，具体测试与 gate 由 --list 查询。
 
 ```powershell
-$env:TELEBOT_DSH_INSTALL = 'D:/absolute/official-rc5-prefix'
+$env:TELEBOT_DSH_INSTALL = 'D:/files_data/windborne/dsh-runtime/official/dsh-0.2.2-rc.3'
 pnpm verify --module feishu-business --installed
 pnpm verify --module automation
 # 仅显式发行或兼容升级：

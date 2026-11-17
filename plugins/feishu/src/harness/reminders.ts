@@ -3,7 +3,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
-import type { ScheduleCreateRequest } from '@deepseek-ai/dsh-schedule'
+import type { ScheduleTiming } from '@deepseek-ai/dsh-schedule'
 import { ScheduleId } from '@deepseek-ai/dsh-schedule'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -37,6 +37,13 @@ export class Reminders {
     this.reconciling = this.ready.then(()=>this.reconcile()); this.reconciling.catch(() => {})
   }
   private schedule() { const service = this.ctx.get('schedule') as Context['schedule'] | undefined; if (!service) throw new Error('official_schedule_required'); return service }
+  private async remove(id:string,session:string){
+    const current=await this.schedule().view({id:ScheduleId(id)})
+    if('code'in current){if(current.code==='schedule_not_found')return;throw new Error(current.code)}
+    if(current.target.kind!=='session'||current.target.sessionId!==session)throw new Error('reminder_target_changed')
+    const result=await this.schedule().edit({id:ScheduleId(id),action:'delete',expectedUpdatedAt:current.updatedAt},SessionId(session))
+    if('code'in result&&result.code!=='schedule_not_found')throw new Error(result.code)
+  }
   private async agent(entry: InboxEntry, id: string): Promise<Agent> {
     const agents = this.ctx.get('agents') as Context['agents']
     const live = agents.get(SessionId(id)); if (live) return live
@@ -63,7 +70,7 @@ export class Reminders {
     if (action === 'delete') {
       const id = rest.join(''), row = this.db.prepare('SELECT entry FROM reminders WHERE id=?').get(id) as any
       if (!row || !this.owned(entry, JSON.parse(row.entry))) throw new Error('reminder_not_owned')
-      await this.schedule().delete({ id: ScheduleId(id), sessionId: SessionId(JSON.parse(row.entry).reminderSession) })
+      await this.remove(id,JSON.parse(row.entry).reminderSession)
       this.db.prepare("UPDATE reminders SET state='deleted' WHERE id=?").run(id)
       return '提醒已删除，业务投递历史保留。'
     }
@@ -72,8 +79,11 @@ export class Reminders {
     if (!textValue || textValue.length > 10000) throw new Error('reminder_text_required')
     const session = randomUUID(), stored = { ...entry, reminderSession: session }
     await this.agent(entry, session)
-    const { text: _text, ...timing } = request
-    const record = await this.schedule().create(SessionId(session), { ...timing, title: textValue.slice(0, 120), prompt: 'Reminder only. Do not execute tools or external operations.' } as ScheduleCreateRequest)
+    const selectors=['after_seconds','at','every_seconds','daily','weekly','cron','rrule'].filter(key=>request[key]!==undefined)
+    if(selectors.length!==1)throw new Error('one_reminder_timing_required')
+    const key=selectors[0],kind=key==='after_seconds'?'after':key==='every_seconds'?'every':key
+    const timing={kind,[key]:request[key]} as ScheduleTiming
+    const record = await this.schedule().create({ timing, target:{kind:'session',sessionId:SessionId(session)}, title: textValue.slice(0, 120), prompt: 'Reminder only. Do not execute tools or external operations.' },SessionId(session))
     this.db.prepare('INSERT INTO reminders VALUES(?,?,?,?,?)').run(record.id, session, JSON.stringify(stored), textValue, 'active')
     // A create might already be due after persistence; do not wait for another change event.
     await this.reconcile()
@@ -85,17 +95,19 @@ export class Reminders {
     const catalog = await this.schedule().catalog()
     for (const row of this.db.prepare("SELECT * FROM reminders WHERE state='active'").all() as any[]) {
       const task = catalog.find(task => task.id === row.id), entry = JSON.parse(row.entry) as InboxEntry
-      if(!this.authorized(entry)){if(task)await this.schedule().delete({id:ScheduleId(row.id),sessionId:SessionId(row.session)});this.db.prepare("UPDATE reminders SET state='revoked' WHERE id=?").run(row.id);continue}
-      const history = await this.schedule().history({ id: ScheduleId(row.id), sessionId: SessionId(row.session), limit: 100 })
+      if(task&&(task.target.kind!=='session'||task.target.sessionId!==row.session)){this.db.prepare("UPDATE reminders SET state='revoked' WHERE id=?").run(row.id);continue}
+      if(!this.authorized(entry)){if(task)await this.remove(row.id,row.session);this.db.prepare("UPDATE reminders SET state='revoked' WHERE id=?").run(row.id);continue}
+      const history = await this.schedule().history({ id: ScheduleId(row.id), limit: 100 })
       if (!('records' in history)) continue
       for (const receipt of [...history.records].reverse()) {
+        if(receipt.targetSessionId!==row.session)continue
         const key = JSON.stringify([row.id, receipt.scheduledAt])
         if (this.db.prepare('SELECT 1 FROM deliveries WHERE id=?').get(key)) continue
         this.db.prepare('INSERT INTO deliveries(id,state) VALUES(?,?)').run(key, 'sending')
         const ids = this.channel.enqueue?.(entry, [{ msgType: 'post', content: JSON.stringify({ zh_cn: { content: [[{ tag: 'text', text: `定时提醒：${row.text}\n计划时间：${receipt.scheduledAt}` }]] } }) }])
         this.db.prepare("UPDATE deliveries SET state='queued',outbox_ids=? WHERE id=?").run(JSON.stringify(ids ?? []), key)
       }
-      if (task?.status === 'inactive') this.db.prepare("UPDATE reminders SET state='delivered_to_channel' WHERE id=?").run(row.id)
+      if (task?.status === 'ended') this.db.prepare("UPDATE reminders SET state='delivered_to_channel' WHERE id=?").run(row.id)
     }
   }
   async dispose() { if (this.closed) return; this.closed = true; for (const dispose of this.disposers.reverse()) dispose(); await this.reconciling.catch(() => {}); await Promise.allSettled([...this.handles.values()].map(handle => handle.dispose())); await this.disposePreset?.();this.db.close() }

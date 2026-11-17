@@ -1,4 +1,4 @@
-import type { ChannelQuestion, CommandPort, ConversationPort, ConversationSpec, FeaturePort } from '@telebot/core/contracts'
+import type { ChannelQuestion, CommandPort, ConversationCard, ConversationPort, ConversationSpec, FeaturePort } from '@telebot/core/contracts'
 
 export interface Actor { ids: string[]; privateChat?: boolean; authorizedUserId?: string; referenceMessageId?: string }
 export interface InputEvent {
@@ -7,11 +7,12 @@ export interface InputEvent {
   chatId: string
   threadId: string
   actor: Actor
-  kind: 'text' | 'status' | 'notice' | 'answer' | 'attachment' | 'confirmation' | 'interpretation'
+  kind: 'text' | 'status' | 'notice' | 'answer' | 'attachment' | 'confirmation' | 'interpretation' | 'codex-card'
   text: string
   actionToken?: string
   /** Set only by the trusted interaction router, never decoded from webhook text. */
   targetSessionId?: string
+  originalText?: string
 }
 export interface InboxEntry extends InputEvent {
   id: string
@@ -55,7 +56,7 @@ export type DeliveryResult =
   | { status: 'retry'; code: string }
   | { status: 'failed' | 'unknown'; code: string }
 export interface DeliveryPort { send(message: Outbound,onUploaded?:(key:string)=>void): Promise<DeliveryResult> }
-export interface AcceptResult { accepted: boolean; duplicate?: boolean; rejected?: boolean; full?: boolean }
+export interface AcceptResult { accepted: boolean; duplicate?: boolean; rejected?: boolean; full?: boolean; expired?: boolean }
 export interface ChannelRepository {
   actorFor?(event:InputEvent,settings:ChannelSettings):import('@telebot/core/contracts').TrustedActor|undefined
   accept(event: InputEvent, settings: ChannelSettings): AcceptResult
@@ -68,7 +69,8 @@ export interface ChannelRepository {
   continuation?(entry:InboxEntry):ConversationSpec
   currentSpec?(sessionKey:string):ConversationSpec
   commitContinuation?(entry:InboxEntry,spec:ConversationSpec):void
-  finish(entry: InboxEntry, state: string, outputs: readonly Pick<Outbound, 'msgType' | 'content'>[]): void
+  finish(entry: InboxEntry, state: string, outputs: readonly Pick<Outbound, 'msgType' | 'content'>[], card?: { text: string; view: ConversationCard }): void
+  isCodexCardReply?(event: InputEvent, settings: ChannelSettings): boolean
   markMapped(id: string): void
   updateMapping(entry: InboxEntry, spec: ConversationSpec): void
   claimDelivery(now: number): Outbound | undefined

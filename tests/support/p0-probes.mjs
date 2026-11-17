@@ -54,7 +54,7 @@ export async function verifyP0({ acp, a, b, mock, check, shellName, evidence }) 
     await delay(300)
     snapshot = await probe('schedule-read', { id: created.record.id })
   } while (!snapshot.history.records?.length && Date.now() < deadline)
-  assert.equal(snapshot.task.status, 'inactive')
+  assert.equal(snapshot.task.status, 'ended')
   assert.equal(snapshot.history.records.length, 1)
   const receipt = snapshot.history.records[0]
   assert.equal(receipt.scheduledAt, created.record.scheduledAt)

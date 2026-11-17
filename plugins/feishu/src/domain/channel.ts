@@ -11,6 +11,13 @@ function posts(text: string) {
   return result
 }
 
+function confirmationCards(text:string,status:string){
+  return posts(text).map(post=>({msgType:'interactive' as const,content:JSON.stringify({
+    header:{title:{tag:'plain_text',content:'操作确认结果'},template:status==='completed'?'green':'orange'},
+    elements:[{tag:'markdown',content:JSON.parse(post.content).zh_cn.content[0][0].text}],
+  })}))
+}
+
 /** Durable channel dispatch; Agent work is delegated to the official host, never reimplemented. */
 export class FeishuChannel {
   private stopping = false
@@ -28,10 +35,11 @@ export class FeishuChannel {
   accept(event: InputEvent) {
     if (this.stopping) throw new Error('channel_stopping')
     if (this.admissionHolds) throw new Error('channel_reconfiguring')
-    const actor=event.kind==='text'&&!event.text.startsWith('/')?this.ports.repository.actorFor?.(event,this.config):undefined
+    const cardReply = this.ports.repository.isCodexCardReply?.(event, this.config)
+    const management = event.kind === 'text'&&!cardReply ? baseManagementCommand(event.text) : undefined
+    const actor=event.kind==='text'&&!event.text.startsWith('/')&&!cardReply&&!management?this.ports.repository.actorFor?.(event,this.config):undefined
     const route=actor?this.ports.features?.routeInput?.(actor,event.text,true):undefined
-    const management = event.kind === 'text'&&!route ? baseManagementCommand(event.text) : undefined
-    const input=route?{...event,kind:route.kind,text:route.text,targetSessionId:route.sessionId}:management?{...event,text:management}:event
+    const input=route?{...event,originalText:event.text,kind:route.kind,text:route.text,targetSessionId:route.sessionId}:management?{...event,originalText:event.text,text:management}:event
     const result = this.ports.repository.accept(input, this.config)
     if(route?.kind==='interpretation'&&(!result.accepted||result.duplicate))this.ports.features?.releaseInput?.(route.text)
     if (result.accepted && !result.duplicate) this.wake()
@@ -42,6 +50,7 @@ export class FeishuChannel {
     let released = false
     return () => { if (!released) { released = true; this.admissionHolds-- } }
   }
+  available(): boolean { return this.ready && !this.stopping && this.admissionHolds === 0 }
 
   start(): void {
     this.ports.repository.recoverDeliveries()
@@ -95,7 +104,7 @@ export class FeishuChannel {
   private async rememberResult(entry:InboxEntry,text:string){
     const current=this.ports.repository.currentSpec?.(entry.sessionKey)
     const specs=[entry.spec,...(current&&current.id!==entry.spec.id?[current]:[])]
-    for(const spec of specs)try{await this.ports.agent.context?.(spec,entry.id,text)}catch{/* Preserve the durable receipt; a context failure must never replay the operation. */}
+    for(const spec of specs)try{await this.ports.agent.context?.(spec,entry.id,(entry.originalText?'用户回复：'+entry.originalText+'\n\n':'')+text)}catch{/* Preserve the durable receipt; a context failure must never replay the operation. */}
   }
 
   private async process(entry: InboxEntry): Promise<void> {
@@ -107,7 +116,7 @@ export class FeishuChannel {
           `\n模型：${live.provider ?? entry.spec.provider ?? '宿主默认'}/${live.model ?? entry.spec.model ?? ''}\n工作目录：${live.cwd ?? entry.spec.cwd}`
         const content = this.ports.repository.statusCard(entry, text, this.config.actionTtlMs)
         this.ports.repository.finish(entry, 'completed', [{ msgType: 'interactive', content }])
-      } else if (entry.kind === 'notice') this.ports.repository.finish(entry, 'completed', posts(entry.text))
+      } else if (entry.kind === 'notice') this.ports.repository.finish(entry, 'completed', confirmationCards(entry.text,'notice'))
       else if (entry.kind === 'attachment') {
         if (!this.ports.files) throw new Error('file_transfers_unavailable')
         await this.ports.files.receive(entry)
@@ -118,7 +127,7 @@ export class FeishuChannel {
         this.controlling.add(entry.spec.id)
         try{
           if(!this.ports.features?.resolveInput||!this.ports.repository.reroute)throw Error('input_interpretation_unavailable')
-          const route=await this.ports.features.resolveInput({userId:entry.actor.authorizedUserId??entry.actor.ids[0],chatId:entry.chatId,threadId:entry.threadId,sessionId:entry.spec.id,cwd:entry.spec.cwd,privateChat:Boolean(entry.actor.privateChat),origin:'feishu'},entry.text,entry.spec,AbortSignal.timeout(20000))
+          const route=await this.ports.features.resolveInput({userId:entry.actor.authorizedUserId??entry.actor.ids[0],chatId:entry.chatId,threadId:entry.threadId,sessionId:entry.spec.id,cwd:entry.spec.cwd,privateChat:Boolean(entry.actor.privateChat),origin:'feishu'},entry.text,entry.spec,AbortSignal.timeout(60000))
           this.ports.repository.reroute(entry,route)
         }finally{this.controlling.delete(entry.spec.id)}
       }
@@ -126,7 +135,7 @@ export class FeishuChannel {
         if(this.controlling.has(entry.spec.id)){this.ports.repository.finish(entry,'failed',posts('已有操作执行中，请完成后再次确认。'));return}
         this.controlling.add(entry.spec.id)
         try{const result=await this.ports.features?.invoke('confirm',{actor:{userId:entry.actor.authorizedUserId??entry.actor.ids[0],chatId:entry.chatId,sessionId:entry.spec.id,cwd:entry.spec.cwd,privateChat:Boolean(entry.actor.privateChat),origin:'feishu',sourceId:entry.id,threadId:entry.threadId},text:entry.text,signal:AbortSignal.timeout(120000)})
-          this.ports.repository.finish(entry,result?.status??'failed',posts(result?.text||'当前没有需要确认的操作。'))
+          this.ports.repository.finish(entry,result?.status??'failed',confirmationCards(result?.text||'当前没有需要确认的操作。',result?.status??'failed'))
           if(result?.text)await this.rememberResult(entry,result.text)
         }finally{this.controlling.delete(entry.spec.id)}
       }
@@ -154,7 +163,8 @@ export class FeishuChannel {
               this.ports.repository.finish(entry, 'completed', [{ msgType: 'file', content }])
             } else {
               const result = await channelCommand(this.ports, entry)
-              const outputs: { msgType: 'post' | 'file'; content: string }[] = posts(result.text)
+              const card = result.card && entry.actor.privateChat && /^\/codex\b/.test(entry.text) ? { text: result.text, view: result.card } : undefined
+              const outputs: { msgType: 'post' | 'file'; content: string }[] = card ? [] : posts(result.text)
               for (const artifact of result.artifacts ?? []) {
                 try {
                   if (!this.ports.files) throw new Error('file_transfers_unavailable')
@@ -163,7 +173,7 @@ export class FeishuChannel {
                   outputs.push({ msgType: 'file', content })
                 } catch { outputs.push(...posts('产物未通过目录、大小或哈希复核，未上传。业务执行不会因此重跑，请核对产物后显式发送。')) }
               }
-              this.ports.repository.finish(entry, result.status, outputs)
+              this.ports.repository.finish(entry, result.status, outputs, card)
               if(/^\/(?:bitable|feishu|codex|publish|schedule)\s+(?:confirm|resume-confirm|cancel|execute|reject)\b/.test(entry.text))await this.rememberResult(entry,result.text)
             }
           } finally { this.controlling.delete(entry.spec.id) }

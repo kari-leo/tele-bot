@@ -1,0 +1,15 @@
+# Merge these configs into the matching official desktop profile entries.
+# Preserve credentials, endpoint overrides, model settings and unrelated fields.
+- id: llm-deepseek-account
+  config:
+    streamIdleTimeoutMs: 60000
+    reasoningEffort: low
+    retryPolicy:
+      mode: normal
+      maxRetries: 2
+    modelOverrides:
+      deepseek-flash:
+        maxTokens: 16384
+- id: agent-default-model
+  config:
+    reasoningEffort: low

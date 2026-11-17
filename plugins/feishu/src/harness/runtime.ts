@@ -15,6 +15,8 @@ import { webhookHandler } from '../adapters/webhook.js'
 import { Workspaces } from '../adapters/workspaces.js'
 import { FileTransfers } from '../adapters/files.js'
 import { Reminders } from './reminders.js'
+import { FeishuMessages } from '../domain/messages.js'
+import { registerMessageTool } from './messages.js'
 
 export async function startChannel(ctx: Context, config: Config, sharedDelivery?: FeishuApi, deferStart = false): Promise<{ busy(): boolean; hold(): () => void; start(): void }> {
   if (!(ctx.telebotCore instanceof TelebotCore)) throw new Error('telebot_core_identity_mismatch')
@@ -50,11 +52,12 @@ export async function startChannel(ctx: Context, config: Config, sharedDelivery?
     reminders = new Reminders(scope, path.join(dataDirectory, 'reminders.sqlite'), repository,entry=>entry.actor.ids.some(id=>config.adminUserIds.includes(id))&&(!config.allowedChatIds.length||config.allowedChatIds.includes(entry.chatId)))
     scope.effect(() => async () => { await reminders?.dispose(); reminders = undefined })
   })
+  let channelUnavailable = false
   const channel = new FeishuChannel({ repository, agent, commands: agent.commands, features: ctx.telebotCore, files,
     reminders: { command: entry => { if (!reminders) throw new Error('official_schedule_required'); return reminders.command(entry) } },
     workspace: new Workspaces([workspace]), delivery },
   { ...config, workspace, preset: config.agentPreset || undefined, provider: config.provider || undefined, model: config.model || undefined },
-  () => { ctx.logger.error('telebot-feishu worker stopped after a persistence or lease failure; webhook admission is unavailable') })
+  () => { channelUnavailable = true; ctx.logger.error('telebot-feishu worker stopped after a persistence or lease failure; webhook admission is unavailable') })
   const unregisterDelivery = ctx.telebotCore.registerDelivery('feishu', async request => {
     if (!config.adminUserIds.includes(request.actor.userId) || (config.allowedChatIds.length && !config.allowedChatIds.includes(request.actor.chatId))) throw new Error('delivery_actor_not_authorized')
     const source = repository.source(request.actor), outputs: { msgType: 'post' | 'file'; content: string }[] = []
@@ -69,12 +72,13 @@ export async function startChannel(ctx: Context, config: Config, sharedDelivery?
   },{status:(actor,receipt)=>repository.externalStatus(actor,receipt),retry:(actor,receipt)=>repository.retryExternal(actor,receipt)})
   const handler = webhookHandler({ appId: config.appId, secrets: { verificationToken, encryptKey }, maxBodyBytes: config.maxBodyBytes, accept: event => channel.accept(event) })
   let unregister: (() => void) | undefined
+  let started = false
   try {
+    registerMessageTool(ctx, new FeishuMessages(repository, config), () => started && !channelUnavailable && channel.available())
     await chmod(filename, 0o600)
     unregister = ctx.webServer.register({ kind: 'exact', path: config.webhookPath, handler })
-    ctx.effect(() => async () => { unregisterDelivery(); unregister?.(); try { await channel.stop(); await reminders?.dispose() } finally { files.close(); repository.release() } })
+    ctx.effect(() => async () => { channelUnavailable = true; unregisterDelivery(); unregister?.(); try { await channel.stop(); await reminders?.dispose() } finally { files.close(); repository.release() } })
     const release = deferStart ? channel.holdAdmission() : undefined
-    let started = false
     const start = () => { if (!started) { channel.start(); started = true }; release?.() }
     if (!deferStart) start()
     return { busy: () => repository.busy(), hold: () => channel.holdAdmission(), start }

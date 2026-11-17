@@ -1,5 +1,5 @@
 {
-  "assessedAt": "2026-11-17T17:08:09.203Z",
+  "assessedAt": "2026-11-17T17:11:32.681Z",
   "branch": "codex/dsh-0.2.2-rc.3-compatibility",
   "workingTreeCommitted": false,
   "targetRuntime": "0.2.2-rc.3",
@@ -1848,7 +1848,12 @@
     ],
     "publication": {
       "branch": "codex/dsh-0.2.2-rc.3-compatibility",
-      "status": "pending"
+      "status": "pushed",
+      "repository": "https://github.com/kari-leo/tele-bot",
+      "sourceCommit": "2e5a9e8274936f925eacf9245dc986f891733a9b",
+      "releaseChangesCommitted": true,
+      "existingUntrackedDocumentPreserved": true,
+      "remoteAccountMatchesOwner": true
     }
   }
 }

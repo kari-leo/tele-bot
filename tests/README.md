@@ -13,6 +13,8 @@ pnpm verify --module core --module automation --local
 
 --local 用于领域/客户端变化，--installed 用于宿主接线，省略两者执行两层；多模块自动过滤和去重。模块包括 core、settings、feishu、feishu-business、codex、adviser、publishing、automation、desktop、knowledge，具体测试与 gate 由 --list 查询。
 
+“外部官方隔离安装”指使用仓库外独立安装的官方发行版，并为每次验收创建临时 home/profile；模型与飞书平台由 loopback mock 提供，不导入生产凭据。ACP 验证官方 Agent Client Protocol 入口，Web 验证官方 Web profile 的插件接线和会话接口；成功验收后清理临时环境。日常领域/客户端迭代可用 `--local` 跳过安装层，飞书宿主接线改动的最终验收按本仓库约定保留 ACP 与 Web 两条渠道检查。
+
 ```powershell
 $env:TELEBOT_DSH_INSTALL = 'D:/files_data/windborne/dsh-runtime/official/dsh-0.2.2-rc.3'
 pnpm verify --module feishu-business --installed

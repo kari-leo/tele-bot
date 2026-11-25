@@ -70,12 +70,21 @@ export class NativeClient {
   }
 }
 export interface NativeResult { status: 'completed' | 'failed' | 'unknown'; text: string; threadId?: string; artifacts?: string[]; diagnostic?: string }
+
+function isUnavailableModel(error: { message?: unknown } | null | undefined): boolean {
+  if (typeof error?.message !== 'string') return false
+  try {
+    const response = JSON.parse(error.message)
+    return response?.status === 400 && response.error?.code === 'model_not_found'
+  } catch { return false }
+}
+
 export class NativeCodex implements CodingExecutorPort {
   readonly enforcesReadOnly = true
   lastPermission: unknown
   lastTurnFailure: unknown
   private readonly clients = new Set<NativeClient>()
-  constructor(private readonly cli: string, private readonly home?: string, private readonly environment?: NodeJS.ProcessEnv) {}
+  constructor(private readonly cli: string, private readonly home?: string, private readonly environment?: NodeJS.ProcessEnv, private readonly newThreadModel?: string) {}
   async connect(cwd?: string) { const client = new NativeClient(this.cli, cwd, this.home, this.environment); this.clients.add(client); try { await client.initialize(); return client } catch (error) { await this.release(client); throw error } }
   async release(client: NativeClient) { this.clients.delete(client); await client.close() }
   async execute(request: CodingRequest, options: { sandbox: 'read-only' | 'workspace-write' | 'danger-full-access'; signal: AbortSignal }, resumeThread?: string, resumeModel?: { model?: string | null; modelProvider?: string | null }): Promise<NativeResult> {
@@ -94,7 +103,8 @@ export class NativeCodex implements CodingExecutorPort {
         : { type: 'workspaceWrite', writableRoots: [request.cwd], networkAccess: false, excludeSlashTmp: true, excludeTmpdirEnvVar: true }
       const selection = { cwd: request.cwd, sandbox: options.sandbox, approvalPolicy: 'never', approvalsReviewer: 'user',
         config: { sandbox_workspace_write: { writable_roots: [request.cwd], network_access: false, exclude_slash_tmp: true, exclude_tmpdir_env_var: true } } }
-      const model = resumeModel?.model ? { model: resumeModel.model } : {}
+      const modelId = resumeThread ? resumeModel?.model : this.newThreadModel
+      const model = modelId ? { model: modelId } : {}
       const started = await client.request(resumeThread ? 'thread/resume' : 'thread/start', { ...selection, ...model, ...(resumeThread ? { threadId: resumeThread, ...(resumeModel?.modelProvider ? { modelProvider: resumeModel.modelProvider } : {}) } : { ephemeral: false }) }, signal)
       this.lastPermission = { requested: sandboxPolicy, active: started.activePermissionProfile ?? null, projection: started.sandbox }
       // CLI 0.160 may retain the home default in thread/start's legacy projection.
@@ -121,7 +131,13 @@ export class NativeCodex implements CodingExecutorPort {
         turnId = turn.turn.id
         const finished = await done
         this.lastTurnFailure = finished.error
-        if (signal.aborted || finished.status !== 'completed') return { status: 'failed', text: 'Codex 执行已停止或失败。', threadId }
+        if (signal.aborted || finished.status !== 'completed') {
+          if (!signal.aborted && isUnavailableModel(finished.error)) {
+            const action = resumeThread ? '请在 Codex 中为原会话选择可用模型后重新发起续聊。' : '请在 Harness 的 Codex 插件设置中选择 CLI 可用的模型后重新发起请求。'
+            return { status: 'failed', text: '此会话选用的模型在当前 Codex 账户不可用。' + action, threadId, diagnostic: 'codex_model_unavailable' }
+          }
+          return { status: 'failed', text: 'Codex 执行已停止或失败。', threadId }
+        }
         let value: { summary: string; artifacts: string[] }
         try { value = JSON.parse(messages.at(-1) ?? '') } catch { return { status: 'unknown', text: 'Codex 结构化结果未确认。', threadId } }
         if (typeof value.summary !== 'string' || !Array.isArray(value.artifacts) || value.artifacts.some(item => typeof item !== 'string')) return { status: 'unknown', text: 'Codex 结构化结果不符合约定。', threadId }

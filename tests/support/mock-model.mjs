@@ -11,6 +11,7 @@ export async function startMockModel({ deliveryToolProbe = false } = {}) {
   const requests = []
   const toolCases = new Map()
   const intentReplies=new Map()
+  const finalReplies=new Map()
   const waiters = new Set()
   const heldResponses = new Set()
   const server = createServer(async (request, response) => {
@@ -65,7 +66,7 @@ export async function startMockModel({ deliveryToolProbe = false } = {}) {
         function: { name: 'telebot_echo', arguments: JSON.stringify({ text: token }) } }] })
       emit({}, 'tool_calls')
     } else {
-      emit({ role: 'assistant', content: receipt ? `Receipt received: ${receipt}` : 'Keyless response complete.' })
+      emit({ role: 'assistant', content: finalReplies.get(instruction) ?? (receipt ? `Receipt received: ${receipt}` : 'Keyless response complete.') })
       emit({}, 'stop')
     }
     response.end('data: [DONE]\n\n')
@@ -73,7 +74,7 @@ export async function startMockModel({ deliveryToolProbe = false } = {}) {
   server.listen(0, '127.0.0.1')
   await once(server, 'listening')
   return {
-    requests, toolCases,intentReplies, url: `http://127.0.0.1:${server.address().port}/v1`,
+    requests, toolCases,intentReplies,finalReplies, url: `http://127.0.0.1:${server.address().port}/v1`,
     waitFor(predicate) {
       const found = requests.find(predicate)
       if (found) return Promise.resolve(found)

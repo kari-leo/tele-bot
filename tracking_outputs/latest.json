@@ -1,9 +1,134 @@
 {
-  "assessedAt": "2026-11-17T17:11:32.681Z",
+  "codexNewThreadModel20261125": {
+    "state": "installed_and_verified",
+    "setting": "model",
+    "blankUsesCliDefault": true,
+    "resumePreservesThreadModel": true,
+    "productionCliDefaultModel": "gpt-6.2-sol",
+    "preInstallProductionSelectionProbe": {
+      "usedInstalledConnector": true,
+      "modelOverrideInstalled": false,
+      "ephemeralThreadModel": "gpt-6.2-sol",
+      "modelTurnStarted": false
+    },
+    "latestProductionFailure": {
+      "inboxSequence": 143,
+      "inboxState": "failed",
+      "failureReceiptState": "sent",
+      "failedAt": "2026-11-25T21:37:10.062+08:00",
+      "model": "gpt-6.2-sol",
+      "status": 400,
+      "code": "model_not_found",
+      "subreason": "model_not_in_accessible_catalog",
+      "desktopSameModelCompletedAt": "2026-11-25T21:38:04.557+08:00"
+    },
+    "verification": {
+      "command": "pnpm verify --module codex --gate codex-native --gate desktop",
+      "localTestsPassed": 7,
+      "nativeChecksPassed": 20,
+      "desktopInstalledChecksPassed": 19,
+      "codexCli": "0.160.0",
+      "harness": "0.2.2-rc.3",
+      "realModelRequests": 0,
+      "realFeishuMessagesSent": 0,
+      "archive": "telebot-codex-0.1.0.tgz",
+      "sha256": "9b3fa7e27125c4c059b06c93108a236239e4b56318a620728e3aa6904a482582"
+    },
+    "productionInstallation": {
+      "release": "D:/files_data/windborne/dsh-runtime/releases/codex-independent-model-20261125",
+      "backup": "D:/files_data/windborne/dsh-runtime/backups/codex-independent-model-20261125",
+      "updatedPackages": ["@telebot/codex"],
+      "settingsReadThroughOfficialOwnerRoute": true,
+      "configuredPluginModel": "gpt-6.1-sol",
+      "ephemeralThreadModel": "gpt-6.1-sol",
+      "globalCliDefaultModel": "gpt-6.2-sol",
+      "credentialsPreserved": true,
+      "feishuLeaseAndListenerActive": true,
+      "modelTurnStarted": false,
+      "priorRequestReplayed": false
+    }
+  },
+  "codexApplyModelRejection20261125": {
+    "state": "production_default_corrected",
+    "requestAt": "2026-11-25T17:38:23.653+08:00",
+    "confirmationAt": "2026-11-25T17:39:01.164+08:00",
+    "turnStartedAt": "2026-11-25T17:39:03.104+08:00",
+    "turnFailedAt": "2026-11-25T17:39:07.560+08:00",
+    "hostError": {
+      "status": 400,
+      "code": "model_not_found",
+      "subreason": "model_not_in_accessible_catalog"
+    },
+    "productionReceipt": {
+      "applyInboxSequence": 137,
+      "applyState": "completed",
+      "confirmationInboxSequence": 138,
+      "confirmationState": "failed",
+      "confirmationOutboxSequence": 476,
+      "confirmationDeliveryState": "sent",
+      "confirmationDeliveryAttempts": 1
+    },
+    "productionConfiguration": {
+      "cli": "0.160.0",
+      "previousDefaultModel": "gpt-6.2-sol",
+      "defaultModel": "gpt-6.1-sol",
+      "backup": "C:/Users/41547/.codex/config.toml.before-telebot-model-20261125124724605.bak",
+      "verifiedWithEphemeralThreadWithoutTurn": true,
+      "harnessRestarted": false,
+      "originalRequestReplayed": false
+    },
+    "connectorRegression": {
+      "command": "pnpm verify --module codex --gate codex-native",
+      "localTestsPassed": 7,
+      "nativeChecksPassed": 19,
+      "loopbackModelRequests": 24,
+      "confirmedApplyRejectionReproducedBeforeFix": true,
+      "productionPackageUpdated": false,
+      "archive": "telebot-codex-0.1.0.tgz",
+      "sha256": "0f143f5faec76ae8a5e9513c524862ce44894c2969a29b46a6bf5d6bb47f31af"
+    }
+  },
+  "feishuImageDeliveryDiagnosis20261118": {
+    "state": "resolved",
+    "requestAt": "2026-11-18T01:35:13.907+08:00",
+    "imageRenderedAt": "2026-11-18T01:37:57.313+08:00",
+    "nativePresentAt": "2026-11-18T01:38:01.165+08:00",
+    "turnEndedAt": "2026-11-18T01:38:04.030+08:00",
+    "image": {
+      "mediaType": "image/png",
+      "width": 1600,
+      "height": 1000,
+      "bytes": 2358640
+    },
+    "productionReceipt": {
+      "inboxSequence": 101,
+      "inboxState": "completed",
+      "finalOutboxSequence": 313,
+      "type": "post",
+      "state": "sent",
+      "attempts": 1,
+      "error": null,
+      "mediaOutboxItems": 0
+    },
+    "cause": "Ordinary conversation completion and recovery enqueue only result.text as Markdown. The final local image path is unchanged; native present success does not invoke Feishu media upload or delivery. Even explicit ConversationResult.artifacts are ignored in the ordinary completion branch.",
+    "diagnosticReplay": {
+      "cases": 2,
+      "reproduced": true,
+      "fileTransferCalls": 0,
+      "installedChannelAndApiMatchLocalBuild": true,
+      "formalModuleSuiteRun": false
+    },
+    "productionChanged": false,
+    "originalRequestReplayed": false,
+    "realFeishuSent": false,
+    "paidModelCalls": false,
+    "resolvedBy": "feishuLocalFileReplies20261118"
+  },
+  "assessedAt": "2026-11-18T03:17:12.195Z",
   "branch": "codex/dsh-0.2.2-rc.3-compatibility",
   "workingTreeCommitted": false,
   "targetRuntime": "0.2.2-rc.3",
-  "development": "Official dsh 0.2.2-rc.3 compatibility upgrade verified, installed and enabled on the existing desktop profile.",
+  "development": "Local-file reply conversion implemented, officially isolated ACP/Web verified, and installed into the existing official 0.2.2-rc.3 desktop profile.",
   "codexContinuationReceipt20261107": {
     "requestAt": "2026-11-07T22:55:05.267+08:00",
     "turnCompletedAt": "2026-11-07T22:58:06.511+08:00",
@@ -283,8 +408,8 @@
   "formalInstallation": {
     "performed": true,
     "desktopModified": false,
-    "installedDesktop": "0.2.1-rc.5",
-    "targetDesktop": "0.2.1-rc.5",
+    "installedDesktop": "0.2.2-rc.3",
+    "targetDesktop": "0.2.2-rc.3",
     "guide": "docs/installation.md",
     "versionEvidence": {
       "checkedAt": "2026-10-31T16:21:56.919Z",
@@ -296,10 +421,10 @@
     "home": "C:\\Users\\41547\\.dsh",
     "profile": "C:\\Users\\41547\\.dsh\\profiles\\desktop",
     "physicalProfile": "D:\\files_data\\windborne\\dsh-runtime\\profiles\\desktop",
-    "release": "D:/files_data/windborne/dsh-runtime/releases/telebot-0.1.0-codex-receipt-fix-20261107",
-    "backup": "D:\\files_data\\windborne\\dsh-runtime\\backups\\codex-receipt-fix-before-20261107-230645",
-    "profileBackup": "C:/Users/41547/.dsh/backups/desktop-before-profile-junction-20261101",
-    "launcher": "D:/files_data/windborne/dsh-runtime/releases/telebot-0.1.0-codex-receipt-fix-20261107/start-desktop.ps1",
+    "release": "D:/files_data/windborne/dsh-runtime/releases/telebot-0.1.0-file-replies-20261118111226",
+    "backup": "D:/files_data/windborne/dsh-runtime/backups/file-replies-before-20261118111226",
+    "profileBackup": "D:/files_data/windborne/dsh-runtime/backups/file-replies-before-20261118111226/profile",
+    "launcher": "D:/files_data/windborne/dsh-runtime/releases/telebot-0.1.0-file-replies-20261118111226/start-desktop.ps1",
     "startupEvidenceScope": "Twelve Codex runtime files matched. The known denied restart was reconciled, and the new Codex writer, Feishu lease and webhook listener were verified.",
     "uiAcceptance": false,
     "adviserEnabled": false,
@@ -342,16 +467,16 @@
     "explicitApproval": "user_requested_harness_plugin_restart_2026-11-07",
     "confirmationRepliesInstalled": true,
     "semanticConfirmationInstalled": true,
-    "previousRelease": "D:/files_data/windborne/dsh-runtime/releases/telebot-0.1.0-codex-writer-fix-20261107",
+    "previousRelease": "D:/files_data/windborne/dsh-runtime/releases/telebot-0.1.0-dsh-0.2.2-rc.3-20261118",
     "previousBackup": "D:/files_data/windborne/dsh-runtime/backups/codex-writer-fix-before-20261107-224919",
-    "installedAt": "2026-11-07T23:08:00.3510428+08:00",
+    "installedAt": "2026-11-18T03:14:55.023Z",
     "directFeishuMessagesInstalled": true,
     "nativeFeishuResourceAuthorityInstalled": true,
     "startupVerified": true,
-    "forcedStopWhileIdle": true,
+    "forcedStopWhileIdle": false,
     "channelLeaseLive": true,
     "businessWriterAlive": true,
-    "matchedFeishuRuntimeFiles": 56,
+    "matchedFeishuRuntimeFiles": 60,
     "mixedConfirmationInstalled": true,
     "mixedConfirmationCardsInstalled": true,
     "bitableDirectWritesInstalled": true,
@@ -361,7 +486,9 @@
       "streamIdleTimeoutMs": 60000,
       "flashMaxTokens": 16384,
       "maxRetries": 2
-    }
+    },
+    "userExitedBeforeInstall": true,
+    "localFileReferenceDeliveryInstalled": true
   },
   "counts": {
     "tests": 80,
@@ -386,7 +513,7 @@
     "resourceFollowupLocal": 9,
     "feishuResourcesAcp": 8,
     "feishuResourcesWeb": 8,
-    "currentLocalModules": 28,
+    "currentLocalModules": 74,
     "progressAcp": 5,
     "progressWeb": 5,
     "questionsAcp": 7,
@@ -409,7 +536,11 @@
     "bitableDirectLocal": 28,
     "bitableDirectAcp": 8,
     "bitableDirectWeb": 8,
-    "bitableDirectHarness": 11
+    "bitableDirectHarness": 11,
+    "fileReferenceLocal": 74,
+    "fileReferenceCompositionAcp": 26,
+    "fileReferenceCompositionWeb": 26,
+    "fileReferenceProductionRuntimeFiles": 126
   },
   "evidence": {
     "harness": {
@@ -738,49 +869,49 @@
       "name": "@telebot/core",
       "version": "0.1.0",
       "filename": "telebot-core-0.1.0.tgz",
-      "sha256": "c79f2dcde85226947580a26486cd9b1a6e6c5212ef0f18de434d414f005bad18",
+      "sha256": "faedc0b6b531bd93ea6213007aa992a3cb5913b5bf07c56e990f95edad8a3285",
       "fixture": false
     },
     {
       "name": "@telebot/desktop",
       "version": "0.1.0",
       "filename": "telebot-desktop-0.1.0.tgz",
-      "sha256": "ebd1aad38ce8a2dc4832adaba3d89726e851b8f9f5bde0a4add56b8a8f899e57",
+      "sha256": "2a125cc7a48c35aaca34b2580d2c3746a9bf48e1aeeffe5e8cbeb845223d597e",
       "fixture": false
     },
     {
       "name": "@telebot/feishu",
       "version": "0.1.0",
       "filename": "telebot-feishu-0.1.0.tgz",
-      "sha256": "ed14ca96833b458ebd1bca69d3414a5ef7606841047bc5e63100b186ed115fc2",
+      "sha256": "90acde2c5a4d3115e4bc49c7cb84f6ad444137fedade8c078390ffcbefe8f1e2",
       "fixture": false
     },
     {
       "name": "@telebot/codex",
       "version": "0.1.0",
       "filename": "telebot-codex-0.1.0.tgz",
-      "sha256": "ecc2e4a83440dd0b436072f3494226cd4bc3dd787ea2cac6c7562e86d8097d73",
+      "sha256": "e3901868fbf40dcdf2abf1cb837562938f4bc9452a4d2456781ae693dd286bb6",
       "fixture": false
     },
     {
       "name": "@telebot/adviser",
       "version": "0.1.0",
       "filename": "telebot-adviser-0.1.0.tgz",
-      "sha256": "4760460f304133cb7b3289ff184ade1b6a664d16604166dfd90542b5c4081790",
+      "sha256": "d7e817dffc7205693bc17620799aaba1fc3d803199fb7675afa0d45bb84282b2",
       "fixture": false
     },
     {
       "name": "@telebot/publishing",
       "version": "0.1.0",
       "filename": "telebot-publishing-0.1.0.tgz",
-      "sha256": "c9979826cdeb1643392e7206f8465788128c5fe328861ab3e2e570f28c3fb0bf",
+      "sha256": "45860401a278bd56bde280e6502f096a81e5add761cfc0eb0f3375edaedb88f0",
       "fixture": false
     },
     {
       "name": "@telebot/automation",
       "version": "0.1.0",
       "filename": "telebot-automation-0.1.0.tgz",
-      "sha256": "aaeddc77423109ce4589cb915a3a8da2303d66db6ca54dd37c27196448300ae6",
+      "sha256": "07a4ad9a09b63e71ff3653d6700d6b49599da83e6310f8064f2e384a7018eba6",
       "fixture": false
     }
   ],
@@ -889,21 +1020,30 @@
     "outOfScope": "No remote non-disruptive updater, unified migration wizard, old knowledge migration or Feishu knowledge-space binding"
   },
   "activeWork": {
-    "phase": "bitable_direct_writes_installed_verified",
+    "phase": "local_file_replies_installed_verified",
     "modules": [
       "core",
-      "feishu-business"
+      "feishu"
     ],
-    "localChecks": 28,
-    "installedChecks": {
-      "resourcesAcp": 8,
-      "resourcesWeb": 8,
-      "harness": 11
-    },
-    "formalRuntimeFiles": 76,
-    "fullSuiteRerun": false,
+    "localChecks": 74,
+    "installedChecks": [
+      {
+        "gate": "composition",
+        "status": "passed",
+        "checks": 26,
+        "evidenceSha256": "e6144dd3a743e0d4f95195516c0b9148b9859ab354742bb27e4332205eb4c552",
+        "finalArchivesMatched": true
+      },
+      {
+        "gate": "composition-web",
+        "status": "passed",
+        "checks": 26,
+        "evidenceSha256": "3080d6037e44e411cd0c979dc5db78e4b0cbb46fdfbd4e238e8a1a4df654f36f",
+        "finalArchivesMatched": true
+      }
+    ],
     "formalInstallationPerformed": true,
-    "remaining": "User real Feishu interaction and visual acceptance"
+    "remaining": "User real Feishu file/image display acceptance; original deleted files and requests are not recreated or replayed."
   },
   "configurationSaveFix": {
     "status": "fixed_and_installed",
@@ -1854,6 +1994,228 @@
       "releaseChangesCommitted": true,
       "existingUntrackedDocumentPreserved": true,
       "remoteAccountMatchesOwner": true
+    }
+  },
+  "feishuLocalFileReplies20261118": {
+    "status": "installed_verified",
+    "cause": "Ordinary conversation completion/recovery forwarded only result.text; native present and Markdown local file references had no Feishu media conversion.",
+    "scope": [
+      "Markdown local image/file links and official per-turn deliverables/presented events",
+      "ordinary/recovered replies, commands, confirmations, questions, proactive and delayed delivery",
+      "workspace/sensitive-path/hash checks, canonical file deduplication, atomic queued snapshots",
+      "image/file upload and delivery receipts, persisted upload keys, unknown never replayed",
+      "legacy external delivery receipt compatibility and direct /send behavior"
+    ],
+    "verification": {
+      "local": {
+        "modules": [
+          "core",
+          "feishu"
+        ],
+        "passed": 74,
+        "feishuFinalPassed": 55,
+        "newRegressionCases": 8,
+        "redReproduced": true,
+        "entry": "pnpm verify --module core --module feishu --local",
+        "finalFeishuEntry": "pnpm verify --module feishu --local"
+      },
+      "supportingInstalledChecks": [
+        {
+          "gate": "harness",
+          "status": "passed",
+          "checks": 11,
+          "evidenceSha256": "12a031c4e3853bc795c71bd04eda26e0ffb59e35b8cf431e9b83d62dead2b3e6"
+        },
+        {
+          "gate": "model-limits",
+          "status": "passed",
+          "checks": 2,
+          "evidenceSha256": "2c266093770dd0aa97f7b09ad50902ed5381e35af45c507a6c5db11f9b1c647d"
+        },
+        {
+          "gate": "messages-desktop",
+          "status": "passed",
+          "checks": 3,
+          "evidenceSha256": "dfe627333653e7af7983fe88dd2508f7bcdf808590a8ead56ee5b47dfbcf3e4c"
+        },
+        {
+          "gate": "feishu-acp",
+          "status": "passed",
+          "checks": 15,
+          "evidenceSha256": "211526eed5593cc069e9ccbd24684b1ecb1b58356a14fee6e58ca76da4cb88cb"
+        },
+        {
+          "gate": "feishu-web",
+          "status": "passed",
+          "checks": 15,
+          "evidenceSha256": "ff4b8b01db126c4fdd15927f6030e1f08f4ab79ea7f50e08bac91694237c518a"
+        },
+        {
+          "gate": "progress-acp",
+          "status": "passed",
+          "checks": 5,
+          "evidenceSha256": "66876ca6f0782c0b6934d787f3e72adafa3f250496ebe7e86eaf1e10f0b631ed"
+        },
+        {
+          "gate": "progress-web",
+          "status": "passed",
+          "checks": 5,
+          "evidenceSha256": "2a3e727fe1412e93ee49972d2567291f8cea62d3bd78623e74ffab1d20677cb3"
+        },
+        {
+          "gate": "questions-acp",
+          "status": "passed",
+          "checks": 7,
+          "evidenceSha256": "ee495c6a7c5e443fa6b1976b7c7362e6d78e143c640f9460c05748d67bd0fd88"
+        },
+        {
+          "gate": "questions-web",
+          "status": "passed",
+          "checks": 7,
+          "evidenceSha256": "12e05732b0d5c6cad00305086879aac2c6cf07bd00fba899f1e65d3a85d12a92"
+        }
+      ],
+      "finalComposition": [
+        {
+          "gate": "composition",
+          "status": "passed",
+          "checks": 26,
+          "evidenceSha256": "e6144dd3a743e0d4f95195516c0b9148b9859ab354742bb27e4332205eb4c552",
+          "finalArchivesMatched": true
+        },
+        {
+          "gate": "composition-web",
+          "status": "passed",
+          "checks": 26,
+          "evidenceSha256": "3080d6037e44e411cd0c979dc5db78e4b0cbb46fdfbd4e238e8a1a4df654f36f",
+          "finalArchivesMatched": true
+        }
+      ],
+      "commands": [
+        "pnpm verify --module core --module feishu --installed",
+        "pnpm verify --module feishu --installed",
+        "pnpm verify --gate composition --gate composition-web --installed"
+      ],
+      "fullReleaseSuiteRun": false,
+      "realFeishuSent": false,
+      "paidModelCalls": false,
+      "archiveClosureChecked": true
+    },
+    "archives": [
+      {
+        "name": "@telebot/core",
+        "version": "0.1.0",
+        "filename": "telebot-core-0.1.0.tgz",
+        "sha256": "faedc0b6b531bd93ea6213007aa992a3cb5913b5bf07c56e990f95edad8a3285",
+        "fixture": false
+      },
+      {
+        "name": "@telebot/feishu",
+        "version": "0.1.0",
+        "filename": "telebot-feishu-0.1.0.tgz",
+        "sha256": "90acde2c5a4d3115e4bc49c7cb84f6ad444137fedade8c078390ffcbefe8f1e2",
+        "fixture": false
+      }
+    ],
+    "production": {
+      "installedAt": "2026-11-18T03:14:55.023Z",
+      "userExitedBeforeInstall": true,
+      "updated": [
+        "@telebot/core",
+        "@telebot/feishu"
+      ],
+      "method": "Official desktop-profile plugin manager, core then feishu",
+      "release": "D:/files_data/windborne/dsh-runtime/releases/telebot-0.1.0-file-replies-20261118111226",
+      "backup": "D:/files_data/windborne/dsh-runtime/backups/file-replies-before-20261118111226",
+      "backupDatabasesHealthy": 9,
+      "oldLeaseExpiredBeforeInstall": true,
+      "at": "2026-11-18T03:14:55.023Z",
+      "packages": [
+        {
+          "name": "@telebot/core",
+          "engine": "0.2.2-rc.3"
+        },
+        {
+          "name": "@telebot/desktop",
+          "engine": "0.2.2-rc.3"
+        },
+        {
+          "name": "@telebot/feishu",
+          "engine": "0.2.2-rc.3"
+        },
+        {
+          "name": "@telebot/codex",
+          "engine": "0.2.2-rc.3"
+        },
+        {
+          "name": "@telebot/adviser",
+          "engine": "0.2.2-rc.3"
+        },
+        {
+          "name": "@telebot/publishing",
+          "engine": "0.2.2-rc.3"
+        },
+        {
+          "name": "@telebot/automation",
+          "engine": "0.2.2-rc.3"
+        }
+      ],
+      "matchedRuntimeFiles": 84,
+      "sharedCoreIdentity": true,
+      "protectedFilesPreserved": true,
+      "profileConfigurationPreserved": true,
+      "desktopJunctionPreserved": true,
+      "allProductionRuntimeFilesMatched": 126,
+      "ownerAvailable": true,
+      "pages": [
+        {
+          "name": "telebot-core",
+          "active": true,
+          "busy": false,
+          "missing": []
+        },
+        {
+          "name": "telebot-automation",
+          "active": true,
+          "busy": false,
+          "missing": []
+        },
+        {
+          "name": "telebot-publishing",
+          "active": true,
+          "busy": false,
+          "missing": []
+        },
+        {
+          "name": "telebot-feishu",
+          "active": true,
+          "busy": false,
+          "missing": []
+        },
+        {
+          "name": "telebot-desktop",
+          "active": true,
+          "busy": false,
+          "missing": []
+        },
+        {
+          "name": "telebot-codex",
+          "active": true,
+          "busy": false,
+          "missing": []
+        }
+      ],
+      "runningSessions": 0,
+      "channelLeaseLive": true,
+      "webhookSourceRejection": 403,
+      "oldMessageRecordsPreserved": true,
+      "credentialsAndConfigurationPreserved": true,
+      "startupErrorLines": 0,
+      "realFeishuSent": false,
+      "paidModelCalls": false,
+      "originalTaskReplayed": false,
+      "deletedOriginalFilesRecreated": false,
+      "liveVisualAcceptance": "user_managed"
     }
   }
 }

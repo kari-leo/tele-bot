@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import type { AcceptResult, ChannelRepository, ChannelSettings, DeliveryResult, InboxEntry, InputEvent, Outbound } from '../domain/types.js'
 import type { ChannelQuestion, ConversationSpec, TrustedActor } from '@telebot/core/contracts'
 import type { MessageTarget, MessageReceipt } from '../domain/messages.js'
+import { posts, type Output } from '../domain/replies.js'
 
 type Row = Record<string, string | number | null>
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
@@ -356,10 +357,15 @@ export class SqliteChannelRepository implements ChannelRepository {
     // Delayed work retains its trusted creation-time workspace after chat /cd.
     return { ...entry, spec: { ...entry.spec, id: actor.sessionId, cwd: actor.cwd } }
   }
-  enqueueOnce(key: string, actor: TrustedActor, outputs: readonly Pick<Outbound, 'msgType' | 'content'>[]) {
+  queuedDelivery(key:string,actor:TrustedActor,identity:unknown,legacyOutputs?:readonly Output[]):string[]|undefined {
+    this.source(actor)
+    const previous=this.db.prepare('SELECT * FROM external_delivery WHERE id=?').get(key) as Row|undefined
+    if(previous){if(previous.digest!=='request:'+hash([actor,identity])&&(!legacyOutputs||previous.digest!==hash([actor,legacyOutputs])))throw Error('delivery_key_collision');return JSON.parse(String(previous.outbox_ids))}
+  }
+  enqueueOnce(key: string, actor: TrustedActor, outputs: readonly Pick<Outbound, 'msgType' | 'content'>[], identity?: unknown) {
     return this.transaction(() => {
       this.owned()
-      const entry = this.source(actor), digest = hash([actor, outputs]), previous = this.db.prepare('SELECT * FROM external_delivery WHERE id=?').get(key) as Row | undefined
+      const entry = this.source(actor), digest = identity===undefined?hash([actor,outputs]):'request:'+hash([actor,identity]), previous = this.db.prepare('SELECT * FROM external_delivery WHERE id=?').get(key) as Row | undefined
       if (previous) { if (previous.digest !== digest) throw new Error('delivery_key_collision'); return JSON.parse(String(previous.outbox_ids)) as string[] }
       const ids = outputs.map(output => { const id = randomUUID(); this.db.prepare('INSERT INTO outbox(id,inbox_id,chat_id,reply_to,thread_id,msg_type,content) VALUES(?,?,?,?,?,?,?)').run(id,entry.id,entry.chatId,entry.messageId,entry.threadId,output.msgType,output.content);return id })
       this.db.prepare('INSERT INTO external_delivery VALUES(?,?,?)').run(key,digest,JSON.stringify(ids))
@@ -374,7 +380,13 @@ export class SqliteChannelRepository implements ChannelRepository {
     })
   }
   private messageOwner(actor: TrustedActor) { return hash([actor.origin, actor.userId, actor.sessionId, actor.cwd]) }
-  queueMessage(actor: TrustedActor, key: string, target: MessageTarget, text: string): MessageReceipt {
+  messageSource(actor:TrustedActor,target:MessageTarget):InboxEntry {
+    const row=this.db.prepare('SELECT * FROM inbox WHERE id=? AND chat_id=? AND thread_id=?').get(target.sourceId,target.chatId,target.threadId) as Row|undefined
+    if(!row||JSON.parse(String(row.actor)).authorizedUserId!==target.userId)throw Error('feishu_message_target_not_authorized')
+    const entry=this.entry(row)
+    return {...entry,spec:{...entry.spec,id:actor.sessionId,cwd:actor.cwd}}
+  }
+  queueMessage(actor: TrustedActor, key: string, target: MessageTarget, text: string, outputs:readonly Output[]=posts(text)): MessageReceipt {
     return this.transaction(() => {
       this.owned()
       const owner = this.messageOwner(actor), digest = hash([target.chatId, target.threadId, text])
@@ -385,12 +397,11 @@ export class SqliteChannelRepository implements ChannelRepository {
       }
       const source = this.db.prepare('SELECT * FROM inbox WHERE id=? AND chat_id=? AND thread_id=?').get(target.sourceId, target.chatId, target.threadId) as Row | undefined
       if (!source || JSON.parse(String(source.actor)).authorizedUserId !== target.userId) throw new Error('feishu_message_target_not_authorized')
-      const id = randomUUID(), ids: string[] = [], points = Array.from(text)
-      for (let offset = 0; offset < points.length; offset += 6000) {
+      const id = randomUUID(), ids: string[] = []
+      for (const output of outputs) {
         const messageId = randomUUID(); ids.push(messageId)
-        const content = JSON.stringify({ zh_cn: { content: [[{ tag: 'md', text: points.slice(offset, offset + 6000).join('') }]] } })
         this.db.prepare('INSERT INTO outbox(id,inbox_id,chat_id,reply_to,thread_id,msg_type,content,purpose) VALUES(?,?,?,?,?,?,?,?)')
-          .run(messageId, source.id!, target.chatId, target.threadId ? source.message_id! : '', target.threadId, 'post', content, 'proactive:' + id)
+          .run(messageId, source.id!, target.chatId, target.threadId ? source.message_id! : '', target.threadId, output.msgType, output.content, 'proactive:' + id)
       }
       this.db.prepare('INSERT INTO model_messages VALUES(?,?,?,?,?,?,?)').run(id, key, owner, digest, target.chatId, target.threadId, JSON.stringify(ids))
       return this.messageStatus(actor, id)
@@ -417,10 +428,10 @@ export class SqliteChannelRepository implements ChannelRepository {
   externalStatus(actor:TrustedActor,ids:unknown){
     const source=this.source(actor)
     if(!Array.isArray(ids)||ids.length>1000||ids.some(id=>typeof id!=='string'))throw new Error('delivery_ids_required')
-    return ids.map(id=>{const row=this.db.prepare('SELECT id,state,attempts,remote_id,error_code,msg_type,uploaded_key FROM outbox WHERE id=? AND inbox_id=?').get(id,source.id) as Row|undefined;if(!row)throw new Error('delivery_not_owned');return{id:row.id,state:row.state,attempts:row.attempts,messageId:row.remote_id,error:row.error_code,type:row.msg_type,...(row.msg_type==='file'?{upload:row.uploaded_key?'uploaded':'not_confirmed'}:{})}})
+    return ids.map(id=>{const row=this.db.prepare('SELECT id,state,attempts,remote_id,error_code,msg_type,uploaded_key FROM outbox WHERE id=? AND inbox_id=?').get(id,source.id) as Row|undefined;if(!row)throw new Error('delivery_not_owned');return{id:row.id,state:row.state,attempts:row.attempts,messageId:row.remote_id,error:row.error_code,type:row.msg_type,...(['file','image'].includes(String(row.msg_type))?{upload:row.uploaded_key?'uploaded':'not_confirmed'}:{})}})
   }
   retryExternal(actor:TrustedActor,ids:unknown){return this.transaction(()=>{this.owned();const rows=this.externalStatus(actor,ids);for(const row of rows)if(row.state==='failed')this.db.prepare("UPDATE outbox SET state='pending',attempts=0,next_at=0 WHERE id=? AND state='failed'").run(row.id);return this.externalStatus(actor,ids)})}
-  uploaded(message:Outbound,key:string){this.owned();if(!key||key.length>1024)throw new Error('invalid_upload_receipt');if(this.db.prepare("UPDATE outbox SET uploaded_key=? WHERE id=? AND state='sending' AND msg_type='file' AND (uploaded_key IS NULL OR uploaded_key=?)").run(key,message.id,key).changes!==1)throw new Error('upload_receipt_mismatch')}
+  uploaded(message:Outbound,key:string){this.owned();if(!key||key.length>1024)throw new Error('invalid_upload_receipt');if(this.db.prepare("UPDATE outbox SET uploaded_key=? WHERE id=? AND state='sending' AND msg_type IN ('file','image') AND (uploaded_key IS NULL OR uploaded_key=?)").run(key,message.id,key).changes!==1)throw new Error('upload_receipt_mismatch')}
   question(entry: InboxEntry, question: ChannelQuestion): string {
     this.owned()
     this.db.prepare('INSERT INTO actions (token,inbox_id,session_key,actor,chat_id,thread_id,expires) VALUES(?,?,?,?,?,?,?)')
@@ -441,6 +452,7 @@ export class SqliteChannelRepository implements ChannelRepository {
         (SELECT 1 FROM outbox p WHERE p.inbox_id=o.inbox_id AND p.seq<o.seq AND p.state!='sent'
           AND ((o.purpose LIKE 'proactive:%' AND p.purpose=o.purpose) OR (o.purpose NOT LIKE 'proactive:%' AND p.purpose NOT LIKE 'proactive:%'))
           AND p.state!='superseded' AND p.purpose NOT IN ('progress','progress-update')
+          AND NOT(p.msg_type IN ('image','file') AND p.state IN ('failed','unknown'))
           AND NOT(p.msg_type='interactive' AND json_extract(p.content,'$.header.title.content')='执行进度')) ORDER BY seq LIMIT 1`).get(now) as Row | undefined
       if (!row) return undefined
       if(row.purpose==='progress-update'||row.purpose==='reply'){
@@ -473,7 +485,9 @@ export class SqliteChannelRepository implements ChannelRepository {
     const pending = this.db.prepare("SELECT count(*) AS n FROM inbox WHERE session_key=? AND state='pending'").get(sessionKey) as Row
     const unknown = this.db.prepare("SELECT count(*) AS n FROM inbox WHERE session_key=? AND state='unknown'").get(sessionKey) as Row
     const uncertainDelivery = this.db.prepare("SELECT count(*) AS n FROM outbox o JOIN inbox i ON o.inbox_id=i.id WHERE i.session_key=? AND o.state='unknown' AND o.purpose NOT IN ('progress','progress-update')").get(sessionKey) as Row
-    return { pending: Number(pending.n), unknown: Number(unknown.n) + Number(uncertainDelivery.n) }
+    const delivery = this.db.prepare("SELECT o.state,count(*) AS n FROM outbox o JOIN inbox i ON o.inbox_id=i.id WHERE i.session_key=? AND o.purpose NOT IN ('progress','progress-update') GROUP BY o.state").all(sessionKey) as Row[]
+    const count=(state:string)=>Number(delivery.find(row=>row.state===state)?.n??0)
+    return { pending: Number(pending.n), unknown: Number(unknown.n) + Number(uncertainDelivery.n), deliveryFailed:count('failed'),deliveryPending:count('pending')+count('sending') }
   }
   statusCard(entry: InboxEntry, text: string, ttlMs: number): string {
     const token = randomUUID()

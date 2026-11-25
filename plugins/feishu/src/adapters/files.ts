@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite'
 import { randomUUID, createHash } from 'node:crypto'
-import { mkdir, writeFile, readFile, unlink, realpath, stat } from 'node:fs/promises'
+import { mkdir, writeFile, readFile, unlink, realpath, open, rename } from 'node:fs/promises'
 import path from 'node:path'
 import type { IncomingFile } from '@telebot/core/contracts'
 import type { InboxEntry } from '../domain/types.js'
@@ -48,12 +48,34 @@ export class FileTransfers {
     return result
   }
   close() { this.db.close() }
-  async outbound(entry: InboxEntry, filename: string) {
-    if (!path.isAbsolute(filename)) throw new Error('absolute_artifact_path_required')
-    const file = await realpath(filename), cwd = await realpath(entry.spec.cwd), relative = path.relative(cwd, file)
-    if (relative.startsWith('..') || path.isAbsolute(relative) || /(?:^|[\\/])(?:\.env(?:\..*)?|\.git|credentials|\.aws)(?:[\\/]|$)/i.test(relative)) throw new Error('artifact_outside_allowed_scope')
-    const info = await stat(file)
-    if (!info.isFile() || info.size > 30 * 1024 * 1024) throw new Error('artifact_size_limit')
-    return JSON.stringify({ path: file, sha256: createHash('sha256').update(await readFile(file)).digest('hex') })
+  async outbound(entry: InboxEntry, filename: string, options?: { reference: true }) {
+    if (!options?.reference && !path.isAbsolute(filename)) throw new Error('absolute_artifact_path_required')
+    // UNC/device paths can initiate network access; file references never grant that authority.
+    if (/^(?:\\\\|\/\/)/.test(filename)) throw new Error('artifact_outside_allowed_scope')
+    const cwd = await realpath(entry.spec.cwd), target = path.resolve(cwd, filename), file = await realpath(target), relative = path.relative(cwd, file)
+    const sensitive = /(?:^|[\\/])(?:\.env(?:\..*)?|\.git|credentials(?:\..*)?|\.credentials(?:\..*)?|\.aws|\.ssh|\.codex|\.dsh)(?:[\\/]|$)/i
+    if (relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative) || sensitive.test(relative) || sensitive.test(path.relative(cwd,target))) throw new Error('artifact_outside_allowed_scope')
+    const handle = await open(file, 'r')
+    let bytes: Buffer
+    try {
+      const info = await handle.stat()
+      if (!info.isFile() || info.size > 30 * 1024 * 1024) throw new Error('artifact_size_limit')
+      bytes = await handle.readFile()
+      if (bytes.length > 30 * 1024 * 1024 || await realpath(target) !== file) throw new Error('artifact_changed_after_execution')
+    } finally { await handle.close() }
+    const sha256 = createHash('sha256').update(bytes).digest('hex'), name = path.basename(file)
+    const image = bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])) || bytes[0]===255&&bytes[1]===216&&bytes[2]===255 || /^GIF8[79]a/.test(bytes.toString('ascii',0,6)) || bytes.toString('ascii',0,4)==='RIFF'&&bytes.toString('ascii',8,12)==='WEBP' || bytes.toString('ascii',0,2)==='BM'
+    const kind = image && bytes.length > 0 && bytes.length <= 10 * 1024 * 1024 ? 'image' : 'file'
+    if (!options?.reference) return JSON.stringify({ path:file,sha256 })
+    // Content-addressed spool freezes the reply even if its source is removed before upload/restart.
+    const directory = path.join(this.directory,'outgoing'); await mkdir(directory,{recursive:true,mode:0o700})
+    const snapshot = path.join(directory,sha256), staging = path.join(directory,randomUUID()+'.tmp')
+    // Publish complete bytes atomically: concurrent replies must never observe a partial spool file.
+    try {
+      await writeFile(staging,bytes,{flag:'wx',mode:0o600})
+      try { await rename(staging,snapshot) }
+      catch(error) { if(createHash('sha256').update(await readFile(snapshot)).digest('hex')!==sha256)throw error }
+    } finally { await unlink(staging).catch(error=>{if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error}) }
+    return JSON.stringify({ path:snapshot,sourcePath:file,name,size:bytes.length,sha256,kind })
   }
 }

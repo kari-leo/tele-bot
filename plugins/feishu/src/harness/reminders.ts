@@ -9,7 +9,8 @@ import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { DatabaseSync } from 'node:sqlite'
 import { randomUUID } from 'node:crypto'
-import type { ChannelRepository, InboxEntry } from '../domain/types.js'
+import type { ChannelRepository, ChannelPorts, InboxEntry } from '../domain/types.js'
+import { composeReply } from '../domain/replies.js'
 import {receiptPreset} from '@telebot/core/presets'
 import { renderPluginResult } from '@telebot/core/presentation'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
@@ -23,7 +24,7 @@ export class Reminders {
   private readonly presetId='telebot-feishu-receipts'
   private readonly ready:Promise<void>
   private disposePreset:(()=>Promise<void>)|undefined
-  constructor(private readonly ctx: Context, filename: string, private readonly channel: ChannelRepository,private readonly authorized:(entry:InboxEntry)=>boolean=()=>false) {
+  constructor(private readonly ctx: Context, filename: string, private readonly channel: ChannelRepository,private readonly authorized:(entry:InboxEntry)=>boolean=()=>false,private readonly files?:ChannelPorts['files']) {
     this.db = new DatabaseSync(filename)
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
       CREATE TABLE IF NOT EXISTS reminders(id TEXT PRIMARY KEY,session TEXT NOT NULL,entry TEXT NOT NULL,text TEXT NOT NULL,state TEXT NOT NULL);
@@ -104,7 +105,8 @@ export class Reminders {
         const key = JSON.stringify([row.id, receipt.scheduledAt])
         if (this.db.prepare('SELECT 1 FROM deliveries WHERE id=?').get(key)) continue
         this.db.prepare('INSERT INTO deliveries(id,state) VALUES(?,?)').run(key, 'sending')
-        const ids = this.channel.enqueue?.(entry, [{ msgType: 'post', content: JSON.stringify({ zh_cn: { content: [[{ tag: 'text', text: `定时提醒：${row.text}\n计划时间：${receipt.scheduledAt}` }]] } }) }])
+        const reply = await composeReply(entry,{text:`定时提醒：${row.text}\n计划时间：${receipt.scheduledAt}`},this.files)
+        const ids = this.channel.enqueue?.(entry, reply.outputs)
         this.db.prepare("UPDATE deliveries SET state='queued',outbox_ids=? WHERE id=?").run(JSON.stringify(ids ?? []), key)
       }
       if (task?.status === 'ended') this.db.prepare("UPDATE reminders SET state='delivered_to_channel' WHERE id=?").run(row.id)

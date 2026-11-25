@@ -26,9 +26,15 @@ export function feishuTaskGuard(sessionId:string,available:()=>boolean){
 function settled(events: readonly SessionEvent[], inputId: string): ConversationResult {
   let turn: number | undefined, currentTurn: number | undefined
   let text = '', finalText='', reason: string | undefined
+  const presentedFiles: { path: string; description?: string }[] = []
   for (const event of events) {
     if (event.type === 'turn/start') currentTurn = event.data.turn
     if (event.type === 'user/message' && event.data.id === inputId) turn = currentTurn
+    // The official tool persists this public event; never scrape tool text or send read_image intermediates.
+    if ((event.type as string) === 'deliverables/presented') {
+      const data = event.data as unknown as { turn: number; files: { path: string; description?: string }[] }
+      if (turn !== undefined && data.turn === turn) presentedFiles.push(...data.files)
+    }
     if (turn !== undefined && event.type === 'assistant/message' && event.data.turn === turn) {
       const candidate = event.data.message.content.filter(block => block.type === 'text').map(block => block.text).join('')
       if (candidate.trim()) text = candidate
@@ -36,7 +42,7 @@ function settled(events: readonly SessionEvent[], inputId: string): Conversation
     }
     if (turn !== undefined && event.type === 'turn/end' && event.data.turn === turn) reason = event.data.reason.kind
   }
-  if (reason === 'completed' && finalText.trim()) return { status: 'completed', text:finalText }
+  if (reason === 'completed' && finalText.trim()) return { status: 'completed', text:finalText, ...(presentedFiles.length ? { presentedFiles } : {}) }
   if (reason === 'completed') return {status:'failed',text:'模型已结束本轮请求，但没有生成最终答复。工具可能已经完成部分操作，请先查询或核验实际结果，再决定下一步；系统没有自动重做操作。持续无回复时可在空闲后 /compact，或 /new 新建会话。'}
   if (reason === 'interrupted' || reason === 'aborted') return { status: 'cancelled', text: '本轮已停止；停止不代表已发生的外部操作被撤销。' }
   if (reason) return { status: 'failed', text: '本轮未完成，请检查宿主模型或工具状态。' + (text ? `\n执行结束前的输出：\n${text}` : '') }

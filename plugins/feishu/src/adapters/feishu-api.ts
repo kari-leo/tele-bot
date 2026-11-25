@@ -46,25 +46,32 @@ export class FeishuApi implements DeliveryPort {
     const suffix = message.editMessageId ? `/open-apis/im/v1/messages/${encodeURIComponent(message.editMessageId)}` : message.replyTo ? `/open-apis/im/v1/messages/${encodeURIComponent(message.replyTo)}/reply` : '/open-apis/im/v1/messages?receive_id_type=chat_id'
     try {
       let content = message.content
-      if (message.msgType === 'file') {
+      if (message.msgType === 'file' || message.msgType === 'image') {
         const file = JSON.parse(message.content)
-        if ((await stat(file.path)).size > 30 * 1024 * 1024) return { status: 'failed', code: 'file_too_large' }
-        const bytes = await readFile(file.path)
-        if (createHash('sha256').update(bytes).digest('hex') !== file.sha256) return { status: 'failed', code: 'artifact_changed' }
+        const image = message.msgType === 'image'
         let key=message.uploadedFileKey
         if(!key){
-        const form = new FormData(); form.set('file_type', 'stream'); form.set('file_name', path.basename(file.path)); form.set('file', new Blob([bytes]), path.basename(file.path))
-        const upload = await fetch(this.options.origin + '/open-apis/im/v1/files', { method: 'POST', redirect: 'error', headers: { Authorization: `Bearer ${token}` }, body: form, signal: AbortSignal.timeout(this.options.timeoutMs) })
+        let bytes: Buffer<ArrayBuffer>
+        try {
+          if ((await stat(file.path)).size > (image ? 10 : 30) * 1024 * 1024) return { status:'failed',code:'file_too_large' }
+          bytes = await readFile(file.path)
+        } catch { return {status:'failed',code:'artifact_unavailable'} }
+        if (bytes.length > (image ? 10 : 30) * 1024 * 1024) return {status:'failed',code:'file_too_large'}
+        if (createHash('sha256').update(bytes).digest('hex') !== file.sha256) return { status: 'failed', code: 'artifact_changed' }
+        const name = file.name ?? path.basename(file.path), form = new FormData()
+        if (image) { form.set('image_type','message'); form.set('image',new Blob([bytes]),name) }
+        else { form.set('file_type','stream'); form.set('file_name',name); form.set('file',new Blob([bytes]),name) }
+        const upload = await fetch(this.options.origin + (image ? '/open-apis/im/v1/images' : '/open-apis/im/v1/files'), { method: 'POST', redirect: 'error', headers: { Authorization: `Bearer ${token}` }, body: form, signal: AbortSignal.timeout(this.options.timeoutMs) })
         if (upload.status === 429) return { status: 'retry', code: 'feishu_upload_rate_limited' }
         if (upload.status >= 500) return { status: 'unknown', code: 'feishu_upload_unknown' }
         if (!upload.ok) return { status: 'failed', code: 'feishu_upload_rejected' }
         const receipt = object(await upload.json())
         if (receipt.code !== 0) return { status: 'failed', code: 'feishu_upload_rejected' }
-        key = string(object(receipt.data).file_key)
+        key = string(object(receipt.data)[image ? 'image_key' : 'file_key'])
         if (!key) return { status: 'unknown', code: 'feishu_upload_receipt_missing' }
         onUploaded?.(key)
         }
-        content = JSON.stringify({ file_key: key })
+        content = JSON.stringify(message.msgType === 'image' ? { image_key: key } : { file_key: key })
       }
       const response = await fetch(this.options.origin + suffix, {
         method: message.editMessageId?'PUT':'POST', redirect: 'error', signal: AbortSignal.timeout(this.options.timeoutMs),

@@ -14,14 +14,14 @@ import {RunSkills} from './adapters/skills.js'
 
 export const name = 'telebot-codex'
 export const inject = ['telebotCore', 'tools']
-export interface Config { skillSourceDirectory:string;skillNames:string[]; configDirectory: string; executionTimeoutMs: number; confirmationTtlMs: number; cli: string; codexHome: string; dataDirectory: string; adminUserIds: string[]; allowedRoots: string[]; historyOwnerUserId: string }
-export const Config = z.object({ skillSourceDirectory:z.string().default(''),skillNames:z.array(z.string()).default([]),configDirectory: z.string().default(''), executionTimeoutMs: z.number().min(1000).max(1200000).default(1200000), confirmationTtlMs: z.number().min(1000).max(900000).default(900000), cli: z.string().default(''), codexHome: z.string().default(''), dataDirectory: z.string().default(''), adminUserIds: z.array(z.string()).default([]), allowedRoots: z.array(z.string()).default([]), historyOwnerUserId: z.string().default('') })
+export interface Config { skillSourceDirectory:string;skillNames:string[]; configDirectory: string; executionTimeoutMs: number; confirmationTtlMs: number; cli: string; codexHome: string; model: string; dataDirectory: string; adminUserIds: string[]; allowedRoots: string[]; historyOwnerUserId: string }
+export const Config = z.object({ skillSourceDirectory:z.string().default(''),skillNames:z.array(z.string()).default([]),configDirectory: z.string().default(''), executionTimeoutMs: z.number().min(1000).max(1200000).default(1200000), confirmationTtlMs: z.number().min(1000).max(900000).default(900000), cli: z.string().default(''), codexHome: z.string().default(''), model: z.string().default(''), dataDirectory: z.string().default(''), adminUserIds: z.array(z.string()).default([]), allowedRoots: z.array(z.string()).default([]), historyOwnerUserId: z.string().default('') })
 async function start(ctx: Context, config: Config, onBusy: (busy: () => boolean) => void) {
   if (!(ctx.telebotCore instanceof TelebotCore)) throw new Error('core_identity_mismatch')
   const directory = config.dataDirectory || path.join(resolveDshHome(), 'plugins', 'telebot-codex')
   if (!path.isAbsolute(directory)) throw new Error('absolute_data_directory_required')
   await mkdir(directory, { recursive: true, mode: 0o700 })
-  const backend = new NativeCodex(config.cli, config.codexHome || undefined)
+  const backend = new NativeCodex(config.cli, config.codexHome || undefined, undefined, config.model?.trim())
   const probe=await backend.connect(config.allowedRoots[0]);await backend.release(probe)
   const service = new CodingService(backend, path.join(directory, 'coding.sqlite'), config.adminUserIds, config.allowedRoots, config.historyOwnerUserId, config.executionTimeoutMs, config.confirmationTtlMs,new RunSkills(config.skillSourceDirectory,config.skillNames))
   onBusy(() => service.busy())
@@ -51,6 +51,7 @@ export async function apply(ctx: Context, bootstrap: Config) {
   await configuredPlugin(ctx,{name,title:'Codex 插件配置',bootstrap,fields:[
     {key:'cli',label:'本机 Codex CLI 路径',help:'选择已安装 CLI 的 codex.js 或可执行文件；固定兼容 0.160.0，启用时校验协议，复用既有配置和登录。'},
     {key:'codexHome',label:'Codex 配置目录',help:'留空使用本机现有默认目录，不创建新账户。'},
+    {key:'model',label:'插件新会话模型',help:'填写本机 Codex CLI 可用的模型 ID。留空时使用 CLI 默认模型。续聊沿用原会话模型。'},
     {key:'allowedRoots',label:'允许的工作目录',type:'list',help:'每行一个已存在的绝对目录。'},
     {key:'adminUserIds',label:'管理员 ID',type:'list'}, {key:'historyOwnerUserId',label:'原生历史所属管理员 ID'},
     {key:'executionTimeoutMs',label:'执行时间上限（毫秒）',type:'number',min:1000,max:1200000},

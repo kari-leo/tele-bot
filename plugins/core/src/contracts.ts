@@ -46,6 +46,8 @@ export interface ConversationResult {
   status: 'completed' | 'failed' | 'cancelled' | 'unknown'
   text: string
   artifacts?: readonly { path: string; size: number; sha256: string }[]
+  /** Official present declarations from this identified turn; receivers must validate the files. */
+  presentedFiles?: readonly { path: string; description?: string }[]
   card?: ConversationCard
 }
 export interface ConversationStatus { active: boolean; cwd?: string; model?: string; provider?: string }

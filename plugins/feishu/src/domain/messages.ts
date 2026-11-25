@@ -1,6 +1,7 @@
 import type { TrustedActor } from '@telebot/core/contracts'
 import type { ChannelSettings } from './types.js'
 import { createHash } from 'node:crypto'
+import type { Output } from './replies.js'
 
 export interface MessageTarget { sourceId: string; chatId: string; threadId: string; userId: string; privateChat: boolean; lastSeen: number }
 export interface MessageReceipt {
@@ -9,13 +10,14 @@ export interface MessageReceipt {
 }
 export interface MessageRepository {
   messageTargets(): MessageTarget[]
-  queueMessage(actor: TrustedActor, key: string, target: MessageTarget, text: string): MessageReceipt
+  queueMessage(actor: TrustedActor, key: string, target: MessageTarget, text: string, outputs?: readonly Output[]): MessageReceipt
   messageStatus(actor: TrustedActor, id: string, retry?: boolean): MessageReceipt
 }
 
 /** Message authority is derived from a trusted entry, never a model-supplied user ID. */
 export class FeishuMessages {
-  constructor(private readonly repository: MessageRepository, private readonly settings: Pick<ChannelSettings, 'adminUserIds' | 'allowedChatIds'>) {}
+  constructor(private readonly repository: MessageRepository, private readonly settings: Pick<ChannelSettings, 'adminUserIds' | 'allowedChatIds'>,
+    private readonly compose?: (actor:TrustedActor,target:MessageTarget,text:string)=>Promise<readonly Output[]>) {}
   private authorize(actor: TrustedActor) {
     if (actor.origin === 'web') {
       if (actor.permissions !== 'full') throw new Error('feishu_message_actor_not_authorized')
@@ -43,7 +45,7 @@ export class FeishuMessages {
     // Different model call IDs in the same authenticated request cannot duplicate the same message.
     const key = createHash('sha256').update(JSON.stringify([actor.origin, actor.userId, actor.sessionId, actor.cwd, request, target.chatId, target.threadId, input.text])).digest('hex')
     signal.throwIfAborted()
-    return this.repository.queueMessage(actor, key, target, input.text)
+    return this.compose ? this.compose(actor,target,input.text).then(outputs=>{signal.throwIfAborted();return this.repository.queueMessage(actor,key,target,input.text,outputs)}) : this.repository.queueMessage(actor, key, target, input.text)
   }
   status(actor: TrustedActor, id: string) { this.authorize(actor); return this.repository.messageStatus(actor, id) }
   retry(actor: TrustedActor, id: string) {

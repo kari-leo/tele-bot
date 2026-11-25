@@ -80,6 +80,15 @@ test('a completed model stream without a final answer reports the model failure 
   assert.equal(result.status,'failed');assert.match(result.text,/模型.*最终答复/);assert.match(result.text,/核验|查询/);assert(!result.text.includes('private'))
 })
 
+test('official presented deliverables are scoped to the identified turn and survive recovery without rerunning',async()=>{
+  const events=[{type:'turn/start',data:{turn:1}},{type:'user/message',data:{id:'old'}},{type:'deliverables/presented',data:{turn:1,files:[{path:'old.png'}]}},{type:'turn/end',data:{turn:1,reason:{kind:'completed'}}}], adapter=new HarnessConversations({on:()=>()=>{}})
+  const agent={session:{id:'presented',snapshotEvents:()=>events},whenIdle:async()=>{},followup:message=>events.push({type:'turn/start',data:{turn:2}},{type:'user/message',data:{id:message.id}},{type:'deliverables/presented',data:{turn:2,files:[{path:'final.png',description:'final'},{path:'script.py'}]}},{type:'assistant/message',data:{turn:2,message:{content:[{type:'text',text:'done'}]}}},{type:'turn/end',data:{turn:2,reason:{kind:'completed'}}})}
+  adapter.open=async()=>agent;adapter.flush=async()=>{}
+  const spec={id:'presented',cwd:process.cwd()},input={id:'current',text:'draw'}
+  const result=await adapter.run(spec,input);assert.deepEqual(result.presentedFiles,[{path:'final.png',description:'final'},{path:'script.py'}])
+  assert.deepEqual((await adapter.recover(spec,input)).presentedFiles,result.presentedFiles)
+})
+
 test('resumed Feishu conversations receive current channel guidance above stale exact-word instructions',async()=>{
   const injected=[],events=[],adapter=new HarnessConversations({on:()=>()=>{}})
   const agent={session:{id:'resumed',snapshotEvents:()=>events},whenIdle:async()=>{},inject:message=>injected.push(message),followup:message=>{

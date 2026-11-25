@@ -26,7 +26,7 @@ export interface Outbound {
   chatId: string
   replyTo: string
   threadId: string
-  msgType: 'post' | 'interactive' | 'file'
+  msgType: 'post' | 'interactive' | 'file' | 'image'
   content: string
   attempts: number
   uploadedFileKey?: string
@@ -77,7 +77,7 @@ export interface ChannelRepository {
   settleDelivery(message: Outbound, result: DeliveryResult, retryAt: number, maxAttempts: number): void
   recoverDeliveries(): void
   uploaded?(message:Outbound,key:string):void
-  status(sessionKey: string): { pending: number; unknown: number }
+  status(sessionKey: string): { pending: number; unknown: number; deliveryFailed?:number; deliveryPending?:number }
   statusCard(entry: InboxEntry, text: string, ttlMs: number): string
   question?(entry: InboxEntry, question: ChannelQuestion): string
   enqueue?(entry: InboxEntry, outputs: readonly Pick<Outbound, 'msgType' | 'content'>[]): string[] | void
@@ -90,6 +90,6 @@ export interface ChannelPorts {
   agent: ConversationPort; repository: ChannelRepository; delivery: DeliveryPort
   commands?: CommandPort; workspace?: WorkspacePort
   features?: FeaturePort
-  files?: { receive(entry: InboxEntry): Promise<void>; forMessage(entry: InboxEntry): Promise<import('@telebot/core/contracts').IncomingFile[]>; outbound(entry: InboxEntry, filename: string): Promise<string> }
+  files?: { receive(entry: InboxEntry): Promise<void>; forMessage(entry: InboxEntry): Promise<import('@telebot/core/contracts').IncomingFile[]>; outbound(entry: InboxEntry, filename: string, options?: { reference: true }): Promise<string> }
   reminders?: { command(entry: InboxEntry): Promise<string> }
 }

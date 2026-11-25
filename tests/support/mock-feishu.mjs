@@ -3,7 +3,7 @@ import { once } from 'node:events'
 
 /** Loopback platform boundary: no real tenant, credentials, messages or API calls. */
 export async function startMockFeishu({ appId = 'cli_test', appSecret = 'loopback-app-secret', tables=[{table_id:'test-table',name:'Isolated table'}] } = {}) {
-  const attempts = [], sent = [], edits=[], messages=new Map(), behaviors = new Map(), resources = new Map(), uploads = [], records = new Map(), calendarEvents = new Map()
+  const attempts = [], sent = [], edits=[], messages=new Map(), behaviors = new Map(), resources = new Map(), uploads = [], imageUploads = [], records = new Map(), calendarEvents = new Map()
   let tokenRequests = 0
   const business=[]
   const server = createServer(async (request, response) => {
@@ -17,6 +17,9 @@ export async function startMockFeishu({ appId = 'cli_test', appSecret = 'loopbac
     for await (const chunk of request) raw += chunk
     if (request.url === '/open-apis/im/v1/files') {
       uploads.push(raw); response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ code: 0, data: { file_key: 'uploaded-' + uploads.length } })); return
+    }
+    if (request.url === '/open-apis/im/v1/images') {
+      imageUploads.push(raw); response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ code: 0, data: { image_key: 'image-' + imageUploads.length } })); return
     }
     const body = raw ? JSON.parse(raw) : {}
     response.setHeader('Content-Type', 'application/json')
@@ -70,7 +73,7 @@ export async function startMockFeishu({ appId = 'cli_test', appSecret = 'loopbac
   })
   server.listen(0, '127.0.0.1'); await once(server, 'listening')
   return {
-    attempts, sent, edits, behaviors, resources, uploads, records, calendarEvents, business, get tokenRequests() { return tokenRequests },
+    attempts, sent, edits, behaviors, resources, uploads, imageUploads, records, calendarEvents, business, get tokenRequests() { return tokenRequests },
     origin: 'http://127.0.0.1:' + server.address().port,
     async close() { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)) },
   }

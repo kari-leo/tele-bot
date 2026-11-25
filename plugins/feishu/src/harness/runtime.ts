@@ -17,6 +17,7 @@ import { FileTransfers } from '../adapters/files.js'
 import { Reminders } from './reminders.js'
 import { FeishuMessages } from '../domain/messages.js'
 import { registerMessageTool } from './messages.js'
+import { composeReply } from '../domain/replies.js'
 
 export async function startChannel(ctx: Context, config: Config, sharedDelivery?: FeishuApi, deferStart = false): Promise<{ busy(): boolean; hold(): () => void; start(): void }> {
   if (!(ctx.telebotCore instanceof TelebotCore)) throw new Error('telebot_core_identity_mismatch')
@@ -49,7 +50,7 @@ export async function startChannel(ctx: Context, config: Config, sharedDelivery?
   const files = new FileTransfers(dataDirectory, (messageId, key, type) => delivery.download(messageId, key, type))
   let reminders: Reminders | undefined
   ctx.inject(['schedule', 'agents', 'sessionPersistence', 'tools'], scope => {
-    reminders = new Reminders(scope, path.join(dataDirectory, 'reminders.sqlite'), repository,entry=>entry.actor.ids.some(id=>config.adminUserIds.includes(id))&&(!config.allowedChatIds.length||config.allowedChatIds.includes(entry.chatId)))
+    reminders = new Reminders(scope, path.join(dataDirectory, 'reminders.sqlite'), repository,entry=>entry.actor.ids.some(id=>config.adminUserIds.includes(id))&&(!config.allowedChatIds.length||config.allowedChatIds.includes(entry.chatId)),files)
     scope.effect(() => async () => { await reminders?.dispose(); reminders = undefined })
   })
   let channelUnavailable = false
@@ -60,21 +61,22 @@ export async function startChannel(ctx: Context, config: Config, sharedDelivery?
   () => { channelUnavailable = true; ctx.logger.error('telebot-feishu worker stopped after a persistence or lease failure; webhook admission is unavailable') })
   const unregisterDelivery = ctx.telebotCore.registerDelivery('feishu', async request => {
     if (!config.adminUserIds.includes(request.actor.userId) || (config.allowedChatIds.length && !config.allowedChatIds.includes(request.actor.chatId))) throw new Error('delivery_actor_not_authorized')
-    const source = repository.source(request.actor), outputs: { msgType: 'post' | 'file'; content: string }[] = []
-    const text=renderPluginResult(request.result.text)
-    for (let offset = 0; offset < text.length; offset += 6000) outputs.push({ msgType:'post',content:JSON.stringify({zh_cn:{content:[[{tag:'md',text:text.slice(offset,offset+6000)}]]}}) })
-    for (const artifact of request.result.artifacts ?? []) {
-      const content = await files.outbound(source, artifact.path)
-      if (JSON.parse(content).sha256 !== artifact.sha256) throw new Error('delivery_artifact_changed')
-      outputs.push({ msgType:'file',content })
-    }
-    return repository.enqueueOnce(request.id, request.actor, outputs)
+    // Old receipts hashed the outputs. Reconstruct their descriptors without rereading or resending files.
+    const text=renderPluginResult(request.result.text),legacy:import('../domain/replies.js').Output[]=[]
+    for(let offset=0;offset<text.length;offset+=6000)legacy.push({msgType:'post',content:JSON.stringify({zh_cn:{content:[[{tag:'md',text:text.slice(offset,offset+6000)}]]}})})
+    for(const artifact of request.result.artifacts??[])legacy.push({msgType:'file',content:JSON.stringify({path:artifact.path,sha256:artifact.sha256})})
+    const previous = repository.queuedDelivery(request.id, request.actor, request.result,legacy)
+    if (previous) return previous
+    const source = repository.source(request.actor)
+    const reply = await composeReply(source, {...request.result,text},files)
+    return repository.enqueueOnce(request.id, request.actor, reply.outputs, request.result)
   },{status:(actor,receipt)=>repository.externalStatus(actor,receipt),retry:(actor,receipt)=>repository.retryExternal(actor,receipt)})
   const handler = webhookHandler({ appId: config.appId, secrets: { verificationToken, encryptKey }, maxBodyBytes: config.maxBodyBytes, accept: event => channel.accept(event) })
   let unregister: (() => void) | undefined
   let started = false
   try {
-    registerMessageTool(ctx, new FeishuMessages(repository, config), () => started && !channelUnavailable && channel.available())
+    registerMessageTool(ctx, new FeishuMessages(repository, config, async(actor,target,text)=>
+      (await composeReply(repository.messageSource(actor,target),{text},files)).outputs), () => started && !channelUnavailable && channel.available())
     await chmod(filename, 0o600)
     unregister = ctx.webServer.register({ kind: 'exact', path: config.webhookPath, handler })
     ctx.effect(() => async () => { channelUnavailable = true; unregisterDelivery(); unregister?.(); try { await channel.stop(); await reminders?.dispose() } finally { files.close(); repository.release() } })

@@ -104,6 +104,7 @@ async function configuration() {
       retryPolicy: { mode: 'normal', maxRetries: 0 }, models: ['telebot-mock-a', 'telebot-mock-b'].map(id => ({ id, contextWindow: 131072, maxTokens: 4096, input: ['text'] })) } } } },
     { id: 'acp', config: { provider: 'telebot-verification', model: 'telebot-mock-a' } },
     { id: 'telebot-feishu', disabled: false, config: feishuConfig },
+    ...(!focused?[{insert:[{id:'verify-official-present',name:'@deepseek-ai/dsh-tool-present'}]}]:[]),
     ...(questionsOnly?[{insert:[{id:'verify-ask-user',name:'@deepseek-ai/dsh-tool-ask-user',config:{mode:'legacy'}}]},{id:'telebot-automation',disabled:false,config:{adminUserIds:['ou_alice'],allowedRoots:[],provider:'telebot-verification',model:'telebot-mock-a'}}]:[]),
     ...(features ? [
       {id:'telebot-diagnostics',config:{webProbes:true}},
@@ -308,6 +309,20 @@ try {
   assert.equal(model.requests.length, count)
   assert.equal(platform.sent.filter(entry => entry.replyTo === 'om_echo' && !entry.body.content?.includes('"content":"执行进度"')).length, 1)
   check('text executes an actual native tool and replies with its receipt; event/message redelivery cannot execute twice')
+
+  const linkedImage=path.join(workspace,'moon lake.png'),linkedScript=path.join(workspace,'draw_lake.py')
+  await writeFile(linkedImage,Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aFz8AAAAASUVORK5CYII=','base64'))
+  await writeFile(linkedScript,'print("isolated local deliverable")')
+  model.finalReplies.set('LOCAL_FILES',`![月夜](<${linkedImage}>)\n[脚本](<${linkedScript}>)\n[重复](<${linkedScript}>)\n[不存在](<${path.join(workspace,'deleted.log')}>)`)
+  model.toolCases.set('LOCAL_FILES',{name:'present',arguments:{files:[{path:linkedImage,description:'synthetic final image'}]}})
+  await post(message('local_files','TELEBOT_TEST:LOCAL_FILES'));await settled('local_files')
+  await eventually(()=>rows("SELECT * FROM outbox WHERE reply_to='om_local_files' AND msg_type IN ('image','file') AND state='sent'").length===2)
+  const linkedReply=received('local_files');assert(!linkedReply.body.content.includes(workspace));assert(linkedReply.body.content.includes('不存在'))
+  assert.equal(platform.imageUploads.length,1);assert.equal(platform.uploads.length,1)
+  assert(model.requests.some(row=>row.instruction==='LOCAL_FILES'&&row.receipt?.includes('Presented')),'official present must actually execute')
+  assert.equal((await post(message('local_files','TELEBOT_TEST:LOCAL_FILES'))).body.duplicate,true)
+  assert.equal(platform.imageUploads.length,1);assert.equal(platform.uploads.length,1)
+  check('official present and final local image/script links become deduplicated image/file deliveries; missing links become readable notices without rerunning')
 
   const holdText = 'TELEBOT_TEST:WAIT_FOR_CANCEL:' + randomUUID()
   assert.equal((await post(message('held', holdText))).status, 200)

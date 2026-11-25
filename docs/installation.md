@@ -7,7 +7,7 @@
 插件已安装；先退出已有桌面，再从当前交付目录启动：
 
 ```powershell
-& 'D:\files_data\windborne\dsh-runtime\releases\telebot-0.1.0-dsh-0.2.2-rc.3-20261118\start-desktop.ps1'
+& 'D:\files_data\windborne\dsh-runtime\releases\telebot-0.1.0-file-replies-20261118111226\start-desktop.ps1'
 ```
 
 | 内容 | 位置 |
@@ -20,6 +20,7 @@
 | 固定 pnpm 11.28.5 | `D:/files_data/windborne/dsh-runtime/prerequisites/pnpm-11.28.5`；环境脚本仅调整当前进程 PATH，不改全局版本 |
 | 验证临时目录 | `D:/files_data/windborne/dsh-runtime/tmp` |
 | 本次 dsh 兼容升级前备份 | `D:/files_data/windborne/dsh-runtime/backups/dsh-0.2.2-rc.3-before-20261118-003014` |
+| 本机文件引用修复前停机备份 | `D:/files_data/windborne/dsh-runtime/backups/file-replies-before-20261118111226` |
 
 保留整个 profile 的 C→D 联接；只联接 node_modules 会破坏宿主 peer 解析。新依赖、缓存和临时目录用 D 盘，原用户数据保留。启动脚本准备 D 盘环境、PowerShell 7.6.9 和现有 Git，不依赖源码目录。
 

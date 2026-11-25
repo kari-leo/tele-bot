@@ -34,6 +34,14 @@ const server = createServer(async (request, response) => {
   const instruction = JSON.stringify(body.input?.findLast(item => item.role === 'user' && /P4_/.test(JSON.stringify(item))) ?? body.input)
   const currentTurn=body.input.slice(body.input.findLastIndex(item=>item.role==='user'&&/P4_/.test(JSON.stringify(item)))+1)
   if (instruction.includes('P4_CANCEL')) return
+  if (instruction.includes('P4_UNAVAILABLE_MODEL')) {
+    response.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify({
+      type: 'error', status: 400,
+      error: { type: 'invalid_request_error', code: 'model_not_found', subreason: 'model_not_in_accessible_catalog',
+        message: `The '${body.model}' model is not supported when using Codex with a ChatGPT account. Synthetic provider detail.` },
+    }))
+    return
+  }
   const artifact = /P4_WRITE_(ARTIFACT|CSV|XLSX)/.test(instruction),extension=instruction.includes('P4_WRITE_CSV')?'csv':instruction.includes('P4_WRITE_XLSX')?'xlsx':'txt'
   const full = instruction.includes('P4_NATIVE_FULL'),fullMarker=path.join(work,'native-full-outside.txt')
   const jsonText = JSON.stringify({ summary: 'P0 loopback result', artifacts: full ? [fullMarker] : artifact ? ['generated.'+extension] : [] })
@@ -124,14 +132,22 @@ try {
   assert(archivedRead.thread.turns.length > 0)
   check('archived native history remains readable; production connectors must keep archived threads read-only')
   await app.stop(); app = undefined
-  const backend = new NativeCodex(cli, home, env)
+  const defaultBackend = new NativeCodex(cli, home, env)
+  const backend = new NativeCodex(cli, home, env, 'telebot-plugin-model')
   try {
     const binding = { userId: 'test-admin', chatId: 'test-chat', sessionId: 'p4-session', cwd }
     const request = { ...binding, mode: 'inspect', prompt: 'P4_PRODUCTION structured result' }
-    const result = await backend.execute({ ...request, digest: codingDigest(request) }, { sandbox: 'read-only', signal: AbortSignal.timeout(30000) })
+    const options = { sandbox: 'read-only', signal: AbortSignal.timeout(30000) }
+    const result = await defaultBackend.execute({ ...request, digest: codingDigest(request) }, options)
     assert.equal(result.status, 'completed'); assert.equal(result.text, 'P0 loopback result'); assert.deepEqual(result.artifacts, [])
+    assert.equal(requests.at(-1).model, 'telebot-mock')
     assert(requests.some(body => body.text?.format?.type === 'json_schema'))
     check('P4 production native connector validates the actual structured result and preserves the native thread identity')
+    const original = await backend.execute({ ...request, digest: codingDigest(request) }, options, result.threadId, { model: 'telebot-mock' })
+    assert.equal(original.status, 'completed')
+    assert.equal(original.threadId, result.threadId)
+    assert.equal(requests.at(-1).model, 'telebot-mock')
+    check('P4 resume retains the original model when the plugin overrides the model for new threads')
     const read = { ...request, prompt: 'P4_READ_NATIVE only read the current directory' }
     const readBefore = requests.length
     await backend.execute({ ...read, digest: codingDigest(read) }, { sandbox: 'read-only', signal: AbortSignal.timeout(30000) })
@@ -167,6 +183,20 @@ try {
     const skills=new RunSkills(skillSource,['synthetic']),service = new CodingService(backend, path.join(work, 'coding.sqlite'), ['test-admin'], [cwd], 'test-admin',1200000,900000,skills)
     try {
       const actor = { ...binding, privateChat: true, origin: 'feishu' }
+      const rejectedProposal = await service.command(actor, 'apply P4_UNAVAILABLE_MODEL isolated provider rejection', AbortSignal.timeout(30000))
+      const rejectedToken = rejectedProposal.text.match(/\/codex confirm ([a-f0-9-]+)/)?.[1]
+      assert(rejectedToken)
+      const beforeRejection = requests.length
+      const rejected = await service.command(actor, 'confirm ' + rejectedToken, AbortSignal.timeout(30000))
+      assert.equal(rejected.status, 'failed', rejected.text)
+      const receipt = JSON.parse(rejected.text)
+      assert.equal(receipt.diagnostic, 'codex_model_unavailable', JSON.stringify(backend.lastTurnFailure))
+      assert.match(receipt.text, /当前 Codex 账户不可用/)
+      assert(!rejected.text.includes('Synthetic provider detail'))
+      assert.deepEqual(rejected.artifacts, [])
+      await service.command(actor, 'confirm ' + rejectedToken, AbortSignal.timeout(30000))
+      assert.equal(requests.length, beforeRejection + 1)
+      check('P4 confirmed apply surfaces a sanitized model rejection through the receipt without retrying')
       const historyActor = { ...actor, cwd: path.join(work, 'unavailable') }
       const beforeHistory = requests.length
       const history = await service.command(historyActor, 'history', AbortSignal.timeout(30000))
@@ -184,12 +214,13 @@ try {
       assert(token)
       const applied = await service.command(actor, 'confirm ' + token, AbortSignal.timeout(30000))
       assert.equal(applied.status, 'completed', applied.text + '\n' + service.lastFailure + '\n' + JSON.stringify(backend.lastPermission) + '\n' + JSON.stringify(backend.lastTurnFailure) + '\n' + JSON.stringify(requests.at(-1)?.input?.filter(item => item.type === 'function_call_output')))
+      assert.equal(requests.at(-1).model, 'telebot-plugin-model')
       assert.equal(JSON.parse(applied.text).artifacts[0].sha256.length, 64)
       await access(path.join(cwd, 'generated.txt'))
       const count = requests.length
       await service.command(actor, 'confirm ' + token, AbortSignal.timeout(30000))
       assert.equal(requests.length, count)
-      check('P4 production service freezes and consumes a write grant, verifies the real artifact hash and never repeats native execution')
+      check('P4 confirmed apply uses the plugin model instead of the CLI default, verifies the artifact and never repeats execution')
       const thread=JSON.parse(applied.text).threadId
       const resumeActor = { ...historyActor, sourceId: 'explicit-feishu-request' }
       const resumeCommand = 'resume ' + thread + ' P4_WRITE_ARTIFACT update only the controlled workspace artifact'
@@ -218,7 +249,7 @@ try {
       const copy=await skills.prepare(cwd,await skills.snapshot());assert.equal(await readFile(path.join(skillSource,'synthetic/SKILL.md'),'utf8'),skillText);assert(requests.some(body=>JSON.stringify(body.input).includes('.telebot-skills')));await writeFile(path.join(copy,'synthetic/run-state.json'),'{"seen":["fixture"]}');assert.equal(await skills.prepare(cwd,await skills.snapshot()),copy)
       check('P4 selected Skill hash and run-copy instructions reach native Codex while original source stays intact and local deduplication state persists')
     } finally { await service.dispose() }
-  } finally { await backend.dispose() }
+  } finally { await Promise.all([backend.dispose(), defaultBackend.dispose()]) }
   // Sanity: no credential file was imported, and only loopback requests occurred.
   await assert.rejects(access(path.join(home, 'auth.json')), { code: 'ENOENT' })
   evidence.modelRequests = requests.length

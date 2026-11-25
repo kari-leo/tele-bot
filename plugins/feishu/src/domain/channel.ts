@@ -1,15 +1,8 @@
 import type { ChannelPorts, ChannelSettings, InboxEntry, InputEvent } from './types.js'
 import { channelCommand } from './commands.js'
 import { baseManagementCommand } from '../business/domain/base-links.js'
-
-function posts(text: string) {
-  const points = Array.from(text)
-  const result: { msgType: 'post'; content: string }[] = []
-  for (let offset = 0; offset < points.length; offset += 6000) {
-    result.push({ msgType: 'post', content: JSON.stringify({ zh_cn: { content: [[{ tag: 'md', text: points.slice(offset, offset + 6000).join('') }]] } }) })
-  }
-  return result
-}
+import { composeReply, posts, progressText } from './replies.js'
+import type { ConversationResult } from '@telebot/core/contracts'
 
 function confirmationCards(text:string,status:string){
   return posts(text).map(post=>({msgType:'interactive' as const,content:JSON.stringify({
@@ -91,7 +84,7 @@ export class FeishuChannel {
         try {
           const result = await this.ports.agent.recover(entry.spec, { id: entry.inputId, text: entry.text })
           this.ports.repository.markMapped(entry.spec.id)
-          this.ports.repository.finish(entry, result.status, posts(result.text))
+          await this.finishResult(entry, result)
         } catch {
           this.ports.repository.finish(entry, 'unknown', posts('上次请求的状态未确认，系统没有自动重复执行。请使用 /status 查看状态。'))
         }
@@ -107,12 +100,20 @@ export class FeishuChannel {
     for(const spec of specs)try{await this.ports.agent.context?.(spec,entry.id,(entry.originalText?'用户回复：'+entry.originalText+'\n\n':'')+text)}catch{/* Preserve the durable receipt; a context failure must never replay the operation. */}
   }
 
+  private async finishResult(entry: InboxEntry, result: ConversationResult, confirmation = false) {
+    const reply = await composeReply(entry, result, this.ports.files, confirmation ? result.status : undefined)
+    const card = result.card && entry.actor.privateChat && /^\/codex\b/.test(entry.text) ? { text: reply.text, view: result.card } : undefined
+    this.ports.repository.finish(entry, result.status, card ? reply.outputs.filter(output => output.msgType !== 'post') : reply.outputs, card)
+    return reply.text
+  }
+
   private async process(entry: InboxEntry): Promise<void> {
     try {
       if (entry.kind === 'status') {
         const status = this.ports.repository.status(entry.sessionKey)
         const live = this.ports.agent.status(entry.spec.id)
         const text = `会话${live.active ? '正在处理' : '当前空闲'}；待处理 ${status.pending} 条，状态待核实 ${status.unknown} 条。` +
+          `\n消息/附件投递：待投递 ${status.deliveryPending??0} 条，失败 ${status.deliveryFailed??0} 条。` +
           `\n模型：${live.provider ?? entry.spec.provider ?? '宿主默认'}/${live.model ?? entry.spec.model ?? ''}\n工作目录：${live.cwd ?? entry.spec.cwd}`
         const content = this.ports.repository.statusCard(entry, text, this.config.actionTtlMs)
         this.ports.repository.finish(entry, 'completed', [{ msgType: 'interactive', content }])
@@ -135,7 +136,7 @@ export class FeishuChannel {
         if(this.controlling.has(entry.spec.id)){this.ports.repository.finish(entry,'failed',posts('已有操作执行中，请完成后再次确认。'));return}
         this.controlling.add(entry.spec.id)
         try{const result=await this.ports.features?.invoke('confirm',{actor:{userId:entry.actor.authorizedUserId??entry.actor.ids[0],chatId:entry.chatId,sessionId:entry.spec.id,cwd:entry.spec.cwd,privateChat:Boolean(entry.actor.privateChat),origin:'feishu',sourceId:entry.id,threadId:entry.threadId},text:entry.text,signal:AbortSignal.timeout(120000)})
-          this.ports.repository.finish(entry,result?.status??'failed',confirmationCards(result?.text||'当前没有需要确认的操作。',result?.status??'failed'))
+          await this.finishResult(entry,result??{status:'failed',text:'当前没有需要确认的操作。'},true)
           if(result?.text)await this.rememberResult(entry,result.text)
         }finally{this.controlling.delete(entry.spec.id)}
       }
@@ -145,7 +146,7 @@ export class FeishuChannel {
           cwd: entry.spec.cwd, privateChat: Boolean(entry.actor.privateChat), origin: 'feishu',
           threadId:entry.threadId,
         }, text: entry.text.slice('/answer '.length), signal: AbortSignal.timeout(5000) })
-        this.ports.repository.finish(entry, result?.status ?? 'failed', posts(result?.text ?? '回答服务不可用。'))
+        await this.finishResult(entry, result ?? {status:'failed',text:'回答服务不可用。'})
       }
       else if (entry.text === '/stop') {
         this.ports.agent.cancel(entry.spec.id)
@@ -159,21 +160,12 @@ export class FeishuChannel {
           this.controlling.add(entry.spec.id)
           try {
             if (entry.text.startsWith('/send ') && this.ports.files) {
-              const content = await this.ports.files.outbound(entry, entry.text.slice('/send '.length).trim())
-              this.ports.repository.finish(entry, 'completed', [{ msgType: 'file', content }])
+              const reply=await composeReply(entry,{text:'',presentedFiles:[{path:entry.text.slice('/send '.length).trim()}]},this.ports.files)
+              const media=reply.outputs.filter(output=>output.msgType==='file'||output.msgType==='image')
+              this.ports.repository.finish(entry,'completed',media.length?media:reply.outputs)
             } else {
               const result = await channelCommand(this.ports, entry)
-              const card = result.card && entry.actor.privateChat && /^\/codex\b/.test(entry.text) ? { text: result.text, view: result.card } : undefined
-              const outputs: { msgType: 'post' | 'file'; content: string }[] = card ? [] : posts(result.text)
-              for (const artifact of result.artifacts ?? []) {
-                try {
-                  if (!this.ports.files) throw new Error('file_transfers_unavailable')
-                  const content = await this.ports.files.outbound(entry, artifact.path)
-                  if (JSON.parse(content).sha256 !== artifact.sha256) throw new Error('artifact_changed_after_execution')
-                  outputs.push({ msgType: 'file', content })
-                } catch { outputs.push(...posts('产物未通过目录、大小或哈希复核，未上传。业务执行不会因此重跑，请核对产物后显式发送。')) }
-              }
-              this.ports.repository.finish(entry, result.status, outputs, card)
+              await this.finishResult(entry,result)
               if(/^\/(?:bitable|feishu|codex|publish|schedule)\s+(?:confirm|resume-confirm|cancel|execute|reject)\b/.test(entry.text))await this.rememberResult(entry,result.text)
             }
           } finally { this.controlling.delete(entry.spec.id) }
@@ -185,22 +177,23 @@ export class FeishuChannel {
             userId: entry.actor.authorizedUserId ?? entry.actor.ids[0], chatId: entry.chatId, sessionId: entry.spec.id,
             cwd: entry.spec.cwd, privateChat: Boolean(entry.actor.privateChat), origin: 'feishu', sourceId: entry.id, threadId: entry.threadId,
           }, text: this.ports.features.has?.('confirm') ? (cancel ? 'cancel' : 'confirm') : (cancel ? 'cancel-latest' : 'confirm-latest'), signal: AbortSignal.timeout(120000) })
-          if (result.text) { this.ports.repository.finish(entry, result.status, posts(result.text)); await this.rememberResult(entry,result.text); return }
+          if (result.text) { await this.finishResult(entry,result); await this.rememberResult(entry,result.text); return }
         }
         const attachments = await this.ports.files?.forMessage(entry)
         const result = await this.ports.agent.run(entry.spec, { id: entry.inputId, text: entry.text, attachments,
           progress: this.config.streamProgress ? text => {
-            this.ports.repository.progress?.(entry, posts(text)[0].content); this.wake()
+            this.ports.repository.progress?.(entry, posts(progressText(text))[0].content); this.wake()
           } : undefined, question: Object.assign(async (question:import('@telebot/core/contracts').ChannelQuestion) => {
           if (!this.ports.repository.question || !this.ports.repository.enqueue) throw new Error('question_delivery_unavailable')
           this.ports.repository.waiting?.(entry)
-          this.ports.repository.enqueue(entry, [{ msgType: 'interactive', content: this.ports.repository.question(entry, question) }]); this.wake()
+          const reply=await composeReply(entry,{text:question.question},this.ports.files)
+          this.ports.repository.enqueue(entry, [{ msgType: 'interactive', content: this.ports.repository.question(entry, {...question,question:reply.text}) },...reply.outputs.filter(output=>output.msgType==='file'||output.msgType==='image')]); this.wake()
         },{settled:()=>this.ports.repository.resumeQuestion?.(entry)}), actor: {
           userId: entry.actor.ids.find(id => this.config.adminUserIds.includes(id))!, chatId: entry.chatId,
           sessionId: entry.spec.id, cwd: entry.spec.cwd, privateChat: Boolean(entry.actor.privateChat), origin: 'feishu', startedAt: Date.now(), sourceId: entry.id, threadId: entry.threadId,
         } })
         this.ports.repository.markMapped(entry.spec.id)
-        this.ports.repository.finish(entry, result.status, posts(result.text))
+        await this.finishResult(entry, result)
         const current=this.ports.repository.currentSpec?.(entry.sessionKey)
         if(current&&current.id!==entry.spec.id){try{await this.ports.agent.context?.(current,entry.id,result.text)}catch{/* The durable original reply remains authoritative; never rerun work. */}}
       }

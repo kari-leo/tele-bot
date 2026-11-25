@@ -97,6 +97,111 @@ function fakeAgent(overrides = {}) {
     cancel() {}, status: () => ({ active: false }), dispose: async () => {}, ...overrides }
 }
 
+test('ordinary replies deliver local image and script links once, rewrite unavailable links and retain media receipts', async t => {
+  const { FileTransfers } = await import('../../plugins/feishu/lib/adapters/files.js')
+  const { startMockFeishu } = await import('../support/mock-feishu.mjs')
+  const directory = await temporaryDirectory(t), image = path.join(directory, 'moon lake.png'), script = path.join(directory, 'draw_lake.py')
+  await writeFile(image, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aFz8AAAAASUVORK5CYII=', 'base64'))
+  await writeFile(script, 'print("synthetic")')
+  const {store,filename}=await repository(t), files=new FileTransfers(directory,async()=>{throw Error('No downloads')})
+  cleanup(t,()=>files.close())
+  const text=`![月夜](<${image}>)\n[脚本](<${script}>)\n[重复](<${script}>)\n[已删除](<${path.join(directory,'gone.log')}>)\n[网页](https://example.com)`
+  const agent=fakeAgent({run:async()=>({status:'completed',text,presentedFiles:[{path:image}]})})
+  const channel=new FeishuChannel({repository:store,agent,files,delivery:{}},settings)
+  store.accept(event('local-files'),{...settings,workspace:directory});await channel.process(store.claim([]))
+  const outputs=inspection(filename,'SELECT * FROM outbox ORDER BY seq')
+  assert.deepEqual(outputs.map(row=>row.msg_type),['post','image','file'])
+  assert(!outputs[0].content.includes(directory));assert.match(outputs[0].content,/附件/);assert.match(outputs[0].content,/不存在/);assert.match(outputs[0].content,/https:\/\/example.com/)
+  const platform=await startMockFeishu();cleanup(t,()=>platform.close())
+  const api=new FeishuApi({appId:'cli_test',secret:async()=>'loopback-app-secret',origin:platform.origin,timeoutMs:3000})
+  for(let outgoing;(outgoing=store.claimDelivery(Date.now()));){const receipt=await api.send(outgoing,key=>store.uploaded(outgoing,key));assert.equal(receipt.status,'sent');store.settleDelivery(outgoing,receipt,0,3)}
+  assert.equal(platform.imageUploads.length,1);assert.equal(platform.uploads.length,1)
+  const media=inspection(filename,"SELECT msg_type,uploaded_key,state FROM outbox WHERE msg_type IN ('image','file')")
+  assert(media.every(row=>row.uploaded_key&&row.state==='sent'))
+})
+
+test('local Markdown references support Windows paths, file URLs, relative/reference links and balanced names while code and web links stay inert',async()=>{
+  const {fileReferences,rewriteFileReferences}=await import('../../plugins/feishu/lib/domain/file-references.js')
+  const text='![图片](D:\\files_data\\moon.png) [脚本](<D:/files data/draw.py:12>) [括号](./a(b).log) [引用][log]\n[log]: <file:///D:/files%20data/run.log>\n`[示例](./secret.txt)`\n```md\n[代码](./ignored.txt)\n```\n[网页](https://example.com/file.py)\n<file:///D:/files_data/a.txt>\n普通路径 D:\\files_data\\mention.py'
+  const references=fileReferences(text)
+  assert.deepEqual(new Set(references.map(row=>row.path)),new Set(['D:\\files_data\\moon.png','D:/files data/draw.py','./a(b).log','D:/files data/run.log','D:/files_data/a.txt']))
+  const rewritten=rewriteFileReferences(text,()=> '附件')
+  assert(rewritten.includes('`[示例](./secret.txt)`'));assert(rewritten.includes('[代码](./ignored.txt)'));assert(rewritten.includes('https://example.com/file.py'));assert(rewritten.includes('普通路径 D:\\files_data\\mention.py'))
+  assert.equal(fileReferences('[![嵌套](./image.png)](https://example.com)')[0].path,'./image.png')
+  assert.equal(fileReferences('[网络文件](file://server/share/file.log)')[0].path,'//server/share/file.log')
+})
+
+test('reply composition enforces file scope and frozen hashes across aliases, deduplicates actual files and snapshots bytes for restart',async t=>{
+  const {FileTransfers}=await import('../../plugins/feishu/lib/adapters/files.js'),{composeReply}=await import('../../plugins/feishu/lib/domain/replies.js'),{readFile,unlink,symlink}=await import('node:fs/promises')
+  const directory=await temporaryDirectory(t),outside=await temporaryDirectory(t),file=path.join(directory,'report.py');await writeFile(file,'before')
+  await writeFile(path.join(directory,'.env'),'secret');await writeFile(path.join(outside,'outside.log'),'outside');await symlink(outside,path.join(directory,'escape'),process.platform==='win32'?'junction':'dir')
+  const files=new FileTransfers(directory,async()=>{throw Error('No download')});cleanup(t,()=>files.close())
+  const entry={spec:{cwd:directory}},result=await composeReply(entry,{text:'[一](report.py) [二](./report.py) [秘密](.env) [越界](escape/outside.log) [目录](.) [缺失](missing.py)'},files)
+  const concurrent=await Promise.all(Array.from({length:8},()=>files.outbound(entry,file,{reference:true})))
+  assert.equal(new Set(concurrent).size,1)
+  assert.equal(result.outputs.filter(row=>row.msgType==='file').length,1);assert.match(result.text,/不存在/);assert.match(result.text,/权限/)
+  const descriptor=JSON.parse(result.outputs.find(row=>row.msgType==='file').content);await unlink(file);assert.equal(await readFile(descriptor.path,'utf8'),'before')
+  await writeFile(file,'after');const changed=await composeReply(entry,{text:'[别名](./report.py)',artifacts:[{path:file,size:6,sha256:createHash('sha256').update('before').digest('hex')}]},files)
+  assert.equal(changed.outputs.filter(row=>row.msgType==='file').length,0);assert.match(changed.text,/变化/)
+  const image=path.join(directory,'large.png'),data=Buffer.alloc(10*1024*1024+1);Buffer.from([137,80,78,71,13,10,26,10]).copy(data);await writeFile(image,data)
+  const fallback=await composeReply(entry,{text:'![大图](large.png)'},files);assert.equal(fallback.outputs.at(-1).msgType,'file')
+})
+
+test('recovered final file links enqueue attachments without rerunning the Agent; one failed media item does not block another',async t=>{
+  const {FileTransfers}=await import('../../plugins/feishu/lib/adapters/files.js')
+  const directory=await temporaryDirectory(t);await writeFile(path.join(directory,'first.log'),'one');await writeFile(path.join(directory,'second.py'),'two')
+  const files=new FileTransfers(directory,async()=>{throw Error('No download')});cleanup(t,()=>files.close())
+  const {store,filename}=await repository(t);store.accept(event('recover-files'),{...settings,workspace:directory});store.claim([])
+  let calls=0;const channel=new FeishuChannel({repository:store,files,agent:fakeAgent({run:async()=>{calls++;throw Error('Must not rerun')},recover:async()=>({status:'completed',text:'[日志](first.log) [脚本](second.py)'})}),delivery:{}},settings)
+  await channel.recover();assert.equal(calls,0)
+  const first=store.claimDelivery(Date.now());store.settleDelivery(first,{status:'sent',messageId:'text'},0,3)
+  const failed=store.claimDelivery(Date.now());store.settleDelivery(failed,{status:'failed',code:'feishu_upload_rejected'},0,3)
+  const next=store.claimDelivery(Date.now());assert.equal(next.msgType,'file');store.settleDelivery(next,{status:'sent',messageId:'second'},0,3)
+  assert.equal(inspection(filename,"SELECT count(*) AS n FROM outbox WHERE state='failed'")[0].n,1);assert.equal(store.status(inspection(filename,'SELECT key FROM sessions')[0].key).deliveryFailed,1)
+})
+
+test('proactive and delayed replies use common file composition and retain the first receipt after source deletion',async t=>{
+  const {FileTransfers}=await import('../../plugins/feishu/lib/adapters/files.js'),{composeReply}=await import('../../plugins/feishu/lib/domain/replies.js'),{FeishuMessages}=await import('../../plugins/feishu/lib/domain/messages.js'),{unlink}=await import('node:fs/promises')
+  const directory=await temporaryDirectory(t),file=path.join(directory,'code.py');await writeFile(file,'print(1)')
+  const files=new FileTransfers(directory,async()=>{throw Error('No download')});cleanup(t,()=>files.close())
+  const {store,filename}=await repository(t);store.accept(event('file-target',{actor:{ids:['ou_alice'],privateChat:true}}),{...settings,workspace:directory});const entry=store.claim([]);store.finish(entry,'completed',[])
+  const actor={origin:'feishu',userId:'ou_alice',chatId:entry.chatId,threadId:'',sessionId:entry.spec.id,cwd:directory,sourceId:entry.id,privateChat:true},service=new FeishuMessages(store,settings,async(actor,target,text)=>(await composeReply(store.messageSource(actor,target),{text},files)).outputs)
+  const text='[代码](code.py)',first=await service.send(actor,{text},AbortSignal.timeout(3000));assert.equal(first.messages.length,2)
+  const result={status:'completed',text},reply=await composeReply(store.source(actor),result,files),ids=store.enqueueOnce('delayed-files',actor,reply.outputs,result)
+  await unlink(file);assert.deepEqual(await service.send(actor,{text},AbortSignal.timeout(3000)),first);assert.deepEqual(store.queuedDelivery('delayed-files',actor,result),ids)
+  const legacy=[{msgType:'post',content:JSON.stringify({zh_cn:{content:[[{tag:'md',text:'old reply'}]]}})}],legacyIds=store.enqueueOnce('old-delivery',actor,legacy)
+  assert.deepEqual(store.queuedDelivery('old-delivery',actor,{status:'completed',text:'old reply'},legacy),legacyIds)
+  assert.throws(()=>store.queuedDelivery('old-delivery',actor,{status:'completed',text:'changed'},[]),/collision/)
+  assert.equal(inspection(filename,"SELECT count(*) AS n FROM outbox WHERE msg_type='file'")[0].n,2)
+})
+
+test('question cards and confirmation results convert their local review links into attachments',async t=>{
+  const {FileTransfers}=await import('../../plugins/feishu/lib/adapters/files.js')
+  const directory=await temporaryDirectory(t);await writeFile(path.join(directory,'review.log'),'review')
+  const files=new FileTransfers(directory,async()=>{throw Error('No download')});cleanup(t,()=>files.close())
+  const {store,filename}=await repository(t),channel=new FeishuChannel({repository:store,files,delivery:{},agent:fakeAgent({run:async(_spec,input)=>{await input.question({token:'review',question:'请看[日志](review.log)',choices:['继续'],approval:false});return{status:'completed',text:'done'}}}),features:{invoke:async()=>({status:'completed',text:'完成：[日志](review.log)'})}},settings)
+  for(const [id,kind]of [['question-files','text'],['confirmation-files','confirmation']]){store.accept(event(id,{kind,text:'review'}),{...settings,workspace:directory});await channel.process(store.claim([]))}
+  const cards=inspection(filename,"SELECT content FROM outbox WHERE msg_type='interactive'");assert.equal(cards.length,2);assert(cards.every(row=>!row.content.includes('](review.log)')&&row.content.includes('附件')))
+  assert.equal(inspection(filename,"SELECT * FROM outbox WHERE msg_type='file'").length,2)
+})
+
+test('image upload keys survive restart and a failed send can retry after the local snapshot disappears; unknown images never resend',async t=>{
+  const {FileTransfers}=await import('../../plugins/feishu/lib/adapters/files.js'),{startMockFeishu}=await import('../support/mock-feishu.mjs'),{unlink}=await import('node:fs/promises')
+  const directory=await temporaryDirectory(t),file=path.join(directory,'image.png');await writeFile(file,Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aFz8AAAAASUVORK5CYII=','base64'))
+  const files=new FileTransfers(directory,async()=>{throw Error('No download')});cleanup(t,()=>files.close())
+  const filename=path.join(directory,'channel.sqlite');let store=new SqliteChannelRepository(filename,settings.appId,settings.leaseMs);cleanup(t,()=>store.release())
+  store.accept(event('image-retry'),{...settings,workspace:directory});const entry=store.claim([]),actor={origin:'feishu',userId:'ou_alice',chatId:entry.chatId,threadId:'',sessionId:entry.spec.id,cwd:directory,sourceId:entry.id};store.finish(entry,'completed',[])
+  const content=await files.outbound(entry,file,{reference:true}),ids=store.enqueueOnce('image-retry',actor,[{msgType:'image',content}]),platform=await startMockFeishu();cleanup(t,()=>platform.close())
+  platform.behaviors.set(entry.messageId,'rate-limit-once');const api=new FeishuApi({appId:'cli_test',secret:async()=>'loopback-app-secret',origin:platform.origin,timeoutMs:3000})
+  let message=store.claimDelivery(Date.now()),result=await api.send(message,key=>store.uploaded(message,key));assert.equal(result.status,'retry');store.settleDelivery(message,result,0,1)
+  assert.equal(store.externalStatus(actor,ids)[0].upload,'uploaded');store.release();store=new SqliteChannelRepository(filename,settings.appId,settings.leaseMs)
+  await unlink(JSON.parse(content).path);store.retryExternal(actor,ids);message=store.claimDelivery(Date.now());assert.equal(message.uploadedFileKey,'image-1')
+  result=await api.send(message,key=>store.uploaded(message,key));assert.equal(result.status,'sent');store.settleDelivery(message,result,0,3);assert.equal(platform.imageUploads.length,1);assert.equal(JSON.parse(platform.sent[0].body.content).image_key,'image-1')
+  const unknownIds=store.enqueueOnce('unknown-image',actor,[{msgType:'image',content:await files.outbound(entry,file,{reference:true})}]);platform.behaviors.set(entry.messageId,'disconnect')
+  message=store.claimDelivery(Date.now());result=await api.send(message,key=>store.uploaded(message,key));assert.equal(result.status,'unknown');store.settleDelivery(message,result,0,3)
+  store.release();store=new SqliteChannelRepository(filename,settings.appId,settings.leaseMs);store.recoverDeliveries();store.retryExternal(actor,unknownIds);assert.equal(store.claimDelivery(Date.now()),undefined);assert.equal(store.externalStatus(actor,unknownIds)[0].state,'unknown')
+})
+
 test('mixed batch confirmation produces rich receipts and queues the remaining dialogue exactly once',async t=>{
   const {store,filename}=await repository(t),require=createRequire(new URL('../../plugins/core/package.json',import.meta.url)),{Context}=await import(pathToFileURL(require.resolve('@deepseek-ai/cordis')).href),ctx=new Context(),core=new TelebotCore(ctx),writes=[],runs=[]
   ctx.provide('llm',{async *stream(){yield{type:'text-delta',text:JSON.stringify({decision:'confirm',selections:[1,2],remainingText:'另外两点半发飞书提醒。'})};yield{type:'finish',reason:{kind:'stop'}}}})

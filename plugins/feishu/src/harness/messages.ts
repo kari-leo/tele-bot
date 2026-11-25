@@ -22,7 +22,7 @@ export function registerMessageTool(ctx: Context, service: FeishuMessages, avail
       const actor = ctx.telebotCore.actor(exec.agent.session.id)
       let result
       if (args.action === 'list') result = service.list(actor, args.page)
-      else if (args.action === 'send') result = service.send(actor, { chatId: args.chat_id, threadId: args.thread_id, text: args.text ?? '' }, exec.signal)
+      else if (args.action === 'send') result = await service.send(actor, { chatId: args.chat_id, threadId: args.thread_id, text: args.text ?? '' }, exec.signal)
       else if (args.action === 'status') result = service.status(actor, args.delivery_id ?? '')
       else if (args.action === 'retry') result = service.retry(actor, args.delivery_id ?? '')
       else throw new Error('unsupported_feishu_message_action')
